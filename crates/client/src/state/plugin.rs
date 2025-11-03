@@ -1,0 +1,26 @@
+// =============================================================================
+// STATE - Plugin
+// =============================================================================
+
+use bevy::prelude::*;
+
+pub use super::resources;
+pub use super::systems;
+
+pub struct ClientStatePlugin;
+
+impl Plugin for ClientStatePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<resources::ConnectionStatus>()
+            .init_resource::<resources::WorldCache>()
+            .insert_resource(resources::StreamingConfig::default())
+            .add_systems(
+                Update,
+                (
+                    systems::unload_distant_chunks,
+                    systems::request_chunks_around_camera,
+                )
+                    .chain(),
+            );
+    }
+}
