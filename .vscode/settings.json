@@ -1,0 +1,35 @@
+{
+    "rust-analyzer.cargo.features": [
+        "dev"
+    ],
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.allTargets": false,
+    "rust-analyzer.linkedProjects": [
+        "./crates/client/Cargo.toml",
+        "./crates/server/Cargo.toml"
+    ],
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true
+    },
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#9e6c36",
+        "activityBar.background": "#9e6c36",
+        "activityBar.foreground": "#e7e7e7",
+        "activityBar.inactiveForeground": "#e7e7e799",
+        "activityBarBadge.background": "#59c692",
+        "activityBarBadge.foreground": "#15202b",
+        "commandCenter.border": "#e7e7e799",
+        "sash.hoverBorder": "#9e6c36",
+        "statusBar.background": "#785229",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#9e6c36",
+        "statusBarItem.remoteBackground": "#785229",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+        "titleBar.activeBackground": "#785229",
+        "titleBar.activeForeground": "#e7e7e7",
+        "titleBar.inactiveBackground": "#78522999",
+        "titleBar.inactiveForeground": "#e7e7e799"
+    },
+    "peacock.color": "#785229"
+}

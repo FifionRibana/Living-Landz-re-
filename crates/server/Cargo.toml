@@ -1,0 +1,32 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "server"
+path = "src/main.rs"
+
+[dependencies]
+shared = { path = "../shared" }
+
+bevy = { workspace = true, default-features = false, features = [
+    "multi_threaded",
+] }
+anyhow = { workspace = true }
+dotenv = { workspace = true }
+i_triangle = { workspace = true }
+image = { workspace = true }
+imageproc = { workspace = true }
+rand = { workspace = true }
+tokio = { workspace = true }
+tungstenite = { workspace = true }
+bincode = { workspace = true }
+futures = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+tokio-tungstenite = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bevy = { workspace = true, default_features = false }
+bincode = { workspace = true }
+
+hexx = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
