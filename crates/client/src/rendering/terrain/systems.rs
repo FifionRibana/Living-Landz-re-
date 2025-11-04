@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
-use shared::{BiomeChunkData, TerrainChunkData, TerrainChunkId, constants, get_biome_color};
+use shared::{BiomeChunkData, BiomeType, TerrainChunkData, TerrainChunkId, constants, get_biome_color};
 
 use super::components::{Biome, Terrain};
 use crate::networking::client::NetworkClient;
@@ -78,7 +78,7 @@ pub fn spawn_terrain(
             Name::new(format!("Terrain_{}", terrain_name)),
             Mesh2d(meshes.add(mesh)),
             MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgb(0.4, 0.6, 0.3)))),
-            Transform::from_translation(world_position.extend(0.0)),
+            Transform::from_translation(world_position.extend(-0.1)),
             Terrain {
                 name: terrain_name,
                 id: terrain.id,
@@ -88,6 +88,12 @@ pub fn spawn_terrain(
 
     for biome in world_cache.loaded_biomes() {
         let biome_name = biome.clone().name;
+        // if biome.id.biome == BiomeType::Ocean || biome.id.biome == BiomeType::DeepOcean {
+        //     continue;
+        // }
+        // if biome.id.biome != BiomeType::Savanna {
+        //     continue;
+        // }
         if spawned_biomes.contains(&biome.get_storage_key()) {
             continue;
         }

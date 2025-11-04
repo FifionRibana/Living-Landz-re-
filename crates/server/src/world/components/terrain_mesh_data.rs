@@ -52,7 +52,16 @@ pub struct TerrainMeshData {
 }
 
 impl TerrainMeshData {
-    pub fn from_image(name: &str, image: &DynamicImage, scale: &Vec2, cache_path: &str) -> Self {
+    pub fn from_image(
+        name: &str,
+        image: &DynamicImage,
+        scale: &Vec2,
+        cache_path: &str,
+    ) -> (
+        Self,
+        HashMap<TerrainChunkId, ImageBuffer<image::Luma<u8>, Vec<u8>>>,
+        ImageBuffer<image::Luma<u8>, Vec<u8>>,
+    ) {
         let start = std::time::Instant::now();
         let load_result = file_system::load_from_disk(cache_path);
         let mut loaded = false;
@@ -85,6 +94,7 @@ impl TerrainMeshData {
             file_system::save_to_disk(scaled_image_ref, cache_path);
         }
 
+        let scaled_image_output = scaled_image.clone();
         let scaled_image_ref = &scaled_image;
 
         tracing::info!("Spliting image into chunks");
@@ -117,15 +127,15 @@ impl TerrainMeshData {
         tracing::info!("Detecting chunks outlines");
         let t3 = std::time::Instant::now();
 
-        let chunk_contours = chunks
+        let chunk_contours = (&chunks)
             .into_iter()
-            .map(|(id, buffer)| {
-                let buffer_ref = &buffer;
-                let mut contours = TerrainMeshData::detect_image_contour(buffer_ref);
+            .map(|(&id, buffer)| {
+                // let buffer_ref = &buffer;
+                let mut contours = TerrainMeshData::detect_image_contour(buffer);
 
-                if contours.len() == 0 && buffer_ref.get_pixel(10, 10)[0] > 0 {
-                    let width = buffer_ref.width() as f64;
-                    let height = buffer_ref.height() as f64;
+                if contours.len() == 0 && buffer.get_pixel(10, 10)[0] > 0 {
+                    let width = buffer.width() as f64;
+                    let height = buffer.height() as f64;
                     contours = vec![vec![
                         [0.0, 0.0],
                         [0.0, height],
@@ -157,37 +167,41 @@ impl TerrainMeshData {
 
         tracing::info!("TerrainMeshData completed in {:?}", start.elapsed());
 
-        Self {
-            name: name.to_string(),
-            width: image.width() as u32,
-            height: image.height() as u32,
-            scale: [scale.x as u32, scale.y as u32],
-            chunks: chunk_meshes
-                .into_iter()
-                .map(|(id, meshes)| {
-                    (
-                        id,
-                        TerrainChunkMeshData {
-                            width: constants::CHUNK_SIZE.x as u32,
-                            height: constants::CHUNK_SIZE.y as u32,
-                            mesh_data: MeshData::from_meshes(meshes),
-                            outlines: chunk_contours_ref
-                                .get(&id)
-                                .expect("Chunk contour not found")
-                                .clone(),
-                            generated_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
-                        },
-                    )
-                })
-                .collect::<HashMap<_, _>>(),
-            generated_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        }
+        (
+            Self {
+                name: name.to_string(),
+                width: image.width() as u32,
+                height: image.height() as u32,
+                scale: [scale.x as u32, scale.y as u32],
+                chunks: chunk_meshes
+                    .into_iter()
+                    .map(|(id, meshes)| {
+                        (
+                            id,
+                            TerrainChunkMeshData {
+                                width: constants::CHUNK_SIZE.x as u32,
+                                height: constants::CHUNK_SIZE.y as u32,
+                                mesh_data: MeshData::from_meshes(meshes),
+                                outlines: chunk_contours_ref
+                                    .get(&id)
+                                    .expect("Chunk contour not found")
+                                    .clone(),
+                                generated_at: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            },
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+                generated_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            },
+            chunks,
+            scaled_image_output,
+        )
     }
 
     pub fn resize_image<P>(
