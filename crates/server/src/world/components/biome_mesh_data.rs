@@ -3,7 +3,7 @@ use bincode::{Decode, Encode};
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use serde::{Deserialize, Serialize};
 use shared::{
-    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, constants,
+    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants,
     types::{BiomeChunkId, BiomeType, find_closest_biome},
 };
 use std::collections::HashMap;
@@ -55,6 +55,7 @@ impl BiomeMeshData {
         name: &str,
         image: &DynamicImage,
         binary_mask: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        binary_masks: &HashMap<TerrainChunkId, ImageBuffer<Luma<u8>, Vec<u8>>>,
         scale: &Vec2,
         cache_directory: &str,
     ) -> Self {
@@ -109,14 +110,16 @@ impl BiomeMeshData {
                 }
 
                 // Mask
-                algorithm::smoothing::mask_luma_map(&mut biome_binary_map, binary_mask);
+                // algorithm::smoothing::mask_luma_map(&mut biome_binary_map, binary_mask);
 
                 // Clean up
                 biome_binary_map = algorithm::smoothing::open_binary_map(&biome_binary_map, 1);
 
                 // upscaling
-                scaled_image = TerrainMeshData::resize_image(&biome_binary_map, scale, 128);
+                scaled_image = TerrainMeshData::resize_image(&biome_binary_map, scale, 178);
+                algorithm::smoothing::mask_luma_map(&mut scaled_image, binary_mask);
                 let scaled_image_ref = &scaled_image;
+
                 tracing::info!(
                     "    image upscaled to {}x{} in {:?}",
                     scaled_image_ref.width(),
@@ -151,11 +154,19 @@ impl BiomeMeshData {
                     let x_offset = (cx * constants::CHUNK_SIZE.x as i32) as u32;
                     let y_offset = (cy * constants::CHUNK_SIZE.y as i32) as u32;
 
-                    let cropped = ImageBuffer::from_fn(
+                    let mut cropped = ImageBuffer::from_fn(
                         constants::CHUNK_SIZE.x as u32,
                         constants::CHUNK_SIZE.y as u32,
                         |px, py| *scaled_image.get_pixel(x_offset + px, y_offset + py),
                     );
+
+                    // masking cropped
+                    // algorithm::smoothing::mask_luma_map(
+                    //     &mut cropped,
+                    //     binary_masks
+                    //         .get(&TerrainChunkId { x: cx, y: cy })
+                    //         .expect("Chunk not found"),
+                    // );
 
                     chunks.insert(chunk_id, cropped);
                 }
@@ -248,9 +259,9 @@ impl BiomeMeshData {
             match load_result {
                 Ok(image) => {
                     let output_path = std::path::Path::new(&input_path)
-                    .with_extension("upscaled.png")
-                    .to_string_lossy()
-                    .to_string();
+                        .with_extension("upscaled.png")
+                        .to_string_lossy()
+                        .to_string();
                     info!("saving to: {}", output_path);
                     image.save_with_format(output_path, image::ImageFormat::Png)?;
                 }

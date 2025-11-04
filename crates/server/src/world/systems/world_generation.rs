@@ -12,18 +12,14 @@ pub async fn generate_world(map_name: &str, terrain_db: &TerrainDatabase) {
     tracing::info!("Using map: {}", map_name);
 
     // Load maps
-    let maps = WorldMaps::load(
-        map_name,
-        12345,
-    )
-    .expect("Failed to load world maps");
+    let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
 
     tracing::info!("Map loaded");
 
-    let terrain_mesh_data = TerrainMeshData::from_image(
+    let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
         &map_name.to_string(),
         &maps.binary_map,
-        &Vec2::splat(20.),
+        &Vec2::splat(5.),
         &format!("assets/maps/{}_binarymap.bin", map_name),
     );
 
@@ -37,8 +33,9 @@ pub async fn generate_world(map_name: &str, terrain_db: &TerrainDatabase) {
     let biome_mesh_data = BiomeMeshData::from_image(
         &map_name.to_string(),
         &maps.biome_map,
-        &maps.binary_map.to_luma8(),
-        &Vec2::splat(20.),
+        &mask, //maps.binary_map.to_luma8(),
+        &chunk_masks,
+        &Vec2::splat(5.),
         "assets/maps/",
     );
 
@@ -64,20 +61,18 @@ pub async fn clear_world(map_name: &str, terrain_db: &TerrainDatabase) {
         .await
         .expect("Failed to clear terrain");
 
-    // TODO: Add clear_terrain for biomes
+    terrain_db
+        .clear_terrain_biome(map_name)
+        .await
+        .expect("Failed to clear biomes");
+
     tracing::info!("✓ Clearing {} map in {:?}", map_name, start.elapsed());
 }
 
 pub async fn save_world_to_png(map_name: &str) {
     tracing::info!("Starting saving...");
     let start = std::time::Instant::now();
-    TerrainMeshData::save_png_image(
-        map_name,
-        &format!("assets/maps/{}_binarymap.bin", map_name),
-    );
-    BiomeMeshData::save_png_image(
-        map_name,
-        "assets/maps/",
-    );
+    TerrainMeshData::save_png_image(map_name, &format!("assets/maps/{}_binarymap.bin", map_name));
+    BiomeMeshData::save_png_image(map_name, "assets/maps/");
     tracing::info!("✓ Saving {} map in {:?}", map_name, start.elapsed());
 }
