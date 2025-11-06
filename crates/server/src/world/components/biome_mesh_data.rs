@@ -1,10 +1,11 @@
 use bevy::prelude::*;
 use bincode::{Decode, Encode};
+use hexx::*;
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shared::{
-    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants,
-    types::{BiomeChunkId, BiomeType, find_closest_biome},
+    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants, get_biome_from_color, grid::{CellData, GridCell}, types::{BiomeChunkId, BiomeType, find_closest_biome}
 };
 use std::collections::HashMap;
 
@@ -247,6 +248,88 @@ impl BiomeMeshData {
                 .unwrap()
                 .as_secs(),
         }
+    }
+
+    pub fn sample_biome(
+        biome_map: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        hex_layout: &HexLayout,
+    ) -> Vec<CellData> {
+        let sampled_cells = biome_map
+            .enumerate_pixels()
+            .par_bridge()
+            .fold(
+                || HashMap::new(),
+                |mut acc, (px, py, pixel)| {
+                    let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
+                    let vertices = &hex_layout
+                        .hex_corners(current_hex)
+                        .into_iter()
+                        .map(|p| (p.x, p.y))
+                        .collect::<Vec<(f32, f32)>>();
+                    if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
+                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                        *acc.entry(current_hex)
+                            .or_insert(HashMap::new())
+                            .entry(color)
+                            .or_insert(0) += 1;
+                    }
+                    acc
+                },
+            )
+            .reduce(
+                || HashMap::new(),
+                |mut acc, other| {
+                    for (hex, color_map) in other {
+                        let entry = acc.entry(hex).or_insert_with(HashMap::new);
+
+                        for (color, count) in color_map {
+                            *entry.entry(color).or_insert(0) += count;
+                        }
+                    }
+                    acc
+                },
+            )
+            .into_iter()
+            .map(|(hex_cell, color_map)| {
+                CellData {
+                    cell: GridCell{ q: hex_cell.x, r: hex_cell.y },
+                    chunk: TerrainChunkId {
+                        // TODO: Chunk is not properly computed. It is world pos not hex_cell pos that shoul be divided
+                    x: hex_cell.x.div_euclid(constants::CHUNK_SIZE.x as i32),
+                    y: hex_cell.y.div_euclid(constants::CHUNK_SIZE.y as i32),
+                },
+                    biome: color_map
+                    .into_iter()
+                    .max_by_key(|(_, count)| *count)
+                    .map(|(color, _)| find_closest_biome(&color))
+                    .unwrap_or(BiomeType::DeepOcean),
+                    
+                }
+            }).collect();
+        sampled_cells
+
+        // TODO: Add display in client of current biome on hover (and / or clic)
+        // TODO: Retrieve chunk hexes on chunk load
+        // TODO: Modify queries to use query_builder
+    }
+
+    #[inline]
+    fn point_in_polygon(point: (f32, f32), vertices: &[(f32, f32)]) -> bool {
+        let (px, py) = point;
+        let mut inside = false;
+        let mut p1 = vertices[5];
+
+        for &p2 in vertices {
+            if (p2.1 > py) != (p1.1 > py) {
+                let slope = (px - p2.0) * (p1.1 - p2.1) - (p1.0 - p2.0) * (py - p2.1);
+                if (p2.1 > py) && (slope < 0.0) || (p2.1 <= py) && (slope > 0.0) {
+                    inside = !inside;
+                }
+            }
+            p1 = p2;
+        }
+
+        inside
     }
 
     pub fn save_png_image(name: &str, cache_directory: &str) -> Result {

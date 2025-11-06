@@ -1,4 +1,4 @@
-use super::TerrainDatabase;
+use super::tables;
 
 pub struct DatabaseCredentials {
     pub username: String,
@@ -11,6 +11,12 @@ pub struct DatabaseClient {
     pub name: String,
 }
 
+pub struct DatabaseTables {
+    pub buildings: tables::BuildingsTable,
+    pub cells: tables::CellsTable,
+    pub terrains: tables::TerrainsTable,
+}
+
 impl DatabaseClient {
     pub async fn new(protocol: &str, address: &str, name: &str) -> Self {
         Self {
@@ -20,10 +26,7 @@ impl DatabaseClient {
         }
     }
 
-    pub async fn connect(
-        &self,
-        credentials: &DatabaseCredentials,
-    ) -> TerrainDatabase {
+    pub async fn connect(&self, credentials: &DatabaseCredentials) -> DatabaseTables {
         let database_url = format!(
             "{}://{}:{}@{}/{}",
             self.protocol, credentials.username, credentials.password, self.address, self.name
@@ -34,18 +37,48 @@ impl DatabaseClient {
             .await
             .expect("Failed to connect to database");
 
-        let terrain_db = TerrainDatabase::new(pool.clone());
+        // === TYPES ===
+        let building_types_db = tables::BuildingTypesTable::new(pool.clone());
+        building_types_db
+            .init_schema()
+            .await
+            .expect("Failed to init building types database table");
+
+        let resource_types_db = tables::ResourceTypesTable::new(pool.clone());
+        resource_types_db
+            .init_schema()
+            .await
+            .expect("Failed to init resource types database table");
+
+        let buildings_db = tables::BuildingsTable::new(pool.clone());
+        buildings_db
+            .init_schema()
+            .await
+            .expect("Failed to init buildings database table");
+
+        let terrain_db = tables::TerrainsTable::new(pool.clone());
         terrain_db
             .init_schema()
             .await
-            .expect("Failed to init terrain database schema");
+            .expect("Failed to init terrains database table");
+
+        let cell_db = tables::CellsTable::new(pool.clone());
+        cell_db
+            .init_schema()
+            .await
+            .expect("Failed to init cells database table");
 
         tracing::info!("✓ Database connected");
-        terrain_db
+
+        DatabaseTables {
+            buildings: buildings_db,
+            cells: cell_db,
+            terrains: terrain_db,
+        }
     }
 }
 
-pub async fn initialize_database() -> TerrainDatabase {
+pub async fn initialize_database() -> DatabaseTables {
     tracing::info!("Setting up database client...");
 
     let protocol = std::env::var("DB_PROTOCOL").unwrap_or_else(|_| "postgres".to_string());
@@ -71,27 +104,22 @@ pub async fn initialize_database() -> TerrainDatabase {
         db_name
     );
 
-    let terrain_db: TerrainDatabase =
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let db_credentials = DatabaseCredentials {
-                    username: user,
-                    password,
-                };
+    let db_tables: DatabaseTables = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let db_credentials = DatabaseCredentials {
+                username: user,
+                password,
+            };
 
-                let db_client = DatabaseClient::new(
-                    &protocol,
-                    format!("{}:{}", host, port).as_str(),
-                    &db_name,
-                )
-                .await;
+            let db_client =
+                DatabaseClient::new(&protocol, format!("{}:{}", host, port).as_str(), &db_name)
+                    .await;
 
-                let db = db_client.connect(&db_credentials).await;
+            let db = db_client.connect(&db_credentials).await;
 
-                db
-            })
-        });
+            db
+        })
+    });
 
-    tracing::info!("✓ Database client ready");
-    terrain_db
+    db_tables
 }

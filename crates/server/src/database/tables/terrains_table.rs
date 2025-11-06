@@ -8,11 +8,11 @@ use sqlx::PgPool;
 use sqlx::Row;
 
 #[derive(Resource, Clone)]
-pub struct TerrainDatabase {
+pub struct TerrainsTable {
     pool: PgPool,
 }
 
-impl TerrainDatabase {
+impl TerrainsTable {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }

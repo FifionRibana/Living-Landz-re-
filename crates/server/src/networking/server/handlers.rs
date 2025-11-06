@@ -4,7 +4,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
-use crate::database::TerrainDatabase;
+use crate::database::client::DatabaseTables;
 use shared::protocol::{ClientMessage, ServerMessage};
 
 use super::super::Sessions;
@@ -13,7 +13,7 @@ pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
     sessions: Sessions,
-    terrain_db: Arc<TerrainDatabase>,
+    db_tables: Arc<DatabaseTables>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -39,7 +39,7 @@ pub async fn handle_connection(
                         tracing::debug!("Received: {:?}", client_msg);
 
                         let responses =
-                            handle_client_message(client_msg, player_id, &terrain_db).await;
+                            handle_client_message(client_msg, player_id, &db_tables).await;
 
                         for response in responses {
                             let response_data =
@@ -70,7 +70,7 @@ pub async fn handle_connection(
 async fn handle_client_message(
     msg: ClientMessage,
     player_id: u64,
-    terrain_db: &TerrainDatabase,
+    db_tables: &DatabaseTables,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -84,7 +84,8 @@ async fn handle_client_message(
             let mut responses = Vec::new();
             let terrain_name_ref = &terrain_name;
             for terrain_chunk_id in terrain_chunk_ids.iter() {
-                match terrain_db
+                match db_tables
+                    .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
                     .await
                 {

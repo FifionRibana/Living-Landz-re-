@@ -9,8 +9,11 @@ use bevy::diagnostic::{
     DiagnosticsStore, EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin,
 };
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use super::components::*;
+
+use shared::grid::GridConfig;
 
 pub fn setup_debug_ui(mut commands: Commands) {
     // Root node pour HUD
@@ -154,13 +157,35 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     is_hoverable: false,
                 },
             ));
+
+            parent.spawn((
+                Text::new("Cell: --"),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(130.0),
+                    left: Val::Px(10.0),
+                    ..default()
+                },
+                HoveredCellInfoText,
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: false,
+                },
+            ));
         });
 }
 
 pub fn update_debug_ui(
     diagnostics: Res<DiagnosticsStore>,
-    camera: Query<(&Transform, &Projection), With<MainCamera>>,
+    cameras: Query<(&Camera, &GlobalTransform, &Transform, &Projection), With<MainCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     connection_status: Res<ConnectionStatus>,
+    grid_config: Res<GridConfig>,
     mut query: Query<(
         &mut Text,
         Option<&FpsText>,
@@ -169,6 +194,7 @@ pub fn update_debug_ui(
         Option<&EntityCountText>,
         Option<&CameraPositionText>,
         Option<&CameraZoomText>,
+        Option<&HoveredCellInfoText>,
     )>,
 ) {
     let (fps_value, average_fps) =
@@ -212,7 +238,7 @@ pub fn update_debug_ui(
             0.0 as usize
         };
 
-    let Ok((transform, projection)) = camera.single() else {
+    let Ok((camera, global_transform, transform, projection)) = cameras.single() else {
         return;
     };
 
@@ -222,6 +248,15 @@ pub fn update_debug_ui(
         1.0
     };
 
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    let position = window
+        .cursor_position()
+        .and_then(|p| camera.viewport_to_world_2d(global_transform, p).ok())
+        .unwrap_or_default();
+
     for (
         mut text,
         fps_query,
@@ -230,6 +265,7 @@ pub fn update_debug_ui(
         entity_count_query,
         position_query,
         zoom_query,
+        hovered_cell_query,
     ) in &mut query
     {
         if fps_query.is_some() {
@@ -247,6 +283,11 @@ pub fn update_debug_ui(
             **text = format!("Zoom level: {:.2}", scale);
         } else if connection_status_query.is_some() {
             **text = format!("Status: {} | id: {}", status_logged_in, status_player_id);
+        } else if hovered_cell_query.is_some() {
+            let hovered_cell = grid_config
+                .layout
+                .world_pos_to_hex(Vec2::new(position.x, position.y));
+            **text = format!("Cell: (q: {}, r: {})", hovered_cell.x, hovered_cell.y);
         }
     }
 }

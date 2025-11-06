@@ -17,3 +17,6 @@ pub struct CameraZoomText;
 
 #[derive(Component)]
 pub struct ConnectionStatusText;
+
+#[derive(Component)]
+pub struct HoveredCellInfoText;

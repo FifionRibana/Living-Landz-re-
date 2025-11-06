@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::camera::MainCamera;
-use crate::grid::resources::{GridConfig, SelectedHexes};
+use crate::grid::resources::SelectedHexes;
+
+use shared::grid::GridConfig;
 
 pub fn handle_hexagon_selection(
     mut selected_hexes: ResMut<SelectedHexes>,
@@ -26,7 +28,8 @@ pub fn handle_hexagon_selection(
                 selected_hexes.toggle(hovered_hex);
             } else {
                 // Single select
-                if selected_hexes.is_selected(hovered_hex) && selected_hexes.selection_count() == 1 {
+                if selected_hexes.is_selected(hovered_hex) && selected_hexes.selection_count() == 1
+                {
                     selected_hexes.remove(hovered_hex);
                 } else {
                     selected_hexes.clear();

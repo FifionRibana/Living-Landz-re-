@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
-use super::GridConfig;
 use crate::grid;
+
+use shared::grid::GridConfig;
 
 #[derive(Resource, Clone)]
 pub struct HexMesh {

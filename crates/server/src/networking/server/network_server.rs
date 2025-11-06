@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 
-use crate::database::TerrainDatabase;
+use crate::database::client::DatabaseTables;
 
 use super::super::Sessions;
 use super::handlers;
@@ -17,7 +17,7 @@ impl NetworkServer {
         Self { address, port }
     }
 
-    pub async fn start(&self, sessions: Sessions, terrain_db: Arc<TerrainDatabase>) {
+    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -28,17 +28,17 @@ impl NetworkServer {
         while let Ok((stream, addr)) = listener.accept().await {
             tracing::info!("Accept listeners");
             let sessions_clone = sessions.clone();
-            let terrain_db_clone = terrain_db.clone();
+            let db_tables_clone = db_tables.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
-                handlers::handle_connection(stream, addr, sessions_clone, terrain_db_clone).await;
+                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone).await;
             });
         }
     }
 }
 
-pub fn initialize_server(sessions: Sessions, terrain_db: Arc<TerrainDatabase>) {
+pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>) {
     tracing::info!("Starting network server...");
 
     // Normal server startup
@@ -50,11 +50,11 @@ pub fn initialize_server(sessions: Sessions, terrain_db: Arc<TerrainDatabase>) {
         .unwrap_or(9001);
 
     let sessions_clone = sessions.clone();
-    let terrain_db_clone = terrain_db.clone();
+    let db_tables_clone = db_tables.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
-        server.start(sessions_clone, terrain_db_clone).await;
+        server.start(sessions_clone, db_tables_clone).await;
     });
 
     tracing::info!("✓ Network server spawned");

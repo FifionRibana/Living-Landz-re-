@@ -4598,6 +4598,7 @@ dependencies = [
  "bincode",
  "dotenv",
  "futures",
+ "hexx",
  "i_triangle",
  "image",
  "imageproc",
