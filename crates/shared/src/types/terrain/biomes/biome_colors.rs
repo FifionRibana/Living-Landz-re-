@@ -1,9 +1,23 @@
-use std::ops::Deref;
+use std::{hash::{Hash, Hasher}, ops::Deref};
 
 use super::biome_type::BiomeType;
-use bevy::color::Color;
+use bevy::color::{Color, ColorToPacked};
 
 pub struct BiomeColor(pub Color);
+
+impl Hash for BiomeColor {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_srgba().to_u8_array().hash(state);
+    }
+}
+
+impl PartialEq for BiomeColor {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_srgba().to_u8_array() == other.0.to_srgba().to_u8_array()
+    }
+}
+
+impl Eq for BiomeColor {}
 
 impl BiomeColor {
     pub fn srgb_u8(r: u8, g: u8, b: u8) -> Self {

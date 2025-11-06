@@ -14,7 +14,7 @@ async fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let terrain_db = database::client::initialize_database().await;
+    let db_tables = database::client::initialize_database().await;
 
     let mut map_name = "test_island";
 
@@ -43,7 +43,7 @@ async fn main() {
 
     if args.contains(&"--clear".to_string()) {
         tracing::info!("=== Starting World Cleaning ===");
-        world::systems::clear_world(map_name, &terrain_db).await;
+        world::systems::clear_world(map_name, &db_tables.terrains).await;
         tracing::info!("=== Cleaning Complete - Exiting ===");
         return;
     }
@@ -54,9 +54,9 @@ async fn main() {
         return;
     }
     else if args.contains(&"--generate-world".to_string()) {
-        tracing::info!("=== Starting World Generation ===");
+        tracing::info!("=== Starting World Generation ===");        
         // World generation
-        world::systems::generate_world(map_name, &terrain_db).await;
+        world::systems::generate_world(map_name, &db_tables).await;
         tracing::info!("=== Generation Complete - Exiting ===");
         return;
     }
@@ -65,7 +65,7 @@ async fn main() {
 
     networking::server::initialize_server(
         sessions.clone(),
-        Arc::new(terrain_db.clone())
+        Arc::new(db_tables)
     );
 
     tokio::task::spawn_blocking(|| {

@@ -5,7 +5,9 @@ use hexx::Hex;
 use crate::camera::MainCamera;
 use crate::grid::components::{HexHoverIndicator, HexSelectIndicator};
 use crate::grid::materials::{HexHighlightMaterial, HexPulseMaterial};
-use crate::grid::resources::{GridConfig, HexMesh, SelectedHexes};
+use crate::grid::resources::{HexMesh, SelectedHexes};
+
+use shared::grid::GridConfig;
 
 pub fn spawn_hex_indicators(
     mut commands: Commands,
