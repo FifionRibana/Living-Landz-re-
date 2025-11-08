@@ -1603,6 +1603,7 @@ dependencies = [
  "bevy",
  "bincode",
  "hexx",
+ "rayon",
  "shared",
  "tungstenite",
  "url",

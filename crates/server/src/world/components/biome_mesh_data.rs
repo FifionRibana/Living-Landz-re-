@@ -5,7 +5,10 @@ use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shared::{
-    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants, get_biome_from_color, grid::{CellData, GridCell}, types::{BiomeChunkId, BiomeType, find_closest_biome}
+    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants,
+    get_biome_from_color,
+    grid::{CellData, GridCell},
+    types::{BiomeChunkId, BiomeType, find_closest_biome},
 };
 use std::collections::HashMap;
 
@@ -251,10 +254,56 @@ impl BiomeMeshData {
     }
 
     pub fn sample_biome(
+        name: &str,
         biome_map: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        scale: &Vec2,
         hex_layout: &HexLayout,
+        cache_directory: &str,
     ) -> Vec<CellData> {
-        let sampled_cells = biome_map
+        let load_result = file_system::load_from_disk(
+            format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
+        );
+        let mut loaded = false;
+        let mut scaled_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::default();
+        match load_result {
+            Ok(image) => {
+                scaled_image = image;
+                loaded = true;
+            }
+            _ => {
+                loaded = false;
+            }
+        }
+
+        if !loaded {
+            let t1 = std::time::Instant::now();
+
+            let flipped_image = image::imageops::flip_vertical(biome_map);
+            let flipped_image_ref = &flipped_image;
+            // upscaling
+            scaled_image = image::imageops::resize(
+                flipped_image_ref,
+                biome_map.width() * scale.x as u32,
+                biome_map.height() * scale.y as u32,
+                image::imageops::FilterType::Nearest,
+            );
+
+            let scaled_image_ref = &scaled_image;
+
+            tracing::info!(
+                "    image upscaled to {}x{} in {:?}",
+                scaled_image_ref.width(),
+                scaled_image_ref.height(),
+                t1.elapsed()
+            );
+
+            file_system::save_to_disk(
+                scaled_image_ref,
+                format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
+            );
+        }
+
+        let sampled_cells = (&scaled_image)
             .enumerate_pixels()
             .par_bridge()
             .fold(
@@ -291,21 +340,25 @@ impl BiomeMeshData {
             )
             .into_iter()
             .map(|(hex_cell, color_map)| {
+                let world_pos = hex_layout.hex_to_world_pos(hex_cell);
                 CellData {
-                    cell: GridCell{ q: hex_cell.x, r: hex_cell.y },
+                    cell: GridCell {
+                        q: hex_cell.x,
+                        r: hex_cell.y,
+                    },
                     chunk: TerrainChunkId {
                         // TODO: Chunk is not properly computed. It is world pos not hex_cell pos that shoul be divided
-                    x: hex_cell.x.div_euclid(constants::CHUNK_SIZE.x as i32),
-                    y: hex_cell.y.div_euclid(constants::CHUNK_SIZE.y as i32),
-                },
+                        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x) as i32,
+                        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y) as i32,
+                    },
                     biome: color_map
-                    .into_iter()
-                    .max_by_key(|(_, count)| *count)
-                    .map(|(color, _)| find_closest_biome(&color))
-                    .unwrap_or(BiomeType::DeepOcean),
-                    
+                        .into_iter()
+                        .max_by_key(|(_, count)| *count)
+                        .map(|(color, _)| find_closest_biome(&color))
+                        .unwrap_or(BiomeType::DeepOcean),
                 }
-            }).collect();
+            })
+            .collect();
         sampled_cells
 
         // TODO: Add display in client of current biome on hover (and / or clic)

@@ -1,11 +1,15 @@
 use bevy::prelude::*;
-use shared::{BiomeChunkData, BiomeChunkId, TerrainChunkData, TerrainChunkId};
+use shared::{
+    BiomeChunkData, BiomeChunkId, TerrainChunkData, TerrainChunkId,
+    grid::{CellData, GridCell},
+};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Resource, Default)]
 pub struct WorldCache {
     terrains: TerrainCache,
     biomes: BiomeCache,
+    cells: CellCache,
 }
 
 #[derive(Default, Clone)]
@@ -45,8 +49,11 @@ impl TerrainCache {
         self.requested.insert(format!("{}_{}_{}", name, id.x, id.y));
     }
 
-    pub fn unload_distant(&mut self, center: &TerrainChunkId, max_distance: i32) -> (Vec<String>, Vec<TerrainChunkData>) {
-        
+    pub fn unload_distant(
+        &mut self,
+        center: &TerrainChunkId,
+        max_distance: i32,
+    ) -> (Vec<String>, Vec<TerrainChunkData>) {
         let mut removed_ids = Vec::new();
         let mut removed = Vec::new();
 
@@ -64,10 +71,32 @@ impl TerrainCache {
         });
 
         if !removed_ids.is_empty() {
-            warn!("📦 Unloaded {} chunks: {:?}", removed_ids.len(), removed_ids);
+            warn!(
+                "📦 Unloaded {} chunks: {:?}",
+                removed_ids.len(),
+                removed_ids
+            );
         }
 
         (removed_ids, removed)
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct CellCache {
+    loaded: HashMap<GridCell, CellData>,
+}
+
+impl CellCache {
+    pub fn insert_cells(&mut self, cells: &[CellData]) {
+        info!("Inserting {} cells into cache", cells.len());
+        cells.iter().for_each(|cell_data| {
+            self.loaded.insert(cell_data.cell, *cell_data);
+        });
+    }
+
+    pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
+        self.loaded.get(cell).copied()
     }
 }
 
@@ -105,11 +134,15 @@ impl BiomeCache {
     }
 
     pub fn mark_requested(&mut self, name: &str, id: &BiomeChunkId) {
-        self.requested.insert(format!("{}_{}_{}_{:?}", name, id.x, id.y, id.biome));
+        self.requested
+            .insert(format!("{}_{}_{}_{:?}", name, id.x, id.y, id.biome));
     }
 
-    pub fn unload_distant(&mut self, center: &BiomeChunkId, max_distance: i32) -> (Vec<String>, Vec<BiomeChunkData>) {
-        
+    pub fn unload_distant(
+        &mut self,
+        center: &BiomeChunkId,
+        max_distance: i32,
+    ) -> (Vec<String>, Vec<BiomeChunkData>) {
         let mut removed_ids = Vec::new();
         let mut removed = Vec::new();
 
@@ -127,7 +160,11 @@ impl BiomeCache {
         });
 
         if !removed_ids.is_empty() {
-            warn!("📦 Unloaded {} chunks: {:?}", removed_ids.len(), removed_ids);
+            warn!(
+                "📦 Unloaded {} chunks: {:?}",
+                removed_ids.len(),
+                removed_ids
+            );
         }
 
         (removed_ids, removed)
@@ -156,7 +193,11 @@ impl WorldCache {
         self.terrains.mark_requested(name, id);
     }
 
-    pub fn unload_distant_terrain(&mut self, center: &TerrainChunkId, max_distance: i32) -> (Vec<String>, Vec<TerrainChunkData>) {
+    pub fn unload_distant_terrain(
+        &mut self,
+        center: &TerrainChunkId,
+        max_distance: i32,
+    ) -> (Vec<String>, Vec<TerrainChunkData>) {
         self.terrains.unload_distant(center, max_distance)
     }
 
@@ -181,9 +222,20 @@ impl WorldCache {
         self.biomes.mark_requested(name, id);
     }
 
-    pub fn unload_distant_biome(&mut self, center: &BiomeChunkId, max_distance: i32) -> (Vec<String>, Vec<BiomeChunkData>) {
+    pub fn unload_distant_biome(
+        &mut self,
+        center: &BiomeChunkId,
+        max_distance: i32,
+    ) -> (Vec<String>, Vec<BiomeChunkData>) {
         self.biomes.unload_distant(center, max_distance)
     }
-    
 
+    // CELLS
+    pub fn insert_cells(&mut self,cells: &[CellData]) {
+        self.cells.insert_cells(cells);
+    }
+
+    pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
+        self.cells.get_cell(cell)
+    }
 }

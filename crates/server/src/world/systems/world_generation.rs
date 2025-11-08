@@ -67,8 +67,13 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables) {
     // }
 
     let grid_config = &setup_grid_config();
-    let sampled_cells =
-        BiomeMeshData::sample_biome(&maps.biome_map.to_rgba8(), &grid_config.layout);
+    let sampled_cells = BiomeMeshData::sample_biome(
+        &map_name.to_string(),
+        &maps.biome_map.to_rgba8(),
+        &Vec2::splat(5.),
+        &grid_config.layout,
+        "assets/maps/",
+    );
 
     cell_db
         .save_cells(&sampled_cells)

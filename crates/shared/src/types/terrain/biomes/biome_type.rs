@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[sqlx(type_name = "biome_type")]
 pub enum BiomeType {
+    Undefined,
     Ocean,
     DeepOcean,
     Desert,

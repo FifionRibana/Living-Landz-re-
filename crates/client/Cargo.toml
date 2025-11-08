@@ -13,10 +13,10 @@ shared = { path = "../shared" }
 bevy = { workspace = true }
 bincode = { workspace = true }
 hexx = { workspace = true }
-
+rayon = { workspace = true }
 tungstenite = { workspace = true }
 url = { workspace = true }
 
 [features]
 default = []
-dev = ["bevy/dynamic_linking"]  # Hot reload en dev
+dev = ["bevy/dynamic_linking"] # Hot reload en dev
