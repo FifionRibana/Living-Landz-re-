@@ -3,17 +3,18 @@
 // =============================================================================
 
 use crate::camera::MainCamera;
-use crate::state::resources::ConnectionStatus;
+use crate::state::resources::{ConnectionStatus, WorldCache};
 
 use bevy::diagnostic::{
     DiagnosticsStore, EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin,
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use shared::BiomeType;
 
 use super::components::*;
 
-use shared::grid::GridConfig;
+use shared::grid::{GridCell, GridConfig};
 
 pub fn setup_debug_ui(mut commands: Commands) {
     // Root node pour HUD
@@ -186,6 +187,7 @@ pub fn update_debug_ui(
     windows: Query<&Window, With<PrimaryWindow>>,
     connection_status: Res<ConnectionStatus>,
     grid_config: Res<GridConfig>,
+    world_cache: Res<WorldCache>,
     mut query: Query<(
         &mut Text,
         Option<&FpsText>,
@@ -287,7 +289,16 @@ pub fn update_debug_ui(
             let hovered_cell = grid_config
                 .layout
                 .world_pos_to_hex(Vec2::new(position.x, position.y));
-            **text = format!("Cell: (q: {}, r: {})", hovered_cell.x, hovered_cell.y);
+
+            let grid_cell = &GridCell { 
+                q: hovered_cell.x,
+                r: hovered_cell.y
+            };
+            let biome = match world_cache.get_cell(grid_cell) {
+                Some(cell_data) => { cell_data.biome }
+                _ => { BiomeType::Undefined }
+            };
+            **text = format!("Cell: (q: {}, r: {})\nBiome: {:?}", hovered_cell.x, hovered_cell.y, biome);
         }
     }
 }

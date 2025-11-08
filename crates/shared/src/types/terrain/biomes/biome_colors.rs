@@ -77,6 +77,7 @@ pub fn get_biome_color(biome: &BiomeType) -> BiomeColor {
         BiomeType::Lake => BiomeColor::srgb_u8(51, 115, 121),
         BiomeType::ColdDesert => BiomeColor::srgb_u8(181, 184, 135),
         BiomeType::Ice => BiomeColor::srgb_u8(213, 231, 235),
+        BiomeType::Undefined => BiomeColor::srgb_u8(0, 0, 0),
     }
 }
 
@@ -99,7 +100,7 @@ pub fn get_biome_from_color(rgba: &[u8; 4]) -> BiomeType {
         (51, 115, 121) => BiomeType::Lake,
         (181, 184, 135) => BiomeType::ColdDesert,
         (213, 231, 235) => BiomeType::Ice,
-        _ => BiomeType::DeepOcean,
+        _ => BiomeType::Undefined,
     }
 }
 

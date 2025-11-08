@@ -84,33 +84,29 @@ async fn handle_client_message(
             let mut responses = Vec::new();
             let terrain_name_ref = &terrain_name;
             for terrain_chunk_id in terrain_chunk_ids.iter() {
-                match db_tables
+                let cell_data = match db_tables.cells.load_chunk_cells(terrain_chunk_id).await {
+                    Ok(cells_data) => cells_data,
+                    _ => {
+                        vec![]
+                    }
+                };
+                let (terrain_chunk_data, biome_chunk_data) = match db_tables
                     .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
                     .await
                 {
                     Ok((Some(terrain_chunk_data), Some(biome_chunk_data))) => {
-                        responses.push(ServerMessage::TerrainChunkData {
-                            terrain_chunk_data,
-                            biome_chunk_data,
-                        });
+                        (terrain_chunk_data, biome_chunk_data)
                     }
-                    Ok((Some(terrain_chunk_data), None)) => {
-                        responses.push(ServerMessage::TerrainChunkData {
-                            terrain_chunk_data,
-                            biome_chunk_data: vec![],
-                        });
-                    }
-                    Ok((None, Some(biome_chunk_data))) => {
-                        responses.push(ServerMessage::TerrainChunkData {
-                            terrain_chunk_data: TerrainChunkData {
-                                name: terrain_name.clone(),
-                                id: terrain_chunk_id.clone(),
-                                ..TerrainChunkData::default()
-                            },
-                            biome_chunk_data,
-                        });
-                    }
+                    Ok((Some(terrain_chunk_data), None)) => (terrain_chunk_data, vec![]),
+                    Ok((None, Some(biome_chunk_data))) => (
+                        TerrainChunkData {
+                            name: terrain_name.clone(),
+                            id: terrain_chunk_id.clone(),
+                            ..TerrainChunkData::default()
+                        },
+                        biome_chunk_data,
+                    ),
                     Ok((None, None)) => {
                         tracing::error!(
                             "DB error for chunk ({},{}) in terrain {}",
@@ -119,14 +115,14 @@ async fn handle_client_message(
                             terrain_name_ref
                         );
 
-                        responses.push(ServerMessage::TerrainChunkData {
-                            terrain_chunk_data: TerrainChunkData {
+                        (
+                            TerrainChunkData {
                                 name: terrain_name.clone(),
                                 id: terrain_chunk_id.clone(),
                                 ..TerrainChunkData::default()
                             },
-                            biome_chunk_data: vec![],
-                        });
+                            vec![],
+                        )
                     }
                     Err(e) => {
                         tracing::error!(
@@ -137,16 +133,21 @@ async fn handle_client_message(
                             e
                         );
 
-                        responses.push(ServerMessage::TerrainChunkData {
-                            terrain_chunk_data: TerrainChunkData {
+                        (
+                            TerrainChunkData {
                                 name: terrain_name.clone(),
                                 id: terrain_chunk_id.clone(),
                                 ..TerrainChunkData::default()
                             },
-                            biome_chunk_data: vec![],
-                        });
+                            vec![],
+                        )
                     }
-                }
+                };
+                responses.push(ServerMessage::TerrainChunkData {
+                    terrain_chunk_data,
+                    biome_chunk_data,
+                    cell_data: cell_data,
+                });
             }
 
             responses
