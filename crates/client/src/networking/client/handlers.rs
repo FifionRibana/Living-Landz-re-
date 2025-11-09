@@ -33,6 +33,7 @@ pub fn handle_server_message(
                 terrain_chunk_data,
                 biome_chunk_data,
                 cell_data,
+                building_data,
             } => {
                 info!("✓ Received terrain: {}", terrain_chunk_data.clone().name);
                 cache.insert_terrain(&terrain_chunk_data);
@@ -42,6 +43,7 @@ pub fn handle_server_message(
                 }
 
                 cache.insert_cells(&cell_data);
+                cache.insert_buildings(&building_data);
             }
             shared::protocol::ServerMessage::Pong => {}
             _ => {

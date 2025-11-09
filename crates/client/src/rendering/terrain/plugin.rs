@@ -12,7 +12,11 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (systems::initialize_terrain, systems::spawn_terrain),
+            (
+                systems::initialize_terrain,
+                systems::spawn_terrain,
+                systems::spawn_building,
+            ),
         );
     }
 }

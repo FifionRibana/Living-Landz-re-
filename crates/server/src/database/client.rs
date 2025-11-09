@@ -1,3 +1,5 @@
+use shared::GameState;
+
 use super::tables;
 
 pub struct DatabaseCredentials {
@@ -26,7 +28,9 @@ impl DatabaseClient {
         }
     }
 
-    pub async fn connect(&self, credentials: &DatabaseCredentials) -> DatabaseTables {
+    pub async fn connect(&self, credentials: &DatabaseCredentials) -> (DatabaseTables, GameState) {
+        let mut game_state = GameState::default();
+
         let database_url = format!(
             "{}://{}:{}@{}/{}",
             self.protocol, credentials.username, credentials.password, self.address, self.name
@@ -38,18 +42,47 @@ impl DatabaseClient {
             .expect("Failed to connect to database");
 
         // === TYPES ===
-        let building_types_db = tables::BuildingTypesTable::new(pool.clone());
+        let building_categories_db = tables::types::BuildingCategoriesTable::new(pool.clone());
+        building_categories_db
+            .init_schema()
+            .await
+            .expect("Failed to init building categories database table");
+
+        let building_categories = building_categories_db
+            .fill()
+            .await
+            .expect("Failed to fill building categories database table");
+
+        game_state.building_categories.extend(
+            building_categories
+                .iter()
+                .map(|building_category| (building_category.id, building_category.clone())),
+        );
+
+        let building_types_db = tables::types::BuildingTypesTable::new(pool.clone());
         building_types_db
             .init_schema()
             .await
             .expect("Failed to init building types database table");
 
-        let resource_types_db = tables::ResourceTypesTable::new(pool.clone());
+        let building_types = building_types_db
+            .fill(&game_state)
+            .await
+            .expect("Failed to fill building types database table");
+
+        game_state.building_types.extend(
+            building_types
+                .iter()
+                .map(|building_type| (building_type.id, building_type.clone())),
+        );
+
+        let resource_types_db = tables::types::ResourceTypesTable::new(pool.clone());
         resource_types_db
             .init_schema()
             .await
             .expect("Failed to init resource types database table");
 
+        // Data tables
         let buildings_db = tables::BuildingsTable::new(pool.clone());
         buildings_db
             .init_schema()
@@ -70,15 +103,18 @@ impl DatabaseClient {
 
         tracing::info!("✓ Database connected");
 
-        DatabaseTables {
-            buildings: buildings_db,
-            cells: cell_db,
-            terrains: terrain_db,
-        }
+        (
+            DatabaseTables {
+                buildings: buildings_db,
+                cells: cell_db,
+                terrains: terrain_db,
+            },
+            game_state,
+        )
     }
 }
 
-pub async fn initialize_database() -> DatabaseTables {
+pub async fn initialize_database() -> (DatabaseTables, GameState) {
     tracing::info!("Setting up database client...");
 
     let protocol = std::env::var("DB_PROTOCOL").unwrap_or_else(|_| "postgres".to_string());
@@ -104,7 +140,7 @@ pub async fn initialize_database() -> DatabaseTables {
         db_name
     );
 
-    let db_tables: DatabaseTables = tokio::task::block_in_place(|| {
+    let (db_tables, game_state): (DatabaseTables, GameState) = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let db_credentials = DatabaseCredentials {
                 username: user,
@@ -115,11 +151,11 @@ pub async fn initialize_database() -> DatabaseTables {
                 DatabaseClient::new(&protocol, format!("{}:{}", host, port).as_str(), &db_name)
                     .await;
 
-            let db = db_client.connect(&db_credentials).await;
+            let (db, gs) = db_client.connect(&db_credentials).await;
 
-            db
+            (db, gs)
         })
     });
 
-    db_tables
+    (db_tables, game_state)
 }

@@ -1,11 +1,14 @@
 use crate::database::client::DatabaseTables;
 use crate::database::tables;
 use crate::world::components::BiomeMeshData;
+use crate::world::components::NaturalBuildingData;
 use crate::world::components::TerrainMeshData;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
 use hexx::HexOrientation;
 use image::{ImageBuffer, Luma, Rgba};
+use shared::BuildingData;
+use shared::GameState;
 use shared::constants;
 use shared::grid::GridConfig;
 use shared::{BiomeType, get_biome_color, get_biome_from_color};
@@ -23,7 +26,7 @@ pub fn setup_grid_config() -> GridConfig {
     grid_config
 }
 
-pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables) {
+pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_state: &GameState) {
     tracing::info!("Starting world generation...");
     let start = std::time::Instant::now();
     tracing::info!("Using map: {}", map_name);
@@ -35,6 +38,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables) {
 
     let cell_db = &db_tables.cells;
     let terrain_db = &db_tables.terrains;
+    let building_db = &db_tables.buildings;
 
     // let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
     //     &map_name.to_string(),
@@ -79,6 +83,20 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables) {
         .save_cells(&sampled_cells)
         .await
         .expect("Failed to save cell data");
+
+    let trees = NaturalBuildingData::generate_trees(&sampled_cells, game_state);
+
+    building_db
+        .save_buildings(
+            &trees
+                .natural_buildings
+                .values()
+                .into_iter()
+                .map(|v| v.clone())
+                .collect::<Vec<BuildingData>>(),
+        )
+        .await
+        .expect("Failed to save tree data");
 
     tracing::info!("✓ Generated {} map in {:?}", map_name, start.elapsed());
 

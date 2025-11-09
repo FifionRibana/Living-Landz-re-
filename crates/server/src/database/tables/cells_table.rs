@@ -81,7 +81,7 @@ impl CellsTable {
     pub async fn load_chunk_cells(
         &self,
         chunk_id: &TerrainChunkId,
-    ) -> Result<(Vec<CellData>), sqlx::Error> {
+    ) -> Result<Vec<CellData>, sqlx::Error> {
         let row = sqlx::query("SELECT q, r, biome FROM cells WHERE chunk_x = $1 AND chunk_y = $2")
             .bind(chunk_id.x)
             .bind(chunk_id.y)

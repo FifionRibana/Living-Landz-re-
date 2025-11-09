@@ -1,7 +1,7 @@
 // use serde::{Deserialize, Serialize};
 use bincode::{Encode, Decode};
 // use crate::types::*;
-use crate::{BiomeChunkData, TerrainChunkId, grid::CellData, types::TerrainChunkData};
+use crate::{BiomeChunkData, BuildingData, TerrainChunkId, grid::CellData, types::TerrainChunkData};
 
 /// Messages Client → Server
 #[derive(Debug, Clone, Encode, Decode)]
@@ -39,7 +39,8 @@ pub enum ServerMessage {
     TerrainChunkData {
         terrain_chunk_data: TerrainChunkData,
         biome_chunk_data: Vec<BiomeChunkData>,
-        cell_data: Vec<CellData>
+        cell_data: Vec<CellData>,
+        building_data: Vec<BuildingData>
     },
     
     /// Pong (ping answer)

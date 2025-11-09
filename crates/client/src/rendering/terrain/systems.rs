@@ -1,9 +1,15 @@
 use std::collections::HashSet;
 
 use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
-use shared::{BiomeChunkData, BiomeType, TerrainChunkData, TerrainChunkId, constants, get_biome_color};
+use hexx::Hex;
+use rand::{Rng, SeedableRng};
+use shared::atlas::TreeAtlas;
+use shared::grid::GridConfig;
+use shared::{
+    BiomeChunkData, BiomeType, TerrainChunkData, TerrainChunkId, constants, get_biome_color,
+};
 
-use super::components::{Biome, Terrain};
+use super::components::{Biome, Building, Terrain};
 use crate::networking::client::NetworkClient;
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
@@ -78,7 +84,7 @@ pub fn spawn_terrain(
             Name::new(format!("Terrain_{}", terrain_name)),
             Mesh2d(meshes.add(mesh)),
             MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgb(0.4, 0.6, 0.3)))),
-            Transform::from_translation(world_position.extend(-0.1)),
+            Transform::from_translation(world_position.extend(-1000.1)),
             Terrain {
                 name: terrain_name,
                 id: terrain.id,
@@ -128,10 +134,100 @@ pub fn spawn_terrain(
             Name::new(format!("Biome_{}", biome_name)),
             Mesh2d(meshes.add(mesh)),
             MeshMaterial2d(materials.add(ColorMaterial::from_color(color))),
-            Transform::from_translation(world_position.extend(0.0)),
+            Transform::from_translation(world_position.extend(-1000.0)),
             Biome {
                 name: biome_name,
                 id: biome.id,
+            },
+        ));
+    }
+}
+
+pub fn spawn_building(
+    mut commands: Commands,
+    world_cache_opt: Option<Res<WorldCache>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    buildings: Query<&Building>,
+    images: Res<Assets<Image>>,
+    tree_atlas: Res<TreeAtlas>,
+    grid_config: Res<GridConfig>,
+) {
+    let Some(world_cache) = world_cache_opt else {
+        return;
+    };
+
+    let spawned_buildings: HashSet<_> = buildings.iter().map(|b| b.id).collect();
+
+    for building in world_cache.loaded_buildings() {
+        if spawned_buildings.contains(&(building.id as i64)) {
+            continue;
+        }
+
+        let mut rng = rand::rngs::StdRng::seed_from_u64(building.id);
+
+        let mut world_position = grid_config
+            .layout
+            .hex_to_world_pos(Hex::new(building.cell.q, building.cell.r));
+
+        let image_handle = tree_atlas
+            .handles
+            .get(&building.building_type.variant)
+            .expect("Tree variation not found");
+        // let image_path = format!("sprites/trees/{}.png", building.building_type.variant);
+        // info!("Spawning {} building", &building.building_type.variant);
+
+        let image_size = images.get(&*image_handle).map(|img| {
+            let size = img.texture_descriptor.size;
+            Vec2::new(size.width as f32, size.height as f32)
+        });
+
+        let scale_var = rng.random_range(0.9..=1.1);
+        let flip_x = rng.random_bool(0.5);
+
+        let offset_x: f32 = rng.random_range(-2.0..=2.0);
+        let offset_y: f32 = rng.random_range(-2.0..=2.0);
+
+        world_position.x += offset_x;
+        world_position.y += offset_y + 6.0; // shift slightly up
+
+        let custom_size = image_size.map(|size| {
+            let width = size.x.min(200.0f32) * scale_var * 48.0 / 200.; // TODO: assets shall be already downsized
+            let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
+            Vec2::new(width, height)
+        });
+        // let dimension_opt = images.get(&*image_handle);
+        // let Some(dimension) = dimension_opt else {
+        //     continue;
+        // };
+
+        // let ratio = dimension.texture_descriptor.size.width as f32
+        //     / dimension.texture_descriptor.size.height as f32;
+        // let scale = if dimension.texture_descriptor.size.width > 48 {
+        //     Vec2::new(48., 48. / ratio)
+        // } else {
+        //     Vec2::new(
+        //         dimension.texture_descriptor.size.width as f32,
+        //         dimension.texture_descriptor.size.height as f32,
+        //     )
+        // };
+
+        commands.spawn((
+            Name::new(format!(
+                "{}_{}",
+                building.building_type.variant, building.id
+            )),
+            Sprite {
+                image: image_handle.clone(),
+                custom_size,
+                flip_x,
+                // custom_size: Some(scale),
+                ..default()
+            },
+            Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
+            GlobalTransform::default(),
+            Visibility::default(),
+            Building {
+                id: building.id as i64,
             },
         ));
     }
