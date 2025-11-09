@@ -45,6 +45,7 @@ dotenv = "0.15"
 hexx = { version = "0.22", features = ["bevy"] }
 i_triangle = "0.38.0"
 rand = "0.9.2"
+noise = "0.9"
 
 # Images
 image = "0.25.8"

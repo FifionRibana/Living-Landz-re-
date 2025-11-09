@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, TerrainChunkData, TerrainChunkId,
+    BiomeChunkData, BiomeChunkId, BuildingData, TerrainChunkData, TerrainChunkId,
     grid::{CellData, GridCell},
 };
 use std::collections::{HashMap, HashSet};
@@ -10,6 +10,7 @@ pub struct WorldCache {
     terrains: TerrainCache,
     biomes: BiomeCache,
     cells: CellCache,
+    buildings: BuildingCache,
 }
 
 #[derive(Default, Clone)]
@@ -97,6 +98,54 @@ impl CellCache {
 
     pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
         self.loaded.get(cell).copied()
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct BuildingCache {
+    loaded: HashMap<GridCell, BuildingData>,
+}
+
+impl BuildingCache {
+    pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
+        info!("Inserting {} buildings into cache", buildings.len());
+        buildings.iter().for_each(|building_data| {
+            self.loaded.insert(building_data.cell, building_data.clone());
+        });
+    }
+
+    pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
+        self.loaded.get(cell).clone()
+    }
+    
+    pub fn unload_distant(
+        &mut self,
+        center: &TerrainChunkId,
+        max_distance: i32,
+    ) -> (Vec<i64>, Vec<BuildingData>) {
+        let mut removed_ids = Vec::new();
+        let mut removed = Vec::new();
+
+        self.loaded.retain(|_, data| {
+            let keep =
+                (data.chunk.x - center.x).abs() <= max_distance && (data.chunk.y - center.y).abs() <= max_distance;
+
+            if !keep {
+                removed_ids.push(data.id as i64);
+                removed.push(data.clone());
+            }
+
+            keep
+        });
+
+        if !removed_ids.is_empty() {
+            warn!(
+                "📦 Unloaded {} buildings",
+                removed_ids.len()
+            );
+        }
+
+        (removed_ids, removed)
     }
 }
 
@@ -231,11 +280,32 @@ impl WorldCache {
     }
 
     // CELLS
-    pub fn insert_cells(&mut self,cells: &[CellData]) {
+    pub fn insert_cells(&mut self, cells: &[CellData]) {
         self.cells.insert_cells(cells);
     }
 
     pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
         self.cells.get_cell(cell)
+    }
+
+    // BUILDINGS
+    pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
+        self.buildings.insert_buildings(buildings);
+    }
+
+    pub fn loaded_buildings(&self) -> impl Iterator<Item = &BuildingData> {
+        self.buildings.loaded.values()
+    }
+
+    pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
+        self.buildings.get_building(cell)
+    }
+    
+    pub fn unload_distant_building(
+        &mut self,
+        center: &TerrainChunkId,
+        max_distance: i32,
+    ) -> (Vec<i64>, Vec<BuildingData>) {
+        self.buildings.unload_distant(center, max_distance)
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
+use shared::GameState;
 
 mod database;
 mod networking;
@@ -14,7 +15,7 @@ async fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let db_tables = database::client::initialize_database().await;
+    let (db_tables, game_state) = database::client::initialize_database().await;
 
     let mut map_name = "test_island";
 
@@ -56,7 +57,7 @@ async fn main() {
     else if args.contains(&"--generate-world".to_string()) {
         tracing::info!("=== Starting World Generation ===");        
         // World generation
-        world::systems::generate_world(map_name, &db_tables).await;
+        world::systems::generate_world(map_name, &db_tables, &game_state).await;
         tracing::info!("=== Generation Complete - Exiting ===");
         return;
     }

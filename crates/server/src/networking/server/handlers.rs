@@ -90,6 +90,12 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
+                let building_data = match db_tables.buildings.load_chunk_buildings(terrain_chunk_id).await {
+                    Ok(building_data) => building_data,
+                    _ => {
+                        vec![]
+                    }
+                };
                 let (terrain_chunk_data, biome_chunk_data) = match db_tables
                     .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
@@ -147,6 +153,7 @@ async fn handle_client_message(
                     terrain_chunk_data,
                     biome_chunk_data,
                     cell_data: cell_data,
+                    building_data: building_data,
                 });
             }
 

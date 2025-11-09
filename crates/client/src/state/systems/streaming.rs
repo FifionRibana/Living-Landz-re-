@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use shared::{BiomeChunkData, BiomeChunkId, BiomeType, TerrainChunkData, TerrainChunkId, constants};
+use shared::{
+    BiomeChunkData, BiomeChunkId, BiomeType, TerrainChunkData, TerrainChunkId, constants,
+};
 
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::components::{Biome, Terrain};
+use crate::rendering::terrain::components::{Biome, Terrain, Building};
 // use crate::rendering::terrain::components::Terrain;
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
 
@@ -87,6 +89,7 @@ pub fn unload_distant_chunks(
     camera: Query<&Transform, With<Camera2d>>,
     terrain_entities: Query<(Entity, &Terrain)>,
     biome_entities: Query<(Entity, &Biome)>,
+    building_entities: Query<(Entity, &Building)>,
     world_cache_opt: Option<ResMut<WorldCache>>,
     mut streaming_config: ResMut<StreamingConfig>,
 ) {
@@ -134,5 +137,15 @@ pub fn unload_distant_chunks(
         for (entity, _) in entities {
             commands.entity(entity).despawn();
         }
+    }
+
+    let (removed_building_keys, _) =
+        world_cache.unload_distant_building(terrain_chunk_id, streaming_config.unload_distance);
+
+    let mut b_entities: HashSet<_> = building_entities.iter().map(|(e, b)| (e, b.id)).collect();
+    b_entities.retain(|(_, key)| removed_building_keys.contains(key));
+
+    for (entity, _) in b_entities {
+        commands.entity(entity).despawn();
     }
 }

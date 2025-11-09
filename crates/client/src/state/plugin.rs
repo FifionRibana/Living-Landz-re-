@@ -14,6 +14,7 @@ impl Plugin for ClientStatePlugin {
         app.init_resource::<resources::ConnectionStatus>()
             .init_resource::<resources::WorldCache>()
             .insert_resource(resources::StreamingConfig::default())
+            .add_systems(Startup, resources::setup_tree_atlas)
             .add_systems(
                 Update,
                 (
