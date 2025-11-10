@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::atlas::TreeAtlas;
+use crate::{BuildingCategory, BuildingSpecificType, atlas::TreeAtlas};
 
 #[derive(Resource)]
 pub struct GameState {
@@ -23,7 +23,9 @@ pub struct BuildingCategoryData {
 pub struct BuildingTypeData {
     pub id: i32,
     pub name: String,
-    pub category: String,
+    pub category: BuildingCategory,
+    pub specific_type: BuildingSpecificType,
+    pub description: String
 }
 
 pub struct ResourceTypeData {

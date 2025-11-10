@@ -48,16 +48,16 @@ impl DatabaseClient {
             .await
             .expect("Failed to init building categories database table");
 
-        let building_categories = building_categories_db
-            .fill()
-            .await
-            .expect("Failed to fill building categories database table");
+        // let building_categories = building_categories_db
+        //     .fill()
+        //     .await
+        //     .expect("Failed to fill building categories database table");
 
-        game_state.building_categories.extend(
-            building_categories
-                .iter()
-                .map(|building_category| (building_category.id, building_category.clone())),
-        );
+        // game_state.building_categories.extend(
+        //     building_categories
+        //         .iter()
+        //         .map(|building_category| (building_category.id, building_category.clone())),
+        // );
 
         let building_types_db = tables::types::BuildingTypesTable::new(pool.clone());
         building_types_db
@@ -66,7 +66,7 @@ impl DatabaseClient {
             .expect("Failed to init building types database table");
 
         let building_types = building_types_db
-            .fill(&game_state)
+            .fill()
             .await
             .expect("Failed to fill building types database table");
 

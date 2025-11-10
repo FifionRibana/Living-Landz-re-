@@ -1,6 +1,7 @@
 use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode, sqlx::Type)]
+#[sqlx(type_name = "building_category")]
 pub enum BuildingCategory {
     Unknown,
     Natural,
