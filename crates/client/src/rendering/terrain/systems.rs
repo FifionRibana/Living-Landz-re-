@@ -7,7 +7,7 @@ use shared::atlas::TreeAtlas;
 use shared::grid::GridConfig;
 use shared::{
     BiomeChunkData, BiomeType, BuildingCategory, BuildingSpecific, TerrainChunkData,
-    TerrainChunkId, constants, get_biome_color,
+    TerrainChunkId, TreeAge, TreeType, constants, get_biome_color,
 };
 
 use super::components::{Biome, Building, Terrain};
@@ -173,14 +173,36 @@ pub fn spawn_building(
             .layout
             .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
 
-        match (&building_base.building_type.category, &building.specific_data) {
+        match (
+            &building_base.building_type.category,
+            &building.specific_data,
+        ) {
             (BuildingCategory::Natural, BuildingSpecific::Tree(tree_data)) => {
-                let variant =
-                    &format!("{}_{:02}", tree_data.tree_type.to_name(), tree_data.variant);
+                let tree_type = TreeType::Cedar; // TODO: create assets for oak and larch
+                // let tree_type = tree_data.tree_type;
+                let age = TreeAge::get_tree_age(tree_data.age as u32);
+                let variation = tree_data.variant;
+                let density = match tree_data.density {
+                    (..0.45) => 1,
+                    (0.45..0.55) => 2,
+                    (0.55..0.65) => 3,
+                    (0.65..0.75) => 4,
+                    (0.75..0.85) => 5,
+                    (0.85..) => 6,
+                    _ => 6,
+                };
+
+                let variant = &format!(
+                    "{}_{}_{:02}{:02}",
+                    tree_type.to_name(),
+                    age.to_name(),
+                    variation,
+                    density
+                );
                 let image_handle = tree_atlas
                     .handles
                     .get(variant)
-                    .expect("Tree variation not found");
+                    .expect(format!("Tree variation not found {}", variant).as_str());
 
                 let image_size = images.get(&*image_handle).map(|img| {
                     let size = img.texture_descriptor.size;
@@ -190,14 +212,14 @@ pub fn spawn_building(
                 let scale_var = rng.random_range(0.9..=1.1);
                 let flip_x = rng.random_bool(0.5);
 
-                let offset_x: f32 = rng.random_range(-2.0..=2.0);
-                let offset_y: f32 = rng.random_range(-2.0..=2.0);
+                let offset_x: f32 = rng.random_range(-8.0..=8.0);
+                let offset_y: f32 = rng.random_range(-8.0..=8.0);
 
                 world_position.x += offset_x;
-                world_position.y += offset_y + 6.0; // shift slightly up
+                world_position.y += offset_y + 8.0; // shift slightly up
 
                 let custom_size = image_size.map(|size| {
-                    let width = size.x.min(200.0f32) * scale_var * 48.0 / 200.; // TODO: assets shall be already downsized
+                    let width = size.x.min(200.0f32) * scale_var * 64. / 256.; // TODO: assets shall be already downsized
                     let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
                     Vec2::new(width, height)
                 });

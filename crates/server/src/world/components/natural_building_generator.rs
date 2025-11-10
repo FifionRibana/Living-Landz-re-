@@ -4,9 +4,7 @@ use noise::{NoiseFn, Perlin};
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use shared::{
-    BiomeType, BuildingBaseData, BuildingCategory, BuildingData, BuildingSpecific, BuildingType,
-    GameState, TreeData, TreeType,
-    grid::{CellData, GridCell},
+    BiomeType, BuildingBaseData, BuildingCategory, BuildingData, BuildingSpecific, BuildingType, GameState, TreeAge, TreeData, TreeType, grid::{CellData, GridCell}
 };
 
 // TODO Move into utils
@@ -68,10 +66,11 @@ impl NaturalBuildingGenerator {
                 let id = Self::generate_building_id(&cell_data.cell);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(id);
 
-                let spawnable_trees = TreeType::from_biome(cell_data.biome);
+                let mut spawnable_trees = TreeType::from_biome(cell_data.biome);
                 if spawnable_trees.len() == 0 {
                     return None;
                 }
+                spawnable_trees = vec![TreeType::Cedar];
 
                 let tree_type_idx = rng.random_range(..spawnable_trees.len());
 
@@ -81,7 +80,8 @@ impl NaturalBuildingGenerator {
                     .get_variations(tree_type)
                     .expect(format!("No variations for {:?} type", tree_type).as_str());
 
-                let tree_variant_idx = rng.random_range(..tree_variations.len());
+                let variant_count = (tree_variations.len() / (TreeAge::iter().collect::<Vec<TreeAge>>().len() * 6)) as usize;
+                let tree_variant_idx = rng.random_range(..variant_count);
                 let tree_variant = tree_variations[tree_variant_idx].clone();
 
                 let type_id = game_state
