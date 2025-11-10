@@ -6,7 +6,8 @@ use rand::{Rng, SeedableRng};
 use shared::atlas::TreeAtlas;
 use shared::grid::GridConfig;
 use shared::{
-    BiomeChunkData, BiomeType, TerrainChunkData, TerrainChunkId, constants, get_biome_color,
+    BiomeChunkData, BiomeType, BuildingCategory, BuildingSpecific, TerrainChunkData,
+    TerrainChunkId, constants, get_biome_color,
 };
 
 use super::components::{Biome, Building, Terrain};
@@ -159,76 +160,65 @@ pub fn spawn_building(
     let spawned_buildings: HashSet<_> = buildings.iter().map(|b| b.id).collect();
 
     for building in world_cache.loaded_buildings() {
-        if spawned_buildings.contains(&(building.id as i64)) {
+        let building_base = &building.base_data;
+
+        let building_id = building_base.id;
+        if spawned_buildings.contains(&(building_id as i64)) {
             continue;
         }
 
-        let mut rng = rand::rngs::StdRng::seed_from_u64(building.id);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(building_id);
 
         let mut world_position = grid_config
             .layout
-            .hex_to_world_pos(Hex::new(building.cell.q, building.cell.r));
+            .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
 
-        let image_handle = tree_atlas
-            .handles
-            .get(&building.building_type.variant)
-            .expect("Tree variation not found");
-        // let image_path = format!("sprites/trees/{}.png", building.building_type.variant);
-        // info!("Spawning {} building", &building.building_type.variant);
+        match (&building_base.building_type.category, &building.specific_data) {
+            (BuildingCategory::Natural, BuildingSpecific::Tree(tree_data)) => {
+                let variant =
+                    &format!("{}_{:02}", tree_data.tree_type.to_name(), tree_data.variant);
+                let image_handle = tree_atlas
+                    .handles
+                    .get(variant)
+                    .expect("Tree variation not found");
 
-        let image_size = images.get(&*image_handle).map(|img| {
-            let size = img.texture_descriptor.size;
-            Vec2::new(size.width as f32, size.height as f32)
-        });
+                let image_size = images.get(&*image_handle).map(|img| {
+                    let size = img.texture_descriptor.size;
+                    Vec2::new(size.width as f32, size.height as f32)
+                });
 
-        let scale_var = rng.random_range(0.9..=1.1);
-        let flip_x = rng.random_bool(0.5);
+                let scale_var = rng.random_range(0.9..=1.1);
+                let flip_x = rng.random_bool(0.5);
 
-        let offset_x: f32 = rng.random_range(-2.0..=2.0);
-        let offset_y: f32 = rng.random_range(-2.0..=2.0);
+                let offset_x: f32 = rng.random_range(-2.0..=2.0);
+                let offset_y: f32 = rng.random_range(-2.0..=2.0);
 
-        world_position.x += offset_x;
-        world_position.y += offset_y + 6.0; // shift slightly up
+                world_position.x += offset_x;
+                world_position.y += offset_y + 6.0; // shift slightly up
 
-        let custom_size = image_size.map(|size| {
-            let width = size.x.min(200.0f32) * scale_var * 48.0 / 200.; // TODO: assets shall be already downsized
-            let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
-            Vec2::new(width, height)
-        });
-        // let dimension_opt = images.get(&*image_handle);
-        // let Some(dimension) = dimension_opt else {
-        //     continue;
-        // };
+                let custom_size = image_size.map(|size| {
+                    let width = size.x.min(200.0f32) * scale_var * 48.0 / 200.; // TODO: assets shall be already downsized
+                    let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
+                    Vec2::new(width, height)
+                });
 
-        // let ratio = dimension.texture_descriptor.size.width as f32
-        //     / dimension.texture_descriptor.size.height as f32;
-        // let scale = if dimension.texture_descriptor.size.width > 48 {
-        //     Vec2::new(48., 48. / ratio)
-        // } else {
-        //     Vec2::new(
-        //         dimension.texture_descriptor.size.width as f32,
-        //         dimension.texture_descriptor.size.height as f32,
-        //     )
-        // };
-
-        commands.spawn((
-            Name::new(format!(
-                "{}_{}",
-                building.building_type.variant, building.id
-            )),
-            Sprite {
-                image: image_handle.clone(),
-                custom_size,
-                flip_x,
-                // custom_size: Some(scale),
-                ..default()
-            },
-            Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
-            GlobalTransform::default(),
-            Visibility::default(),
-            Building {
-                id: building.id as i64,
-            },
-        ));
+                commands.spawn((
+                    Name::new(format!("{}_{}", &variant, building_id)),
+                    Sprite {
+                        image: image_handle.clone(),
+                        custom_size,
+                        flip_x,
+                        ..default()
+                    },
+                    Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
+                    GlobalTransform::default(),
+                    Visibility::default(),
+                    Building {
+                        id: building_id as i64,
+                    },
+                ));
+            }
+            _ => {}
+        };
     }
 }

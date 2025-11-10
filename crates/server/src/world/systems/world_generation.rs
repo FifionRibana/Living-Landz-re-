@@ -1,7 +1,7 @@
 use crate::database::client::DatabaseTables;
 use crate::database::tables;
 use crate::world::components::BiomeMeshData;
-use crate::world::components::NaturalBuildingData;
+use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
@@ -84,12 +84,12 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         .await
         .expect("Failed to save cell data");
 
-    let trees = NaturalBuildingData::generate_trees(&sampled_cells, game_state);
+    let trees = NaturalBuildingGenerator::generate(&sampled_cells, game_state);
 
     building_db
         .save_buildings(
             &trees
-                .natural_buildings
+                .buildings
                 .values()
                 .into_iter()
                 .map(|v| v.clone())

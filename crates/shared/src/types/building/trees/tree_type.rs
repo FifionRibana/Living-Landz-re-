@@ -1,6 +1,8 @@
 use crate::BiomeType;
+use bincode::{Encode, Decode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Encode, Decode)]
+#[sqlx(type_name = "tree_type")]
 pub enum TreeType {
     Cedar,
     Larch,

@@ -4,7 +4,8 @@ use noise::{NoiseFn, Perlin};
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use shared::{
-    BiomeType, BuildingCategory, BuildingData, BuildingType, GameState, TreeType,
+    BiomeType, BuildingBaseData, BuildingCategory, BuildingData, BuildingSpecific, BuildingType,
+    GameState, TreeData, TreeType,
     grid::{CellData, GridCell},
 };
 
@@ -35,30 +36,43 @@ impl NoiseGenerator {
     }
 }
 
-pub struct NaturalBuildingData {
-    pub natural_buildings: HashMap<GridCell, BuildingData>,
+pub struct NaturalBuildingGenerator {
+    pub buildings: HashMap<GridCell, BuildingData>,
 }
 
-impl NaturalBuildingData {
-    pub fn generate_trees(cells: &[CellData], game_state: &GameState) -> Self {
+impl NaturalBuildingGenerator {
+    pub fn generate(cells: &[CellData], game_state: &GameState) -> Self {
+        let mut generator = Self {
+            buildings: HashMap::new(),
+        };
+
+        generator.generate_trees(cells, game_state);
+
+        generator.compute_tree_density();
+
+        generator
+    }
+
+    pub fn generate_trees(&mut self, cells: &[CellData], game_state: &GameState) {
         let tree_generator = NoiseGenerator::new(12345);
 
-        let buildings = cells
+        let trees: Vec<(GridCell, BuildingData)> = cells
             .par_iter()
             .filter_map(|cell_data| {
                 if tree_generator.sample_distribution(&cell_data.cell)
-                    < (NaturalBuildingData::get_tree_spawn_chance(cell_data.biome) - 1.0)
+                    < (Self::get_tree_spawn_chance(cell_data.biome) - 1.0)
                 {
                     return None;
                 }
 
-                let id = NaturalBuildingData::generate_building_id(&cell_data.cell);
+                let id = Self::generate_building_id(&cell_data.cell);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(id);
 
                 let spawnable_trees = TreeType::from_biome(cell_data.biome);
                 if spawnable_trees.len() == 0 {
                     return None;
                 }
+
                 let tree_type_idx = rng.random_range(..spawnable_trees.len());
 
                 let tree_type = spawnable_trees[tree_type_idx];
@@ -74,36 +88,72 @@ impl NaturalBuildingData {
                     .get_building_type_id(&tree_type.to_name())
                     .expect(format!("Invalid building type {:?}", tree_type).as_str());
 
-                Some(BuildingData {
+                let base_data = BuildingBaseData {
                     id,
                     building_type: BuildingType::tree(tree_type, tree_variant, type_id),
                     chunk: cell_data.chunk,
                     cell: cell_data.cell,
-                    created_at: NaturalBuildingData::timestamp(),
-                })
-            })
-            .collect::<Vec<_>>();
+                    created_at: Self::timestamp(),
+                    quality: 1.0,
+                    durability: 1.0,
+                    damage: 0.0,
+                };
 
-        Self {
-            natural_buildings: buildings
-                .into_iter()
-                .map(|data| (data.cell, data))
-                .collect(),
-        }
+                let specific_data = BuildingSpecific::Tree(TreeData {
+                    density: 0.5,
+                    age: rng.random_range(0..200),
+                    tree_type,
+                    variant: (tree_variant_idx + 1) as i32,
+                });
+
+                Some((
+                    cell_data.cell,
+                    BuildingData {
+                        base_data,
+                        specific_data,
+                    },
+                ))
+            })
+            .collect();
+        
+        tracing::info!("{} trees generated", &trees.len());
+
+        self.buildings.extend(trees);
+        
     }
 
-    fn compute_tree_density(&self) {
-        self.natural_buildings
-            .iter()
-            .for_each(|(grid_cell, building_data)| {
+    fn compute_tree_density(&mut self) {
+        let density_map = self
+            .buildings
+            .par_iter()
+            .filter_map(|(grid_cell, building)| {
+                if !matches!(&building.specific_data, BuildingSpecific::Tree(_tree_data)) {
+                    return None;
+                }
+
                 let neighbors = grid_cell.neighbors();
                 let tree_neighbors = neighbors
                     .iter()
-                    .filter(|n| self.natural_buildings.contains_key(n))
+                    .filter(|n| {
+                        self.buildings
+                            .get(n)
+                            .map(|b| matches!(&b.specific_data, BuildingSpecific::Tree(_)))
+                            .unwrap_or(false)
+                    })
                     .count();
 
                 let density = ((tree_neighbors as f32 / 6.0) * 0.7 + 0.3).clamp(0.3, 1.0);
-            });
+                Some((*grid_cell, density))
+            })
+            .collect::<Vec<(GridCell, f32)>>();
+
+        for (cell, density) in density_map {
+            if let Some(building) = self.buildings.get_mut(&cell) {
+                if let BuildingSpecific::Tree(tree_data) = &mut building.specific_data {
+                    tree_data.density = density;
+                }
+            }
+        }
     }
 
     // TODO: Move to utils

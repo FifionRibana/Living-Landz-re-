@@ -1,8 +1,9 @@
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, sqlx::Type, PartialEq, Eq, Hash)]
-
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, sqlx::Type, PartialEq, Eq, Hash,
+)]
 #[sqlx(type_name = "biome_type")]
 pub enum BiomeType {
     Undefined,

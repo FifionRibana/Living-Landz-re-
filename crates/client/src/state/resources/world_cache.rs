@@ -110,7 +110,7 @@ impl BuildingCache {
     pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
         info!("Inserting {} buildings into cache", buildings.len());
         buildings.iter().for_each(|building_data| {
-            self.loaded.insert(building_data.cell, building_data.clone());
+            self.loaded.insert(building_data.base_data.cell, building_data.clone());
         });
     }
 
@@ -128,10 +128,10 @@ impl BuildingCache {
 
         self.loaded.retain(|_, data| {
             let keep =
-                (data.chunk.x - center.x).abs() <= max_distance && (data.chunk.y - center.y).abs() <= max_distance;
+                (data.base_data.chunk.x - center.x).abs() <= max_distance && (data.base_data.chunk.y - center.y).abs() <= max_distance;
 
             if !keep {
-                removed_ids.push(data.id as i64);
+                removed_ids.push(data.base_data.id as i64);
                 removed.push(data.clone());
             }
 
