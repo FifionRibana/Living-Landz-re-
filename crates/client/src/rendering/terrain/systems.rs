@@ -219,7 +219,7 @@ pub fn spawn_building(
                 world_position.y += offset_y + 8.0; // shift slightly up
 
                 let custom_size = image_size.map(|size| {
-                    let width = size.x.min(200.0f32) * scale_var * 64. / 256.; // TODO: assets shall be already downsized
+                    let width = size.x.min(256.0f32) * scale_var * 64. / 256.; // TODO: assets shall be already downsized
                     let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
                     Vec2::new(width, height)
                 });
