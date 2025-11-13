@@ -13,6 +13,7 @@ shared = { path = "../shared" }
 bevy = { workspace = true }
 bincode = { workspace = true }
 hexx = { workspace = true }
+image = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 tungstenite = { workspace = true }

@@ -37,6 +37,7 @@ fn main() {
             networking::NetworkingPlugin,
             rendering::terrain::TerrainPlugin,
             ui::debug::DebugUiPlugin,
+            ui::UiPlugin,
         ))
         .add_plugins((
             // LogDiagnosticsPlugin::default(),
