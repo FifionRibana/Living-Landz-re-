@@ -23,8 +23,14 @@ pub fn setup_debug_ui(mut commands: Commands) {
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
-                justify_content: JustifyContent::SpaceBetween,
+                justify_content: JustifyContent::FlexStart,
                 flex_direction: FlexDirection::Column,
+                padding: UiRect{
+                    left: px(10.),
+                    top: px(100.),
+                    right: px(0.),
+                    bottom: px(0.),
+                },
                 ..default()
             },
             BackgroundColor(Color::NONE),
@@ -44,9 +50,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     },
                     TextColor(Color::srgb(1.0, 0.0, 0.0)),
                     Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Px(10.0),
-                        left: Val::Px(10.0),
                         ..default()
                     },
                     FpsText,
@@ -67,9 +70,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(30.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 FrameTimeText,
@@ -87,9 +87,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(50.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 ConnectionStatusText,
@@ -107,9 +104,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(70.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 EntityCountText,
@@ -127,9 +121,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(90.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 CameraPositionText,
@@ -147,9 +138,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(110.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 CameraZoomText,
@@ -167,9 +155,6 @@ pub fn setup_debug_ui(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(0.8, 0.8, 1.0)),
                 Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(130.0),
-                    left: Val::Px(10.0),
                     ..default()
                 },
                 HoveredCellInfoText,
