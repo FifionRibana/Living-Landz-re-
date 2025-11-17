@@ -17,6 +17,7 @@ pub struct DatabaseTables {
     pub buildings: tables::BuildingsTable,
     pub cells: tables::CellsTable,
     pub terrains: tables::TerrainsTable,
+    pub actions: tables::ScheduledActionsTable,
 }
 
 impl DatabaseClient {
@@ -101,6 +102,12 @@ impl DatabaseClient {
             .await
             .expect("Failed to init cells database table");
 
+        let action_db = tables::ScheduledActionsTable::new(pool.clone());
+        action_db
+            .init_schema()
+            .await
+            .expect("Failed to init actions database table");
+
         tracing::info!("✓ Database connected");
 
         (
@@ -108,6 +115,7 @@ impl DatabaseClient {
                 buildings: buildings_db,
                 cells: cell_db,
                 terrains: terrain_db,
+                actions: action_db,
             },
             game_state,
         )

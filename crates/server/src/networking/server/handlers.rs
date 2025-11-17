@@ -1,5 +1,7 @@
 use futures::{SinkExt, StreamExt};
-use shared::TerrainChunkData;
+use shared::{
+    ActionBaseData, ActionContext, ActionData, ActionStatus, ActionType, BuildBuildingAction, BuildRoadAction, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData, ValidationContext
+};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
@@ -90,7 +92,11 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
-                let building_data = match db_tables.buildings.load_chunk_buildings(terrain_chunk_id).await {
+                let building_data = match db_tables
+                    .buildings
+                    .load_chunk_buildings(terrain_chunk_id)
+                    .await
+                {
                     Ok(building_data) => building_data,
                     _ => {
                         vec![]
@@ -156,6 +162,230 @@ async fn handle_client_message(
                     building_data: building_data,
                 });
             }
+
+            responses
+        }
+
+        ClientMessage::ActionBuildBuilding {
+            player_id,
+            chunk_id,
+            cell,
+            building_type,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data = SpecificAction::BuildBuilding(BuildBuildingAction {
+                player_id,
+                chunk_id: chunk_id.clone(),
+                cell: cell.clone(),
+                building_type,
+            });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
+
+            responses
+        }
+        ClientMessage::ActionBuildRoad {
+            player_id,
+            chunk_id,
+            cell,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data = SpecificAction::BuildRoad(BuildRoadAction { player_id, chunk_id, cell });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
+
+            responses
+        }
+        ClientMessage::ActionCraftResource {
+            player_id,
+            chunk_id,
+            cell,
+            recipe_id,
+            quantity,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data = SpecificAction::CraftResource(CraftResourceAction {
+                player_id,
+                recipe_id,
+                chunk_id: chunk_id.clone(),
+                cell: cell.clone(),
+                quantity,
+            });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
+
+            responses
+        }
+        ClientMessage::ActionHarvestResource {
+            player_id,
+            chunk_id,
+            cell,
+            resource_type,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data =
+                SpecificAction::HarvestResource(HarvestResourceAction { player_id, chunk_id, cell, resource_type });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
+
+            responses
+        }
+        ClientMessage::ActionMoveUnit {
+            player_id,
+            unit_id,
+            chunk_id,
+            cell,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data = SpecificAction::MoveUnit(MoveUnitAction {
+                player_id,
+                unit_id,
+                chunk_id: chunk_id.clone(),
+                cell: cell.clone(),
+            });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
+
+            responses
+        }
+        ClientMessage::ActionSendMessage {
+            player_id,
+            chunk_id,
+            cell,
+            receivers,
+            content,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data =
+                SpecificAction::SendMessage(SendMessageAction { player_id, receivers, content });
+
+            action_table.add_scheduled_action(&ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id.clone(),
+                    cell: cell.clone(),
+
+                    start_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    duration_ms: specific_data.duration_ms(&ActionContext {
+                        player_id,
+                        grid_cell: cell.clone(),
+                    }),
+                    completion_time: 0,
+
+                    // action_type: ActionType::BuildBuilding,
+                    status: ActionStatus::Pending,
+                },
+                specific_data,
+            });
 
             responses
         }

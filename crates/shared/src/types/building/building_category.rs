@@ -5,9 +5,15 @@ use bincode::{Decode, Encode};
 pub enum BuildingCategory {
     Unknown,
     Natural,
-    Structure,
-    Infrastructure,
-    Defense,
+    Urbanism,
+    Cult,
+    Dwellings,
+    ManufacturingWorkshops,
+    Entertainment,
+    Agriculture,
+    AnimalBreeding,
+    Education,
+    Military
 }
 
 impl BuildingCategory {
@@ -18,9 +24,15 @@ impl BuildingCategory {
     pub fn from_str(name: &str) -> Self {
         match name {
             "natural" => BuildingCategory::Natural,
-            "structure" => BuildingCategory::Structure,
-            "infrastructure" => BuildingCategory::Infrastructure,
-            "defense" => BuildingCategory::Defense,
+            "urbanism" => BuildingCategory::Urbanism,
+            "cult" => BuildingCategory::Cult,
+            "dwellings" => BuildingCategory::Dwellings,
+            "manufacturing_workshops" => BuildingCategory::ManufacturingWorkshops,
+            "entertainment" => BuildingCategory::Entertainment,
+            "agriculture" => BuildingCategory::Agriculture,
+            "animal_breeding" => BuildingCategory::AnimalBreeding,
+            "education" => BuildingCategory::Education,
+            "military" => BuildingCategory::Military,
             _ => BuildingCategory::Unknown,
         }
     }
