@@ -30,9 +30,15 @@ impl BuildingCategoriesTable {
     pub async fn fill(&self) -> Result<Vec<BuildingCategoryData>, sqlx::Error> {
         let categories = [
             BuildingCategory::Natural,
-            BuildingCategory::Infrastructure,
-            BuildingCategory::Structure,
-            BuildingCategory::Defense,
+            BuildingCategory::Urbanism,
+            BuildingCategory::Cult,
+            BuildingCategory::Dwellings,
+            BuildingCategory::ManufacturingWorkshops,
+            BuildingCategory::Entertainment,
+            BuildingCategory::Agriculture,
+            BuildingCategory::AnimalBreeding,
+            BuildingCategory::Education,
+            BuildingCategory::Military,
         ]
         .into_iter()
         .map(|c| c.to_name())
