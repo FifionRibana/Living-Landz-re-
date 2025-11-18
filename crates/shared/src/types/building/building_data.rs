@@ -34,9 +34,20 @@ impl BuildingSpecificData for TreeData {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+pub struct ManufacturingWorkshopData {
+}
+
+impl BuildingSpecificData for ManufacturingWorkshopData {
+    fn category(&self) -> BuildingCategory {
+        BuildingCategory::ManufacturingWorkshops
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub enum BuildingSpecific {
     Unknown(),
     Tree(TreeData),
+    ManufacturingWorkshop(ManufacturingWorkshopData),
     // ...
 }
 
@@ -44,6 +55,7 @@ impl BuildingSpecific {
     pub fn category(&self) -> BuildingCategory {
         match self {
             Self::Tree(t) => t.category(),
+            Self::ManufacturingWorkshop(w) => w.category(),
             Self::Unknown() => BuildingCategory::Unknown,
         }
     }
@@ -53,6 +65,7 @@ impl BuildingSpecific {
 #[sqlx(type_name = "building_specific_type")]
 pub enum BuildingSpecificType {
     Tree,
+    ManufacturingWorkshops,
     Unknown,
 }
 
@@ -60,6 +73,7 @@ impl BuildingSpecificType {
     pub fn from_building_specific(specific: &BuildingSpecific) -> Self {
         match specific {
             BuildingSpecific::Tree(_) => BuildingSpecificType::Tree,
+            BuildingSpecific::ManufacturingWorkshop(_) => BuildingSpecificType::ManufacturingWorkshops,
             BuildingSpecific::Unknown() => BuildingSpecificType::Unknown,
         }
     }

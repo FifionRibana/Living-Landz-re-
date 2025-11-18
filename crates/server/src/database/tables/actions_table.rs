@@ -58,10 +58,24 @@ impl ScheduledActionsTable {
                 duration_ms BIGINT NOT NULL,
                 completion_time BIGINT NOT NULL,
                 status command_status_enum NOT NULL DEFAULT 'InProgress',
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE (cell_q, cell_r) WHERE status IN ('InProgress', 'Pending')
-                UNIQUE (cell_q, cell_r, chunk_x, chunk_y) WHERE status IN ('InProgress', 'Pending')
+                created_at TIMESTAMP DEFAULT NOW()
             )"#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_cell_action 
+                ON scheduled_actions(cell_q, cell_r) 
+                WHERE status IN ('InProgress', 'Pending')"#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_cell_chunk_action 
+                ON scheduled_actions(cell_q, cell_r, chunk_x, chunk_y) 
+                WHERE status IN ('InProgress', 'Pending')"#,
         )
         .execute(&self.pool)
         .await?;
@@ -69,7 +83,7 @@ impl ScheduledActionsTable {
         sqlx::query(
             r#"CREATE TABLE IF NOT EXISTS build_building_commands (
                 action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                building_type_id SERIAL REFERENCES building_types(id),
+                building_type_id SERIAL REFERENCES building_types(id)
             )"#,
         )
         .execute(&self.pool)
@@ -111,7 +125,7 @@ impl ScheduledActionsTable {
         sqlx::query(
             r#"CREATE TABLE IF NOT EXISTS harvest_resource_commands (
                 action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                resource_type resource_type NOT NULL
+                resource_type_id SERIAL REFERENCES resource_types(id)
             )"#,
         )
         .execute(&self.pool)
@@ -126,6 +140,10 @@ impl ScheduledActionsTable {
         )
         .execute(&self.pool)
         .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_resource_type_id ON craft_resource_commands(resource_type_id)")
+            .execute(&self.pool)
+            .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_completion_time ON scheduled_actions(completion_time)",
@@ -356,7 +374,9 @@ impl ScheduledActionsTable {
                 SpecificActionType::HarvestResource => {
                     let harvest_resource = sqlx::query(
                         r#"
-                            SELECT resource_type
+                            SELECT resource_type_id
+                            FROM buildings_base b
+                            JOIN building_types bt ON b.building_type_id = bt.id
                             WHERE action_id = $1
                         "#,
                     )
@@ -366,7 +386,7 @@ impl ScheduledActionsTable {
 
                     SpecificAction::HarvestResource(HarvestResourceAction {
                         player_id,
-                        resource_type: r.get::<ResourceType, &str>("resource_type"),
+                        resource_type: r.get("resource_type_id"),
                         chunk_id: chunk_id.clone(),
                         cell: cell.clone(),
                     })
