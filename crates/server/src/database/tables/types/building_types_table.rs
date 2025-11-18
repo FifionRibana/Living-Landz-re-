@@ -21,9 +21,15 @@ impl BuildingTypesTable {
             CREATE TYPE building_category AS ENUM (
                 'Unknown',
                 'Natural',
-                'Structure',
-                'Infrastructure',
-                'Defense'
+                'Urbanism',
+                'Cult',
+                'Dwellings',
+                'ManufacturingWorkshops',
+                'Entertainment',
+                'Agriculture',
+                'AnimalBreeding',
+                'Education',
+                'Military'
             )"#,
         )
         .execute(&self.pool)
@@ -74,22 +80,28 @@ impl BuildingTypesTable {
     pub async fn fill(&self) -> Result<Vec<BuildingTypeData>, sqlx::Error> {
         let types = vec![
             (
-                TreeType::Cedar,
+                TreeType::Cedar.to_name(),
                 BuildingCategory::Natural,
                 BuildingSpecificType::Tree,
                 "A cedar tree",
             ),
             (
-                TreeType::Larch,
+                TreeType::Larch.to_name(),
                 BuildingCategory::Natural,
                 BuildingSpecificType::Tree,
                 "A larch tree",
             ),
             (
-                TreeType::Oak,
+                TreeType::Oak.to_name(),
                 BuildingCategory::Natural,
                 BuildingSpecificType::Tree,
                 "An oak tree",
+            ),
+            (
+                "blacksmith".to_string(),
+                BuildingCategory::ManufacturingWorkshops,
+                BuildingSpecificType::ManufacturingWorkshops,
+                "A blacksmith workshop"
             ),
         ];
 
@@ -101,7 +113,7 @@ impl BuildingTypesTable {
         query_builder.push_values(
             types.iter(),
             |mut b, (name, category, specific_type, description)| {
-                b.push_bind(name.to_name())
+                b.push_bind(name)
                     .push_bind(category)
                     .push_bind(specific_type)
                     .push_bind(description);
@@ -113,7 +125,7 @@ impl BuildingTypesTable {
         query_builder.build().execute(&mut *tx).await?;
         tx.commit().await?;
 
-        tracing::info!("✓ Building categories content initialized");
+        tracing::info!("✓ Building types content initialized");
 
         let building_types = sqlx::query(
             r#"
