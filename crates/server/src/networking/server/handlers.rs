@@ -1,6 +1,6 @@
 use futures::{SinkExt, StreamExt};
 use shared::{
-    ActionBaseData, ActionContext, ActionData, ActionStatus, ActionType, BuildBuildingAction, BuildRoadAction, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData, ValidationContext
+    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
@@ -158,8 +158,8 @@ async fn handle_client_message(
                 responses.push(ServerMessage::TerrainChunkData {
                     terrain_chunk_data,
                     biome_chunk_data,
-                    cell_data: cell_data,
-                    building_data: building_data,
+                    cell_data,
+                    building_data,
                 });
             }
 
@@ -170,7 +170,7 @@ async fn handle_client_message(
             player_id,
             chunk_id,
             cell,
-            building_type,
+            building_specific_type,
         } => {
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
@@ -178,7 +178,7 @@ async fn handle_client_message(
                 player_id,
                 chunk_id: chunk_id.clone(),
                 cell: cell.clone(),
-                building_type,
+                building_specific_type,
             });
 
             action_table.add_scheduled_action(&ActionData {
@@ -186,6 +186,9 @@ async fn handle_client_message(
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
+
+                    action_type: ActionTypeEnum::BuildBuilding,
+                    action_specific_type: ActionSpecificTypeEnum::BuildBuilding,
 
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -198,7 +201,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });
@@ -212,13 +215,20 @@ async fn handle_client_message(
         } => {
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
-            let specific_data = SpecificAction::BuildRoad(BuildRoadAction { player_id, chunk_id, cell });
+            let specific_data = SpecificAction::BuildRoad(BuildRoadAction {
+                player_id,
+                chunk_id,
+                cell,
+            });
 
             action_table.add_scheduled_action(&ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
+
+                    action_type: ActionTypeEnum::BuildRoad,
+                    action_specific_type: ActionSpecificTypeEnum::BuildRoad,
 
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -231,7 +241,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });
@@ -261,6 +271,9 @@ async fn handle_client_message(
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
 
+                    action_type: ActionTypeEnum::CraftResource,
+                    action_specific_type: ActionSpecificTypeEnum::CraftResource,
+
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
@@ -272,7 +285,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });
@@ -283,18 +296,25 @@ async fn handle_client_message(
             player_id,
             chunk_id,
             cell,
-            resource_type,
+            resource_specific_type,
         } => {
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
-            let specific_data =
-                SpecificAction::HarvestResource(HarvestResourceAction { player_id, chunk_id, cell, resource_type });
+            let specific_data = SpecificAction::HarvestResource(HarvestResourceAction {
+                player_id,
+                chunk_id,
+                cell,
+                resource_specific_type,
+            });
 
             action_table.add_scheduled_action(&ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
+
+                    action_type: ActionTypeEnum::HarvestResource,
+                    action_specific_type: ActionSpecificTypeEnum::HarvestResource,
 
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -307,7 +327,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });
@@ -335,6 +355,9 @@ async fn handle_client_message(
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
 
+                    action_type: ActionTypeEnum::MoveUnit,
+                    action_specific_type: ActionSpecificTypeEnum::MoveUnit,
+
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
@@ -346,7 +369,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });
@@ -362,14 +385,20 @@ async fn handle_client_message(
         } => {
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
-            let specific_data =
-                SpecificAction::SendMessage(SendMessageAction { player_id, receivers, content });
+            let specific_data = SpecificAction::SendMessage(SendMessageAction {
+                player_id,
+                receivers,
+                content,
+            });
 
             action_table.add_scheduled_action(&ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
+
+                    action_type: ActionTypeEnum::SendMessage,
+                    action_specific_type: ActionSpecificTypeEnum::SendMessage,
 
                     start_time: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -382,7 +411,7 @@ async fn handle_client_message(
                     completion_time: 0,
 
                     // action_type: ActionType::BuildBuilding,
-                    status: ActionStatus::Pending,
+                    status: ActionStatusEnum::Pending,
                 },
                 specific_data,
             });

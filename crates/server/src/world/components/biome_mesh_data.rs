@@ -3,12 +3,11 @@ use bincode::{Decode, Encode};
 use hexx::*;
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 use shared::{
     BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants,
     get_biome_from_color,
     grid::{CellData, GridCell},
-    types::{BiomeChunkId, BiomeType, find_closest_biome},
+    types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome},
 };
 use std::collections::HashMap;
 
@@ -17,11 +16,11 @@ use super::terrain_mesh_data::TerrainMeshData;
 
 use crate::utils::{algorithm, file_system};
 
-#[derive(Default, Serialize, Deserialize, Encode, Decode, Clone)]
+#[derive(Default, Encode, Decode, Clone)]
 pub struct BiomeChunkMeshData {
     pub width: u32,
     pub height: u32,
-    pub biome_type: BiomeType,
+    pub biome_type: BiomeTypeEnum,
     pub mesh_data: MeshData,
     pub outlines: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,
@@ -67,7 +66,7 @@ impl BiomeMeshData {
 
         let mut biome_mesh_data = HashMap::new();
 
-        for biome_type in BiomeType::iter() {
+        for biome_type in BiomeTypeEnum::iter() {
             info!("=== {:?} ===", biome_type);
             let load_result = file_system::load_from_disk(
                 format!("{}{}_biomemap_{:?}.bin", cache_directory, name, biome_type).as_str(),
@@ -355,7 +354,7 @@ impl BiomeMeshData {
                         .into_iter()
                         .max_by_key(|(_, count)| *count)
                         .map(|(color, _)| find_closest_biome(&color))
-                        .unwrap_or(BiomeType::DeepOcean),
+                        .unwrap_or(BiomeTypeEnum::DeepOcean),
                 }
             })
             .collect();
@@ -386,7 +385,7 @@ impl BiomeMeshData {
     }
 
     pub fn save_png_image(name: &str, cache_directory: &str) -> Result {
-        for biome_type in BiomeType::iter() {
+        for biome_type in BiomeTypeEnum::iter() {
             info!("=== {:?} ===", biome_type);
             let input_path = format!("{}{}_biomemap_{:?}.bin", cache_directory, name, biome_type);
             info!("using: {}", input_path);

@@ -2,20 +2,20 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::{TreeAge, TreeType};
+use crate::{TreeAge, TreeTypeEnum};
 
 #[derive(Default, Resource)]
 pub struct TreeAtlas {
-    pub sprites: HashMap<TreeType, Vec<String>>,
+    pub sprites: HashMap<TreeTypeEnum, Vec<String>>,
     pub handles: HashMap<String, Handle<Image>>,
 }
 
 impl TreeAtlas {
     pub fn load(&mut self) {
         let tree_types = [
-            (TreeType::Cedar, "cedar", 3, 6),
-            // (TreeType::Larch, "larch", 3, 6),
-            // (TreeType::Oak, "oak", 3, 6),
+            (TreeTypeEnum::Cedar, "cedar", 3, 6),
+            // (TreeTypeEnum::Larch, "larch", 3, 6),
+            // (TreeTypeEnum::Oak, "oak", 3, 6),
         ];
 
         self.sprites
@@ -35,7 +35,7 @@ impl TreeAtlas {
             }));
     }
 
-    pub fn get_variations(&self, tree_type: TreeType) -> Option<&[String]> {
+    pub fn get_variations(&self, tree_type: TreeTypeEnum) -> Option<&[String]> {
         self.sprites.get(&tree_type).map(|v| v.as_slice())
     }
 }

@@ -1,7 +1,8 @@
 mod action_data;
-mod action_status;
-mod action_type;
+mod enums;
+mod lookups;
+// mod specific_types;
 
 pub use action_data::*;
-pub use action_status::ActionStatus;
-pub use action_type::ActionType;
+pub use enums::*;
+pub use lookups::*;

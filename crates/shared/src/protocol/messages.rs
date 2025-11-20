@@ -2,7 +2,8 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingType, ResourceType, TerrainChunkId,
+    BiomeChunkData, BuildingData, BuildingSpecificTypeEnum, ResourceSpecificTypeEnum,
+    TerrainChunkId,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
 };
@@ -27,7 +28,7 @@ pub enum ClientMessage {
         player_id: u64,
         chunk_id: TerrainChunkId,
         cell: GridCell,
-        building_type: BuildingType,
+        building_specific_type: BuildingSpecificTypeEnum,
     },
     ActionBuildRoad {
         player_id: u64,
@@ -51,7 +52,7 @@ pub enum ClientMessage {
         player_id: u64,
         chunk_id: TerrainChunkId,
         cell: GridCell,
-        resource_type: ResourceType,
+        resource_specific_type: ResourceSpecificTypeEnum,
     },
     ActionCraftResource {
         player_id: u64,

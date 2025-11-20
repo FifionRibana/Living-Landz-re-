@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 
 use shared::{
-    ActionBaseData, ActionData, ActionStatus, ActionType, BuildBuildingAction, BuildRoadAction, BuildingCategory, BuildingSpecificType, BuildingType, BuildingTypeData, CraftResourceAction, GameState, HarvestResourceAction, MoveUnitAction, ResourceType, SendMessageAction, SpecificAction, SpecificActionData, SpecificActionType, TerrainChunkId, TreeType, grid::GridCell
+    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingSpecificTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkId, grid::GridCell
 };
 use sqlx::{PgPool, Row};
 
@@ -17,156 +15,6 @@ impl ScheduledActionsTable {
         Self { pool }
     }
 
-    pub async fn init_schema(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            CREATE TYPE specific_action_type AS ENUM (
-                'BuildBuilding',
-                'BuildRoad',
-                'MoveUnit', 
-                'SendMessage',
-                'HarvestResource',
-                'CraftResource'
-            )"#,
-        )
-        .execute(&self.pool)
-        .await
-        .ok();
-
-        sqlx::query(
-            r#"
-            CREATE TYPE command_status_enum AS ENUM (
-                'InProgress',
-                'Pending',
-                'Completed',
-                'Failed'
-            )"#,
-        )
-        .execute(&self.pool)
-        .await
-        .ok();
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS scheduled_actions (
-                id BIGSERIAL PRIMARY KEY,
-                player_id BIGINT NOT NULL,
-                cell_q INT NOT NULL,
-                cell_r INT NOT NULL,
-                chunk_x INT NOT NULL,
-                chunk_y INT NOT NULL,
-                start_time BIGINT NOT NULL,
-                duration_ms BIGINT NOT NULL,
-                completion_time BIGINT NOT NULL,
-                status command_status_enum NOT NULL DEFAULT 'InProgress',
-                created_at TIMESTAMP DEFAULT NOW()
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_cell_action 
-                ON scheduled_actions(cell_q, cell_r) 
-                WHERE status IN ('InProgress', 'Pending')"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_cell_chunk_action 
-                ON scheduled_actions(cell_q, cell_r, chunk_x, chunk_y) 
-                WHERE status IN ('InProgress', 'Pending')"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS build_building_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                building_type_id SERIAL REFERENCES building_types(id)
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_building_type_id ON build_building_commands(building_type_id)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS build_road_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS move_unit_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                unit_id BIGINT NOT NULL,
-                cell_q INT NOT NULL,
-                cell_r INT NOT NULL
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS send_message_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                receiver_id BIGINT NOT NULL,
-                message_content TEXT NOT NULL
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS harvest_resource_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                resource_type_id SERIAL REFERENCES resource_types(id)
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS craft_resource_commands (
-                action_id BIGINT PRIMARY KEY REFERENCES scheduled_actions(id) ON DELETE CASCADE,
-                recipe_id VARCHAR NOT NULL,
-                quantity INT NOT NULL
-            )"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_resource_type_id ON craft_resource_commands(resource_type_id)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_completion_time ON scheduled_actions(completion_time)",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_chunk_commands ON scheduled_actions(hex_pos_x, hex_pos_y)
-                WHERE status IN ('InProgress', 'Pending')"#)
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(
-            r#"CREATE INDEX IF NOT EXISTS idx_player_commands ON scheduled_actions(player_id) 
-                WHERE status IN ('InProgress', 'Pending')"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        tracing::info!("✓ Building types Database schema ready");
-        Ok(())
-    }
-
     pub async fn add_scheduled_action(&self, action: &ActionData) -> Result<u64, String> {
         let base_action = &action.base_data;
 
@@ -174,8 +22,8 @@ impl ScheduledActionsTable {
 
         let db_id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO scheduled_actions 
-             (player_id, cell_q, cell_r, chunk_x, chunk_y, start_time, duration_ms, completion_time, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'InProgress')
+             (player_id, cell_q, cell_r, chunk_x, chunk_y, action_type_id, action_specific_type_id, start_time, duration_ms, completion_time, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              RETURNING id"
         )
         .bind(base_action.player_id as i64)
@@ -183,10 +31,12 @@ impl ScheduledActionsTable {
         .bind(base_action.cell.r)
         .bind(base_action.chunk.x)
         .bind(base_action.chunk.y)
-        // .bind(base_action.action_type)
+        .bind(base_action.action_type.to_id())
+        .bind(base_action.action_specific_type.to_id())
         .bind(base_action.start_time as i64)
         .bind(base_action.duration_ms as i64)
         .bind(base_action.completion_time as i64)
+        .bind(base_action.status.to_id())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
@@ -206,22 +56,24 @@ impl ScheduledActionsTable {
         match action {
             SpecificAction::BuildBuilding(a) => {
                 sqlx::query(
-                    "INSERT INTO build_building_actions (action_id, building_type_id) VALUES ($1, $2)",
+                    "INSERT INTO actions.build_building_actions (action_id, building_type_id) VALUES ($1, $2)",
                 )
                 .bind(action_id as i64)
-                .bind(a.building_type.id)
+                .bind(a.building_specific_type.to_id())
                 .execute(&self.pool)
                 .await
                 .map_err(|e| format!("DB error: {}", e))?;
             }
             SpecificAction::BuildRoad(a) => {
-                // sqlx::query(
-
-                // )
+                sqlx::query("INSERT INTO actions.build_road_actions (action_id) VALUES ($1, $2)")
+                    .bind(action_id as i64)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| format!("DB error: {}", e))?;
             }
             SpecificAction::MoveUnit(a) => {
                 sqlx::query(
-                    "INSERT INTO move_unit_actions (action_id, unit_id, target_q, target_r) VALUES ($1, $2, $3, $4)"
+                    "INSERT INTO actions.move_unit_actions (action_id, unit_id, target_q, target_r) VALUES ($1, $2, $3, $4)"
                 )
                 .bind(action_id as i64)
                 .bind(a.unit_id as i64)
@@ -233,7 +85,7 @@ impl ScheduledActionsTable {
             }
             SpecificAction::SendMessage(a) => {
                 sqlx::query(
-                    "INSERT INTO send_message_actions (action_id, receiver_id, content) VALUES ($1, $2, $3)"
+                    "INSERT INTO actions.send_message_actions (action_id, receiver_id, content) VALUES ($1, $2, $3)"
                 )
                 .bind(action_id as i64)
                 .bind(a.receivers[0] as i64)
@@ -244,17 +96,17 @@ impl ScheduledActionsTable {
             }
             SpecificAction::HarvestResource(a) => {
                 sqlx::query(
-                    "INSERT INTO harvest_resource_actions (action_id, resource_type) VALUES ($1, $2)"
+                    "INSERT INTO actions.harvest_resource_actions (action_id, resource_type) VALUES ($1, $2)"
                 )
                 .bind(action_id as i64)
-                .bind(&a.resource_type)
+                .bind(&a.resource_specific_type.to_id())
                 .execute(&self.pool)
                 .await
                 .map_err(|e| format!("DB error: {}", e))?;
             }
             SpecificAction::CraftResource(a) => {
                 sqlx::query(
-                    "INSERT INTO craft_resource_actions (action_id, recipe_id, quantity) VALUES ($1, $2, $3)"
+                    "INSERT INTO actions.craft_resource_actions (action_id, recipe_id, quantity) VALUES ($1, $2, $3)"
                 )
                 .bind(action_id as i64)
                 .bind(&a.recipe_id)
@@ -280,7 +132,7 @@ impl ScheduledActionsTable {
             SELECT
                 id, player_id,
                 cell_q, cell_r, 
-                action_type, start_time, duration_ms, completion_time, status
+                action_type_id, action_specific_type_id, start_time, duration_ms, completion_time, status
             FROM scheduled_actions 
             WHERE chunk_x = $1 AND chunk_y = $2 
             AND status IN ('InProgress', 'Pending')
@@ -294,29 +146,41 @@ impl ScheduledActionsTable {
         for r in action_base_rows {
             let id = r.get::<i64, &str>("id");
             let player_id = r.get::<i64, &str>("player_id") as u64;
-            let action_type = r.get::<SpecificActionType, &str>("action_type");
+            let Some(action_type) = ActionTypeEnum::from_id(r.get("action_type_id")) else {
+                continue;
+            };
+            let Some(action_specific_type) =
+                ActionSpecificTypeEnum::from_id(r.get("action_specific_type_id"))
+            else {
+                continue;
+            };
             let cell = GridCell {
                 q: r.get("cell_q"),
                 r: r.get("cell_r"),
+            };
+            let Some(status) = ActionStatusEnum::from_id(r.get("action_status")) else {
+                continue;
             };
 
             let base_data = ActionBaseData {
                 player_id: r.get::<i64, &str>("player_id") as u64,
                 cell: cell.clone(),
                 chunk: chunk_id.clone(),
-                // action_type,
+                action_type: action_type.clone(),
+                action_specific_type: action_specific_type.clone(),
                 start_time: r.get::<i64, &str>("start_time") as u64,
                 duration_ms: r.get::<i64, &str>("duration_ms") as u64,
                 completion_time: r.get::<i64, &str>("completion_time") as u64,
 
-                status: r.get::<ActionStatus, &str>("status"),
+                status,
             };
 
-            let specific_data = match action_type {
-                SpecificActionType::BuildBuilding => {
+            let specific_data = match action_specific_type {
+                ActionSpecificTypeEnum::BuildBuilding => {
                     let build_building = sqlx::query(
                         r#"
                             SELECT building_type_id
+                            FROM actions.build_building_actions
                             WHERE action_id = $1
                         "#,
                     )
@@ -324,18 +188,20 @@ impl ScheduledActionsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
+                    let Some(building_specific_type) =
+                        BuildingSpecificTypeEnum::from_id(build_building.get("building_type_id"))
+                    else {
+                        continue;
+                    };
+
                     SpecificAction::BuildBuilding(BuildBuildingAction {
                         player_id,
                         chunk_id: chunk_id.clone(),
                         cell: cell.clone(),
-                        building_type: BuildingType {
-                            id: build_building.get("building_type_id"),
-                            variant: String::new(),
-                            category: r.get::<BuildingCategory, &str>("building_category"),
-                        },
+                        building_specific_type,
                     })
                 }
-                SpecificActionType::BuildRoad => {
+                ActionSpecificTypeEnum::BuildRoad => {
                     // let build_road = sqlx::query(
                     //     r#"
                     //         SELECT *
@@ -352,10 +218,11 @@ impl ScheduledActionsTable {
                         cell: cell.clone(),
                     })
                 }
-                SpecificActionType::CraftResource => {
+                ActionSpecificTypeEnum::CraftResource => {
                     let craft_resource = sqlx::query(
                         r#"
                             SELECT recipe_id, quantity
+                            FROM actions.craft_resource_actions
                             WHERE action_id = $1
                         "#,
                     )
@@ -371,12 +238,11 @@ impl ScheduledActionsTable {
                         quantity: r.get::<i32, &str>("quantity") as u32,
                     })
                 }
-                SpecificActionType::HarvestResource => {
+                ActionSpecificTypeEnum::HarvestResource => {
                     let harvest_resource = sqlx::query(
                         r#"
                             SELECT resource_type_id
-                            FROM buildings_base b
-                            JOIN building_types bt ON b.building_type_id = bt.id
+                            FROM actions.harvest_resource_actions
                             WHERE action_id = $1
                         "#,
                     )
@@ -384,17 +250,24 @@ impl ScheduledActionsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
+                    let Some(resource_specific_type) =
+                        ResourceSpecificTypeEnum::from_id(r.get("resource_type_id"))
+                    else {
+                        continue;
+                    };
+
                     SpecificAction::HarvestResource(HarvestResourceAction {
                         player_id,
-                        resource_type: r.get("resource_type_id"),
+                        resource_specific_type,
                         chunk_id: chunk_id.clone(),
                         cell: cell.clone(),
                     })
                 }
-                SpecificActionType::MoveUnit => {
+                ActionSpecificTypeEnum::MoveUnit => {
                     let move_unit = sqlx::query(
                         r#"
                             SELECT unit_id, cell_q, cell_r
+                            FROM actions.move_unit_actions
                             WHERE action_id = $1
                         "#,
                     )
@@ -412,22 +285,29 @@ impl ScheduledActionsTable {
                         },
                     })
                 }
-                SpecificActionType::SendMessage => {
-                    // TODO: Change to fetch all? or store vector of receiver_id
+                ActionSpecificTypeEnum::SendMessage => {
                     let send_message = sqlx::query(
                         r#"
-                            SELECT receiver_id, message_content
-                            WHERE action_id = $1
+                            SELECT 
+                                sma.action_id,
+                                sma.message_content,
+                                COALESCE(ARRAY_AGG(smr.receiver_id), '{}') as receivers
+                            FROM actions.send_message_actions sma
+                            LEFT JOIN actions.send_message_receivers smr 
+                                ON sma.action_id = smr.action_id
+                            WHERE sma.action_id = $1
+                            GROUP BY sma.action_id, sma.message_content
                         "#,
                     )
                     .bind(id as i64)
                     .fetch_one(&self.pool)
                     .await?;
 
+                    let receivers_array: Vec<i64> = r.get("receivers");
                     SpecificAction::SendMessage(SendMessageAction {
                         player_id,
-                        receivers: vec![r.get::<i64, &str>("receiver_id") as u64],
-                        content: r.get("content"),
+                        receivers: receivers_array.into_iter().map(|uid| uid as u64).collect(),
+                        content: r.get("message_content"),
                     })
                 }
                 _ => SpecificAction::Unknown(),

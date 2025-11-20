@@ -14,10 +14,10 @@ pub struct DatabaseClient {
 }
 
 pub struct DatabaseTables {
+    pub actions: tables::ScheduledActionsTable,
     pub buildings: tables::BuildingsTable,
     pub cells: tables::CellsTable,
     pub terrains: tables::TerrainsTable,
-    pub actions: tables::ScheduledActionsTable,
 }
 
 impl DatabaseClient {
@@ -30,8 +30,6 @@ impl DatabaseClient {
     }
 
     pub async fn connect(&self, credentials: &DatabaseCredentials) -> (DatabaseTables, GameState) {
-        let mut game_state = GameState::default();
-
         let database_url = format!(
             "{}://{}:{}@{}/{}",
             self.protocol, credentials.username, credentials.password, self.address, self.name
@@ -42,80 +40,34 @@ impl DatabaseClient {
             .await
             .expect("Failed to connect to database");
 
+        tracing::info!("✓ Database connected");
+
         // === TYPES ===
-        let building_categories_db = tables::types::BuildingCategoriesTable::new(pool.clone());
-        building_categories_db
-            .init_schema()
-            .await
-            .expect("Failed to init building categories database table");
-
-        // let building_categories = building_categories_db
-        //     .fill()
-        //     .await
-        //     .expect("Failed to fill building categories database table");
-
-        // game_state.building_categories.extend(
-        //     building_categories
-        //         .iter()
-        //         .map(|building_category| (building_category.id, building_category.clone())),
-        // );
-
         let building_types_db = tables::types::BuildingTypesTable::new(pool.clone());
         building_types_db
-            .init_schema()
+            .initialize_buildings()
             .await
             .expect("Failed to init building types database table");
 
-        let building_types = building_types_db
-            .fill()
-            .await
-            .expect("Failed to fill building types database table");
-
-        game_state.building_types.extend(
-            building_types
-                .iter()
-                .map(|building_type| (building_type.id, building_type.clone())),
-        );
-
         let resource_types_db = tables::types::ResourceTypesTable::new(pool.clone());
         resource_types_db
-            .init_schema()
+            .initialize_resources()
             .await
             .expect("Failed to init resource types database table");
 
-        // Data tables
-        let buildings_db = tables::BuildingsTable::new(pool.clone());
-        buildings_db
-            .init_schema()
-            .await
-            .expect("Failed to init buildings database table");
+        tracing::info!("✓ Database types initialized ");
 
-        let terrain_db = tables::TerrainsTable::new(pool.clone());
-        terrain_db
-            .init_schema()
-            .await
-            .expect("Failed to init terrains database table");
-
-        let cell_db = tables::CellsTable::new(pool.clone());
-        cell_db
-            .init_schema()
-            .await
-            .expect("Failed to init cells database table");
-
-        let action_db = tables::ScheduledActionsTable::new(pool.clone());
-        action_db
-            .init_schema()
-            .await
-            .expect("Failed to init actions database table");
-
-        tracing::info!("✓ Database connected");
+        // ===== GAME STATE =====
+        let mut game_state = GameState::new(pool.clone());
+        game_state.initialize_caches().await.expect("Failed to initialize game cache");
+        tracing::info!("✓ Game state cache initialized");
 
         (
             DatabaseTables {
-                buildings: buildings_db,
-                cells: cell_db,
-                terrains: terrain_db,
-                actions: action_db,
+                actions: tables::ScheduledActionsTable::new(pool.clone()),
+                buildings: tables::BuildingsTable::new(pool.clone()),
+                cells: tables::CellsTable::new(pool.clone()),
+                terrains: tables::TerrainsTable::new(pool.clone()),
             },
             game_state,
         )

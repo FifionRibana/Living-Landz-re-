@@ -6,8 +6,7 @@ use rand::{Rng, SeedableRng};
 use shared::atlas::TreeAtlas;
 use shared::grid::GridConfig;
 use shared::{
-    BiomeChunkData, BiomeType, BuildingCategory, BuildingSpecific, TerrainChunkData,
-    TerrainChunkId, TreeAge, TreeType, constants, get_biome_color,
+    BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum, BuildingSpecific, BuildingSpecificTypeEnum, TerrainChunkData, TerrainChunkId, TreeAge, TreeTypeEnum, constants, get_biome_color
 };
 
 use super::components::{Biome, Building, Terrain};
@@ -95,10 +94,10 @@ pub fn spawn_terrain(
 
     for biome in world_cache.loaded_biomes() {
         let biome_name = biome.clone().name;
-        // if biome.id.biome == BiomeType::Ocean || biome.id.biome == BiomeType::DeepOcean {
+        // if biome.id.biome == BiomeTypeEnum::Ocean || biome.id.biome == BiomeTypeEnum::DeepOcean {
         //     continue;
         // }
-        // if biome.id.biome != BiomeType::Savanna {
+        // if biome.id.biome != BiomeTypeEnum::Savanna {
         //     continue;
         // }
         if spawned_biomes.contains(&biome.get_storage_key()) {
@@ -173,12 +172,9 @@ pub fn spawn_building(
             .layout
             .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
 
-        match (
-            &building_base.building_type.category,
-            &building.specific_data,
-        ) {
-            (BuildingCategory::Natural, BuildingSpecific::Tree(tree_data)) => {
-                let tree_type = TreeType::Cedar; // TODO: create assets for oak and larch
+        match (&building_base.category, &building.specific_data) {
+            (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(tree_data)) => {
+                let tree_type = TreeTypeEnum::Cedar; // TODO: create assets for oak and larch
                 // let tree_type = tree_data.tree_type;
                 let age = TreeAge::get_tree_age(tree_data.age as u32);
                 let variation = tree_data.variant;
@@ -194,7 +190,7 @@ pub fn spawn_building(
 
                 let variant = &format!(
                     "{}_{}_{:02}{:02}",
-                    tree_type.to_name(),
+                    tree_type.to_name_lowercase(),
                     age.to_name(),
                     variation,
                     density

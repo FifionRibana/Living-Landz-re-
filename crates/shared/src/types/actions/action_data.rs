@@ -1,7 +1,9 @@
 use bincode::{Decode, Encode};
+use sqlx::prelude::FromRow;
 
 use crate::{
-    ActionStatus, ActionType, BuildingCategory, BuildingType, ResourceType, TerrainChunkId,
+    ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildingCategoryEnum,
+    BuildingSpecific, BuildingSpecificTypeEnum, ResourceSpecificTypeEnum, TerrainChunkId,
     grid::GridCell,
 };
 
@@ -15,22 +17,8 @@ pub struct ValidationContext {
     pub grid_cell: GridCell,
 }
 
-#[derive(Clone, Debug, Encode, Decode)]
-pub struct ActionBaseData {
-    pub player_id: u64,
-    pub chunk: TerrainChunkId,
-    pub cell: GridCell,
-    // pub action_type: ActionType,
-
-    pub start_time: u64,
-    pub duration_ms: u64,
-    pub completion_time: u64,
-
-    pub status: ActionStatus,
-}
-
 pub trait SpecificActionData: Clone + Send + Sync {
-    fn action_type(&self) -> ActionType;
+    fn action_type(&self) -> ActionTypeEnum;
     fn duration_ms(&self, context: &ActionContext) -> u64;
     fn validate(&self, context: &ValidationContext) -> Result<(), String>;
 }
@@ -42,24 +30,27 @@ pub struct BuildBuildingAction {
     pub player_id: u64,
     pub chunk_id: TerrainChunkId,
     pub cell: GridCell,
-    pub building_type: BuildingType,
+    pub building_specific_type: BuildingSpecificTypeEnum,
     // TODO: Add the recipe and resources used
 }
 
 impl SpecificActionData for BuildBuildingAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::BuildBuilding
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::BuildBuilding
     }
 
     fn duration_ms(&self, context: &ActionContext) -> u64 {
-        match self.building_type {
+        match self.building_specific_type {
             _ => 15_000,
         }
     }
 
     fn validate(&self, context: &ValidationContext) -> Result<(), String> {
-        if matches!(self.building_type.category, BuildingCategory::Unknown) {
-            return Err("building category cannot be unknown".to_string());
+        if matches!(
+            self.building_specific_type,
+            BuildingSpecificTypeEnum::Unknown
+        ) {
+            return Err("building type cannot be unknown".to_string());
         }
         Ok(())
     }
@@ -74,8 +65,8 @@ pub struct BuildRoadAction {
 }
 
 impl SpecificActionData for BuildRoadAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::BuildBuilding
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::BuildBuilding
     }
 
     fn duration_ms(&self, context: &ActionContext) -> u64 {
@@ -97,8 +88,8 @@ pub struct MoveUnitAction {
 }
 
 impl SpecificActionData for MoveUnitAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::MoveUnit
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::MoveUnit
     }
 
     fn duration_ms(&self, context: &ActionContext) -> u64 {
@@ -127,9 +118,17 @@ pub struct SendMessageAction {
     pub content: String,
 }
 
+// Structure pour représenter un receiver en DB
+#[derive(Debug, Clone, Encode, Decode, FromRow)]
+pub struct SendMessageReceiver {
+    pub id: i64,
+    pub action_id: i64,
+    pub receiver_id: i64,
+}
+
 impl SpecificActionData for SendMessageAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::SendMessage
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::SendMessage
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
@@ -151,14 +150,14 @@ impl SpecificActionData for SendMessageAction {
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct HarvestResourceAction {
     pub player_id: u64,
-    pub resource_type: ResourceType,
+    pub resource_specific_type: ResourceSpecificTypeEnum,
     pub chunk_id: TerrainChunkId,
     pub cell: GridCell,
 }
 
 impl SpecificActionData for HarvestResourceAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::HarvestResource
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::HarvestResource
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
@@ -184,8 +183,8 @@ pub struct CraftResourceAction {
 }
 
 impl SpecificActionData for CraftResourceAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::CraftResource
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::CraftResource
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
@@ -204,7 +203,6 @@ impl SpecificActionData for CraftResourceAction {
 }
 
 // ============ ENUM UNIFIÉ ============
-
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum SpecificAction {
     Unknown(),
@@ -217,7 +215,19 @@ pub enum SpecificAction {
 }
 
 impl SpecificAction {
-    pub fn action_type(&self) -> ActionType {
+    pub fn to_specific_type_id(&self) -> i16 {
+        match self {
+            Self::BuildBuilding(_) => 1,
+            Self::BuildRoad(_) => 2,
+            Self::MoveUnit(_) => 3,
+            Self::SendMessage(_) => 4,
+            Self::HarvestResource(_) => 5,
+            Self::CraftResource(_) => 6,
+            Self::Unknown() => 0,
+        }
+    }
+
+    pub fn action_type(&self) -> ActionTypeEnum {
         match self {
             Self::BuildBuilding(a) => a.action_type(),
             Self::BuildRoad(a) => a.action_type(),
@@ -225,10 +235,10 @@ impl SpecificAction {
             Self::SendMessage(a) => a.action_type(),
             Self::HarvestResource(a) => a.action_type(),
             Self::CraftResource(a) => a.action_type(),
-            Self::Unknown() => ActionType::Unknown,
+            Self::Unknown() => ActionTypeEnum::Unknown,
         }
     }
-    
+
     pub fn duration_ms(&self, context: &ActionContext) -> u64 {
         match self {
             Self::BuildBuilding(a) => a.duration_ms(context),
@@ -242,30 +252,21 @@ impl SpecificAction {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode, sqlx::Type)]
-#[sqlx(type_name="specific_action_type")]
-pub enum SpecificActionType {
-    BuildBuilding,
-    BuildRoad,
-    MoveUnit,
-    SendMessage,
-    HarvestResource,
-    CraftResource,
-    Unknown,
-}
+// ============ SCHEDULED ACTION (EN BASE) ============
+#[derive(Clone, Debug, Encode, Decode)]
+pub struct ActionBaseData {
+    pub player_id: u64,
+    pub chunk: TerrainChunkId,
+    pub cell: GridCell,
 
-impl SpecificActionType {
-    pub fn from_specific_action(specific: &SpecificAction) -> Self {
-        match specific {
-            SpecificAction::BuildBuilding(_) => SpecificActionType::BuildBuilding,
-            SpecificAction::BuildRoad(_) => SpecificActionType::BuildRoad,
-            SpecificAction::MoveUnit(_) => SpecificActionType::MoveUnit,
-            SpecificAction::SendMessage(_) => SpecificActionType::SendMessage,
-            SpecificAction::HarvestResource(_) => SpecificActionType::HarvestResource,
-            SpecificAction::CraftResource(_) => SpecificActionType::CraftResource,
-            SpecificAction::Unknown() => SpecificActionType::Unknown,
-        }
-    }
+    pub action_type: ActionTypeEnum,
+    pub action_specific_type: ActionSpecificTypeEnum,
+
+    pub start_time: u64,
+    pub duration_ms: u64,
+    pub completion_time: u64,
+
+    pub status: ActionStatusEnum,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
