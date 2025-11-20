@@ -1,7 +1,8 @@
 use std::{hash::{Hash, Hasher}, ops::Deref};
 
-use super::biome_type::BiomeType;
 use bevy::color::{Color, ColorToPacked};
+
+use crate::BiomeTypeEnum;
 
 pub struct BiomeColor(pub Color);
 
@@ -60,58 +61,58 @@ impl Deref for BiomeColor {
     }
 }
 
-pub fn get_biome_color(biome: &BiomeType) -> BiomeColor {
+pub fn get_biome_color(biome: &BiomeTypeEnum) -> BiomeColor {
     match biome {
-        BiomeType::Ocean => BiomeColor::srgb_u8(0, 15, 30),
-        BiomeType::DeepOcean => BiomeColor::srgb_u8(0, 50, 80),
-        BiomeType::Desert => BiomeColor::srgb_u8(251, 231, 159),
-        BiomeType::Savanna => BiomeColor::srgb_u8(210, 208, 130),
-        BiomeType::Grassland => BiomeColor::srgb_u8(200, 214, 143),
-        BiomeType::TropicalSeasonalForest => BiomeColor::srgb_u8(182, 217, 93),
-        BiomeType::TropicalRainForest => BiomeColor::srgb_u8(125, 203, 52),
-        BiomeType::TropicalDeciduousForest => BiomeColor::srgb_u8(41, 188, 86),
-        BiomeType::TemperateRainForest => BiomeColor::srgb_u8(64, 156, 67),
-        BiomeType::Wetland => BiomeColor::srgb_u8(11, 145, 49),
-        BiomeType::Taiga => BiomeColor::srgb_u8(75, 107, 50),
-        BiomeType::Tundra => BiomeColor::srgb_u8(150, 120, 75),
-        BiomeType::Lake => BiomeColor::srgb_u8(51, 115, 121),
-        BiomeType::ColdDesert => BiomeColor::srgb_u8(181, 184, 135),
-        BiomeType::Ice => BiomeColor::srgb_u8(213, 231, 235),
-        BiomeType::Undefined => BiomeColor::srgb_u8(0, 0, 0),
+        BiomeTypeEnum::Ocean => BiomeColor::srgb_u8(0, 15, 30),
+        BiomeTypeEnum::DeepOcean => BiomeColor::srgb_u8(0, 50, 80),
+        BiomeTypeEnum::Desert => BiomeColor::srgb_u8(251, 231, 159),
+        BiomeTypeEnum::Savanna => BiomeColor::srgb_u8(210, 208, 130),
+        BiomeTypeEnum::Grassland => BiomeColor::srgb_u8(200, 214, 143),
+        BiomeTypeEnum::TropicalSeasonalForest => BiomeColor::srgb_u8(182, 217, 93),
+        BiomeTypeEnum::TropicalRainForest => BiomeColor::srgb_u8(125, 203, 52),
+        BiomeTypeEnum::TropicalDeciduousForest => BiomeColor::srgb_u8(41, 188, 86),
+        BiomeTypeEnum::TemperateRainForest => BiomeColor::srgb_u8(64, 156, 67),
+        BiomeTypeEnum::Wetland => BiomeColor::srgb_u8(11, 145, 49),
+        BiomeTypeEnum::Taiga => BiomeColor::srgb_u8(75, 107, 50),
+        BiomeTypeEnum::Tundra => BiomeColor::srgb_u8(150, 120, 75),
+        BiomeTypeEnum::Lake => BiomeColor::srgb_u8(51, 115, 121),
+        BiomeTypeEnum::ColdDesert => BiomeColor::srgb_u8(181, 184, 135),
+        BiomeTypeEnum::Ice => BiomeColor::srgb_u8(213, 231, 235),
+        BiomeTypeEnum::Undefined => BiomeColor::srgb_u8(0, 0, 0),
     }
 }
 
-pub fn get_biome_from_color(rgba: &[u8; 4]) -> BiomeType {
+pub fn get_biome_from_color(rgba: &[u8; 4]) -> BiomeTypeEnum {
     let (r, g, b) = (rgba[0], rgba[1], rgba[2]);
 
     match (r, g, b) {
-        (0, 15, 30) => BiomeType::Ocean,
-        (0, 50, 80) => BiomeType::DeepOcean,
-        (251, 231, 159) => BiomeType::Desert,
-        (210, 208, 130) => BiomeType::Savanna,
-        (200, 214, 143) => BiomeType::Grassland,
-        (182, 217, 93) => BiomeType::TropicalSeasonalForest,
-        (125, 203, 52) => BiomeType::TropicalRainForest,
-        (41, 188, 86) => BiomeType::TropicalDeciduousForest,
-        (64, 156, 67) => BiomeType::TemperateRainForest,
-        (11, 145, 49) => BiomeType::Wetland,
-        (75, 107, 50) => BiomeType::Taiga,
-        (150, 120, 75) => BiomeType::Tundra,
-        (51, 115, 121) => BiomeType::Lake,
-        (181, 184, 135) => BiomeType::ColdDesert,
-        (213, 231, 235) => BiomeType::Ice,
-        _ => BiomeType::Undefined,
+        (0, 15, 30) => BiomeTypeEnum::Ocean,
+        (0, 50, 80) => BiomeTypeEnum::DeepOcean,
+        (251, 231, 159) => BiomeTypeEnum::Desert,
+        (210, 208, 130) => BiomeTypeEnum::Savanna,
+        (200, 214, 143) => BiomeTypeEnum::Grassland,
+        (182, 217, 93) => BiomeTypeEnum::TropicalSeasonalForest,
+        (125, 203, 52) => BiomeTypeEnum::TropicalRainForest,
+        (41, 188, 86) => BiomeTypeEnum::TropicalDeciduousForest,
+        (64, 156, 67) => BiomeTypeEnum::TemperateRainForest,
+        (11, 145, 49) => BiomeTypeEnum::Wetland,
+        (75, 107, 50) => BiomeTypeEnum::Taiga,
+        (150, 120, 75) => BiomeTypeEnum::Tundra,
+        (51, 115, 121) => BiomeTypeEnum::Lake,
+        (181, 184, 135) => BiomeTypeEnum::ColdDesert,
+        (213, 231, 235) => BiomeTypeEnum::Ice,
+        _ => BiomeTypeEnum::Undefined,
     }
 }
 
-pub fn find_closest_biome(pixel_color: &BiomeColor) -> BiomeType {
-    let known_colors: Vec<(BiomeType, BiomeColor)> = BiomeType::iter()
+pub fn find_closest_biome(pixel_color: &BiomeColor) -> BiomeTypeEnum {
+    let known_colors: Vec<(BiomeTypeEnum, BiomeColor)> = BiomeTypeEnum::iter()
         .map(|b| (b, get_biome_color(&b)))
         .collect();
     if pixel_color.red() == 0 && pixel_color.green() == 0 && pixel_color.blue() == 0 {
-        BiomeType::Ocean
+        BiomeTypeEnum::Ocean
     } else {
-        let distances: Vec<(BiomeType, i32)> = known_colors
+        let distances: Vec<(BiomeTypeEnum, i32)> = known_colors
             .iter()
             .map(|(biome, color)| (*biome, pixel_color.distance_to(color)))
             .collect();

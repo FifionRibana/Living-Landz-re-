@@ -1,13 +1,11 @@
 use bincode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use crate::{BiomeTypeEnum, TerrainChunkId};
 
-use crate::{BiomeType, TerrainChunkId};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct BiomeChunkId {
     pub x: i32,
     pub y: i32,
-    pub biome: BiomeType,
+    pub biome: BiomeTypeEnum,
 }
 
 impl Default for BiomeChunkId {
@@ -15,13 +13,13 @@ impl Default for BiomeChunkId {
         Self {
             x: 0,
             y: 0,
-            biome: BiomeType::DeepOcean,
+            biome: BiomeTypeEnum::DeepOcean,
         }
     }
 }
 
 impl BiomeChunkId {
-    pub fn from_terrain(terrain: &TerrainChunkId, biome: BiomeType) -> Self {
+    pub fn from_terrain(terrain: &TerrainChunkId, biome: BiomeTypeEnum) -> Self {
         Self {
             x: terrain.x,
             y: terrain.y,

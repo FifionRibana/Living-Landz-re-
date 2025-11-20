@@ -6,7 +6,6 @@ use crate::world::components::TerrainMeshData;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
 use hexx::HexOrientation;
-use image::{ImageBuffer, Luma, Rgba};
 use shared::BuildingData;
 use shared::GameState;
 use shared::constants;

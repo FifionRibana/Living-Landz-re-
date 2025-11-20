@@ -7,7 +7,7 @@ use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::{BiomeType, constants};
+use shared::constants;
 use shared::{MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
 
 use super::mesh_data::MeshData;

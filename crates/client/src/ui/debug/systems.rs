@@ -10,7 +10,7 @@ use bevy::diagnostic::{
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use shared::BiomeType;
+use shared::BiomeTypeEnum;
 
 use super::components::*;
 
@@ -281,7 +281,7 @@ pub fn update_debug_ui(
             };
             let biome = match world_cache.get_cell(grid_cell) {
                 Some(cell_data) => { cell_data.biome }
-                _ => { BiomeType::Undefined }
+                _ => { BiomeTypeEnum::Undefined }
             };
             **text = format!("Cell: (q: {}, r: {})\nBiome: {:?}", hovered_cell.x, hovered_cell.y, biome);
         }

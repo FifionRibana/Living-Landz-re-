@@ -4,7 +4,7 @@ use noise::{NoiseFn, Perlin};
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use shared::{
-    BiomeType, BuildingBaseData, BuildingCategory, BuildingData, BuildingSpecific, BuildingType, GameState, TreeAge, TreeData, TreeType, grid::{CellData, GridCell}
+    BiomeTypeEnum, BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific, BuildingSpecificTypeEnum, GameState, TreeAge, TreeData, TreeTypeEnum, grid::{CellData, GridCell}
 };
 
 // TODO Move into utils
@@ -66,11 +66,11 @@ impl NaturalBuildingGenerator {
                 let id = Self::generate_building_id(&cell_data.cell);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(id);
 
-                let mut spawnable_trees = TreeType::from_biome(cell_data.biome);
+                let mut spawnable_trees = TreeTypeEnum::from_biome(cell_data.biome);
                 if spawnable_trees.len() == 0 {
                     return None;
                 }
-                spawnable_trees = vec![TreeType::Cedar];
+                spawnable_trees = vec![TreeTypeEnum::Cedar];
 
                 let tree_type_idx = rng.random_range(..spawnable_trees.len());
 
@@ -80,17 +80,15 @@ impl NaturalBuildingGenerator {
                     .get_variations(tree_type)
                     .expect(format!("No variations for {:?} type", tree_type).as_str());
 
-                let variant_count = (tree_variations.len() / (TreeAge::iter().collect::<Vec<TreeAge>>().len() * 6)) as usize;
+                let variant_count = (tree_variations.len()
+                    / (TreeAge::iter().collect::<Vec<TreeAge>>().len() * 6))
+                    as usize;
                 let tree_variant_idx = rng.random_range(..variant_count);
-                let tree_variant = tree_variations[tree_variant_idx].clone();
-
-                let type_id = game_state
-                    .get_building_type_id(&tree_type.to_name())
-                    .expect(format!("Invalid building type {:?}", tree_type).as_str());
 
                 let base_data = BuildingBaseData {
                     id,
-                    building_type: BuildingType::tree(tree_type, tree_variant, type_id),
+                    specific_type: BuildingSpecificTypeEnum::Tree,
+                    category: BuildingCategoryEnum::Natural,
                     chunk: cell_data.chunk,
                     cell: cell_data.cell,
                     created_at: Self::timestamp(),
@@ -115,11 +113,10 @@ impl NaturalBuildingGenerator {
                 ))
             })
             .collect();
-        
+
         tracing::info!("{} trees generated", &trees.len());
 
         self.buildings.extend(trees);
-        
     }
 
     fn compute_tree_density(&mut self) {
@@ -166,16 +163,16 @@ impl NaturalBuildingGenerator {
         hash
     }
 
-    fn get_tree_spawn_chance(biome: BiomeType) -> f32 {
+    fn get_tree_spawn_chance(biome: BiomeTypeEnum) -> f32 {
         match biome {
-            BiomeType::Savanna => 0.1,
-            BiomeType::Grassland => 0.3,
-            BiomeType::TropicalSeasonalForest => 0.6,
-            BiomeType::TropicalRainForest => 0.6,
-            BiomeType::TropicalDeciduousForest => 0.6,
-            BiomeType::TemperateRainForest => 0.6,
-            BiomeType::Wetland => 0.45,
-            BiomeType::Taiga => 0.4,
+            BiomeTypeEnum::Savanna => 0.1,
+            BiomeTypeEnum::Grassland => 0.3,
+            BiomeTypeEnum::TropicalSeasonalForest => 0.6,
+            BiomeTypeEnum::TropicalRainForest => 0.6,
+            BiomeTypeEnum::TropicalDeciduousForest => 0.6,
+            BiomeTypeEnum::TemperateRainForest => 0.6,
+            BiomeTypeEnum::Wetland => 0.45,
+            BiomeTypeEnum::Taiga => 0.4,
             _ => 0.0,
         }
     }

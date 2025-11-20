@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use shared::{TreeType, atlas::TreeAtlas};
+use shared::{TreeTypeEnum, atlas::TreeAtlas};
 
 pub fn setup_tree_atlas(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut atlas = TreeAtlas::default();
     atlas.load();
 
-    for tree_type in TreeType::iter() {
-        if !matches!(tree_type, TreeType::Cedar) {
+    for tree_type in TreeTypeEnum::iter() {
+        if !matches!(tree_type, TreeTypeEnum::Cedar) {
             continue;
         }
 

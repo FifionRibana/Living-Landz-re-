@@ -1,13 +1,17 @@
-mod building_category;
 mod building_data;
-mod building_type;
-mod dwellings;
+// mod dwellings;
 mod trees;
-mod urbanism;
+// mod urbanism;
 
-pub use building_category::BuildingCategory;
+mod enums;
+mod lookups;
+
+pub use enums::*;
+pub use lookups::*;
+
+// pub use building_category::BuildingCategory;
 pub use building_data::*;
-pub use building_type::BuildingType;
-pub use dwellings::*;
+// pub use building_type::BuildingType;
+// pub use dwellings::*;
 pub use trees::*;
-pub use urbanism::*;
+// pub use urbanism::*;

@@ -1,4 +1,4 @@
-use crate::BiomeType;
+use crate::{BiomeTypeEnum};
 use bincode::{Encode, Decode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Encode, Decode)]
@@ -10,16 +10,16 @@ pub enum TreeType {
 }
 
 impl TreeType {
-    pub fn from_biome(biome: BiomeType) -> Vec<TreeType> {
+    pub fn from_biome(biome: BiomeTypeEnum) -> Vec<TreeType> {
         match biome {
-            BiomeType::Savanna => vec![],
-            BiomeType::Grassland => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::TropicalSeasonalForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::TropicalRainForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::TropicalDeciduousForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::TemperateRainForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::Wetland => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
-            BiomeType::Taiga => vec![],
+            BiomeTypeEnum::Savanna => vec![],
+            BiomeTypeEnum::Grassland => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::TropicalSeasonalForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::TropicalRainForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::TropicalDeciduousForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::TemperateRainForest => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::Wetland => vec![TreeType::Cedar, TreeType::Larch, TreeType::Oak],
+            BiomeTypeEnum::Taiga => vec![],
             _ => vec![]
         }
     }

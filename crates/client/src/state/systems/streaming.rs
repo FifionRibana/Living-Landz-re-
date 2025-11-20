@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, BiomeType, TerrainChunkData, TerrainChunkId, constants,
+    BiomeChunkData, BiomeChunkId, BiomeTypeEnum, TerrainChunkData, TerrainChunkId, constants,
 };
 
 use crate::networking::client::NetworkClient;
@@ -61,7 +61,7 @@ pub fn request_chunks_around_camera(
                 to_request.push(id);
             }
 
-            for biome_type in BiomeType::iter() {
+            for biome_type in BiomeTypeEnum::iter() {
                 let biome_id = BiomeChunkId::from_terrain(&id, biome_type);
 
                 if !world_cache.is_biome_loaded("Gaulyia", &biome_id)
@@ -122,7 +122,7 @@ pub fn unload_distant_chunks(
         commands.entity(entity).despawn();
     }
 
-    for biome_type in BiomeType::iter() {
+    for biome_type in BiomeTypeEnum::iter() {
         let biome_chunk_id = &BiomeChunkId::from_terrain(terrain_chunk_id, biome_type);
         let (removed_biome_keys, _) =
             world_cache.unload_distant_biome(biome_chunk_id, streaming_config.unload_distance);

@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 bevy = { workspace = true, default_features = false }
 bincode = { workspace = true }
+chrono = { workspace = true }
 
 hexx = { workspace = true }
 serde = { workspace = true }

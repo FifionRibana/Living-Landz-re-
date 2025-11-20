@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
 use shared::{
-    BuildingBaseData, BuildingCategory, BuildingData, BuildingSpecific, BuildingSpecificType, BuildingType, TerrainChunkId, TreeData, TreeType, grid::{CellData, GridCell}
+    BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific,
+    BuildingSpecificTypeEnum, TerrainChunkId, TreeData, TreeTypeEnum, grid::GridCell,
 };
 use sqlx::{PgPool, Row};
 
@@ -13,67 +14,6 @@ pub struct BuildingsTable {
 impl BuildingsTable {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
-    }
-
-    pub async fn init_schema(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS buildings_base (
-                id BIGINT PRIMARY KEY,
-                building_type_id SERIAL REFERENCES building_types(id),
-                category building_category NOT NULL,
-                
-                chunk_x INT NOT NULL,
-                chunk_y INT NOT NULL,
-                cell_q INT NOT NULL,
-                cell_r INT NOT NULL,
-
-                quality FLOAT NOT NULL DEFAULT 1.0,
-                durability FLOAT NOT NULL DEFAULT 1.0,
-                damage FLOAT NOT NULL DEFAULT 1.0,
-
-                created_at BIGINT NOT NULL,
-
-                UNIQUE(cell_q, cell_r),
-                UNIQUE(cell_q, cell_r, chunk_x, chunk_y)
-            );"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_building_type_id ON buildings_base(building_type_id)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_buildings_chunk ON buildings_base(chunk_x, chunk_y)",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_buildings_created ON buildings_base(created_at)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS trees (
-                building_id BIGINT PRIMARY KEY REFERENCES buildings_base(id) ON DELETE CASCADE,
-                tree_type tree_type NOT NULL,
-                density INT NOT NULL,
-                age INT NOT NULL,
-                variant INT NOT NULL
-            );"#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_buildings ON trees(building_id)")
-            .execute(&self.pool)
-            .await?;
-
-        tracing::info!("✓ Buildings Database schema ready");
-        Ok(())
     }
 
     pub async fn save_buildings(&self, buildings: &[BuildingData]) -> Result<(), sqlx::Error> {
@@ -90,14 +30,14 @@ impl BuildingsTable {
         let mut tx = self.pool.begin().await?;
         for chunk in chunks {
             let mut query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings_base (id, building_type_id, category, chunk_x, chunk_y, cell_q, cell_r, created_at, quality, durability, damage)",
+                "INSERT INTO buildings.buildings_base (id, building_type_id, category_id, chunk_x, chunk_y, cell_q, cell_r, created_at, quality, durability, damage)",
             );
 
             query_builder.push_values(chunk.iter(), |mut b, building| {
                 let building_data = &building.base_data;
                 b.push_bind(building_data.id as i64)
-                    .push_bind(building_data.building_type.id)
-                    .push_bind(building_data.building_type.category)
+                    .push_bind(building_data.specific_type.to_id())
+                    .push_bind(building_data.category.to_id())
                     .push_bind(building_data.chunk.x)
                     .push_bind(building_data.chunk.y)
                     .push_bind(building_data.cell.q)
@@ -139,14 +79,14 @@ impl BuildingsTable {
             });
 
             let mut tree_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO trees (building_id, tree_type, density, age, variant)",
+                "INSERT INTO buildings.trees (building_id, tree_type_id, density, age, variant)",
             );
 
             tree_query_builder.push_values(
                 trees_iter,
                 |mut b, (id, density, age, tree_type, variant)| {
                     b.push_bind(id)
-                        .push_bind(tree_type)
+                        .push_bind(tree_type.to_id())
                         .push_bind(density)
                         .push_bind(age)
                         .push_bind(variant);
@@ -181,12 +121,12 @@ impl BuildingsTable {
         let base_buildings_rows = sqlx::query(
             r#"
             SELECT 
-                b.id, b.building_type_id, b.category,
+                b.id, b.building_type_id, b.category_id,
                 b.cell_q, b.cell_r, 
                 b.quality, b.durability, b.damage, b.created_at,
-                bt.specific_type
-            FROM buildings_base b
-            JOIN building_types bt ON b.building_type_id = bt.id
+                bt.specific_type_id
+            FROM buildings.buildings_base b
+            JOIN buildings.building_types bt ON b.building_type_id = bt.id
             WHERE chunk_x = $1 AND chunk_y = $2
         "#,
         )
@@ -197,16 +137,15 @@ impl BuildingsTable {
 
         for r in base_buildings_rows {
             let id = r.get::<i64, &str>("id");
-            let category = r.get::<BuildingCategory, &str>("category");
-            let specific_type = r.get::<BuildingSpecificType, &str>("specific_type");
+            let category = BuildingCategoryEnum::from_id(r.get("category_id"))
+                .unwrap_or(BuildingCategoryEnum::Unknown);
+            let specific_type = BuildingSpecificTypeEnum::from_id(r.get("specific_type_id"))
+                .unwrap_or(BuildingSpecificTypeEnum::Unknown);
 
             let base_data = BuildingBaseData {
                 id: id as u64,
-                building_type: BuildingType {
-                    id: r.get("building_type_id"),
-                    variant: String::new(), // TODO REMOVE FROM HERE
-                    category: BuildingCategory::Natural,
-                },
+                specific_type: specific_type.clone(),
+                category: category.clone(),
                 cell: GridCell {
                     q: r.get("cell_q"),
                     r: r.get("cell_r"),
@@ -219,11 +158,11 @@ impl BuildingsTable {
             };
 
             let specific_data = match (category, specific_type) {
-                (BuildingCategory::Natural, BuildingSpecificType::Tree) => {
+                (BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree) => {
                     let tree = sqlx::query(
                         r#"
-                            SELECT tree_type, density, age, variant
-                            FROM trees
+                            SELECT tree_type_id, density, age, variant
+                            FROM buildings.trees
                             WHERE building_id = $1
                         "#,
                     )
@@ -231,8 +170,11 @@ impl BuildingsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
+                    let tree_type = TreeTypeEnum::from_id(tree.get("tree_type_id"))
+                        .unwrap_or(TreeTypeEnum::Cedar);
+
                     BuildingSpecific::Tree(TreeData {
-                        tree_type: tree.get::<TreeType, &str>("tree_type"),
+                        tree_type,
                         density: tree.get::<i32, &str>("density") as f32,
                         age: tree.get("age"),
                         variant: tree.get("variant"),

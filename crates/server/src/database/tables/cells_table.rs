@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use shared::{
-    TerrainChunkId,
+    BiomeTypeEnum, TerrainChunkId,
     grid::{CellData, GridCell},
 };
 use sqlx::{PgPool, Row};
@@ -16,38 +16,6 @@ impl CellsTable {
         Self { pool }
     }
 
-    pub async fn init_schema(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS cells (
-                q INT NOT NULL,
-                r INT NOT NULL,
-                
-                biome biome_type NOT NULL,
-                terrain_type VARCHAR,
-                
-                building_id BIGINT REFERENCES buildings(id) ON DELETE SET NULL,
-                
-                chunk_x INT NOT NULL,
-                chunk_y INT NOT NULL,
-                
-                UNIQUE(q, r),
-                UNIQUE(chunk_x, chunk_y, q, r),
-                PRIMARY KEY (q, r)
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_cells_chunk ON cells(chunk_x, chunk_y)")
-            .execute(&self.pool)
-            .await?;
-
-        tracing::info!("✓ Cells Database schema ready");
-        Ok(())
-    }
-
     pub async fn save_cells(&self, cells: &[CellData]) -> Result<(), sqlx::Error> {
         const BATCH_SIZE: usize = 1000;
         let chunks: Vec<_> = cells.chunks(BATCH_SIZE).collect();
@@ -56,15 +24,16 @@ impl CellsTable {
 
         let mut tx = self.pool.begin().await?;
         for chunk in chunks {
-            let mut query_builder =
-                sqlx::QueryBuilder::new("INSERT INTO cells (q, r, chunk_x, chunk_y, biome)");
+            let mut query_builder = sqlx::QueryBuilder::new(
+                "INSERT INTO terrain.cells (q, r, chunk_x, chunk_y, biome_id)",
+            );
 
             query_builder.push_values(chunk.iter(), |mut b, cell_data| {
                 b.push_bind(cell_data.cell.q)
                     .push_bind(cell_data.cell.r)
                     .push_bind(cell_data.chunk.x)
                     .push_bind(cell_data.chunk.y)
-                    .push_bind(cell_data.biome);
+                    .push_bind(cell_data.biome.to_id());
             });
 
             query_builder.push(
@@ -82,16 +51,19 @@ impl CellsTable {
         &self,
         chunk_id: &TerrainChunkId,
     ) -> Result<Vec<CellData>, sqlx::Error> {
-        let row = sqlx::query("SELECT q, r, biome FROM cells WHERE chunk_x = $1 AND chunk_y = $2")
-            .bind(chunk_id.x)
-            .bind(chunk_id.y)
-            .fetch_all(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT q, r, biome_id FROM terrain.cells WHERE chunk_x = $1 AND chunk_y = $2",
+        )
+        .bind(chunk_id.x)
+        .bind(chunk_id.y)
+        .fetch_all(&self.pool)
+        .await?;
 
         let cells = row
             .iter()
             .map(|r| CellData {
-                biome: r.get("biome"),
+                biome: BiomeTypeEnum::from_id(r.get("biome_id"))
+                    .unwrap_or(BiomeTypeEnum::Undefined),
                 cell: GridCell {
                     q: r.get("q"),
                     r: r.get("r"),
