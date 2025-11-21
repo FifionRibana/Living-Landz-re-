@@ -13,6 +13,7 @@ impl Plugin for ClientStatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<resources::ConnectionStatus>()
             .init_resource::<resources::WorldCache>()
+            .init_resource::<resources::PlayerInfo>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
             .add_systems(Startup, resources::setup_tree_atlas)

@@ -8,6 +8,31 @@ use crate::{
     types::TerrainChunkData,
 };
 
+/// Simplified Player data for network protocol (without timestamps)
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct PlayerData {
+    pub id: i64,
+    pub family_name: String,
+    pub language_id: i16,
+    pub coat_of_arms_id: Option<i64>,
+    pub motto: Option<String>,
+    pub origin_location: String,
+}
+
+/// Simplified Character data for network protocol (without timestamps)
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CharacterData {
+    pub id: i64,
+    pub player_id: i64,
+    pub first_name: String,
+    pub family_name: String,
+    pub second_name: Option<String>,
+    pub nickname: Option<String>,
+    pub coat_of_arms_id: Option<i64>,
+    pub image_id: Option<i64>,
+    pub motto: Option<String>,
+}
+
 /// Messages Client → Server
 #[derive(Debug, Clone, Encode, Decode)]
 pub enum ClientMessage {
@@ -70,7 +95,8 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     /// Connection acknowledgement
     LoginSuccess {
-        player_id: u64,
+        player: PlayerData,
+        character: Option<CharacterData>,
     },
 
     /// Connection error

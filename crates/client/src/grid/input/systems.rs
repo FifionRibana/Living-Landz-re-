@@ -58,19 +58,31 @@ pub fn update_hover_hexagon(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut query: Query<(&mut Transform, &mut Visibility), With<HexHoverIndicator>>,
     grid_config: Res<GridConfig>,
+    // Check if cursor is over UI
+    ui_interaction_query: Query<&Interaction, (With<Node>, With<Pickable>)>,
 ) -> Result {
     let window = windows.single()?;
     let (camera, camera_transform) = cameras.single()?;
+
+    // Check if cursor is over any UI element
+    let is_over_ui = ui_interaction_query
+        .iter()
+        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
 
     if let Some(position) = window
         .cursor_position()
         .and_then(|p| camera.viewport_to_world_2d(camera_transform, p).ok())
     {
         if let Ok((mut transform, mut visibility)) = query.single_mut() {
-            let hex_position = grid_config.layout.world_pos_to_hex(position);
-            let world_pos = grid_config.layout.hex_to_world_pos(hex_position);
-            transform.translation = world_pos.extend(0.1); // Z légèrement au-dessus
-            *visibility = Visibility::Visible;
+            // Hide hover indicator if cursor is over UI
+            if is_over_ui {
+                *visibility = Visibility::Hidden;
+            } else {
+                let hex_position = grid_config.layout.world_pos_to_hex(position);
+                let world_pos = grid_config.layout.hex_to_world_pos(hex_position);
+                transform.translation = world_pos.extend(0.1); // Z légèrement au-dessus
+                *visibility = Visibility::Visible;
+            }
         } else {
             // *visibility = Visibility::Hidden;
         }
