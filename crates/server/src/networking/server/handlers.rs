@@ -76,8 +76,70 @@ async fn handle_client_message(
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
-            tracing::info!("Player {} logged in as {}", player_id, username);
-            vec![ServerMessage::LoginSuccess { player_id }]
+            tracing::info!("Player {} attempting to log in as {}", player_id, username);
+
+            // Try to get or create the player in the database
+            match shared::types::game::methods::get_or_create_player(
+                &db_tables.pool,
+                &username,
+                1, // Default language_id (could be configurable)
+                "default_location", // Default origin location
+                None, // No motto by default
+            ).await {
+                Ok(player) => {
+                    tracing::info!("Player {} logged in successfully with DB ID {}", username, player.id);
+
+                    // Get or create a default character
+                    match shared::types::game::methods::get_or_create_default_character(
+                        &db_tables.pool,
+                        player.id,
+                        &player.family_name,
+                    ).await {
+                        Ok(character) => {
+                            tracing::info!("Character {} {} loaded/created", character.first_name, character.family_name);
+
+                            // Convert to protocol types (without timestamps)
+                            let player_data = shared::protocol::PlayerData {
+                                id: player.id,
+                                family_name: player.family_name,
+                                language_id: player.language_id,
+                                coat_of_arms_id: player.coat_of_arms_id,
+                                motto: player.motto,
+                                origin_location: player.origin_location,
+                            };
+
+                            let character_data = shared::protocol::CharacterData {
+                                id: character.id,
+                                player_id: character.player_id,
+                                first_name: character.first_name,
+                                family_name: character.family_name,
+                                second_name: character.second_name,
+                                nickname: character.nickname,
+                                coat_of_arms_id: character.coat_of_arms_id,
+                                image_id: character.image_id,
+                                motto: character.motto,
+                            };
+
+                            vec![ServerMessage::LoginSuccess {
+                                player: player_data,
+                                character: Some(character_data),
+                            }]
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to get/create character: {}", e);
+                            vec![ServerMessage::LoginError {
+                                reason: format!("Character creation error: {}", e)
+                            }]
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get/create player {}: {}", username, e);
+                    vec![ServerMessage::LoginError {
+                        reason: format!("Database error: {}", e)
+                    }]
+                }
+            }
         }
         ClientMessage::RequestTerrainChunks {
             terrain_name,

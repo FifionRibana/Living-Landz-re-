@@ -14,6 +14,7 @@ pub struct DatabaseClient {
 }
 
 pub struct DatabaseTables {
+    pub pool: sqlx::PgPool,
     pub actions: tables::ScheduledActionsTable,
     pub buildings: tables::BuildingsTable,
     pub cells: tables::CellsTable,
@@ -64,6 +65,7 @@ impl DatabaseClient {
 
         (
             DatabaseTables {
+                pool: pool.clone(),
                 actions: tables::ScheduledActionsTable::new(pool.clone()),
                 buildings: tables::BuildingsTable::new(pool.clone()),
                 cells: tables::CellsTable::new(pool.clone()),

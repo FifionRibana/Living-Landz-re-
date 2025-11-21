@@ -59,7 +59,7 @@ rayon = "1.10"
 
 # Database (serveur) and serialization
 serde = { version = "1.0", features = ["derive"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "derive"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "derive", "chrono"] }
 
 # Logging
 tracing = "0.1"

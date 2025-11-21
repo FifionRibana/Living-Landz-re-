@@ -6,7 +6,7 @@ use shared::atlas::GaugeAtlas;
 use crate::{
     grid::{components::HexSelectIndicator, resources::SelectedHexes},
     ui::{
-        components::{ClockText, DateText, MoonText},
+        components::{CharacterNameText, ClockText, DateText, MenuButton, MoonText, PlayerNameText},
         debug::HoveredCellInfoText,
     },
 };
@@ -143,13 +143,14 @@ pub fn setup_ui(
                                 ..default()
                             },
                             Pickable {
-                                should_block_lower: false,
+                                should_block_lower: true,
                                 is_hoverable: false,
                             },
                         ))
                         .with_children(|menu_bar_parent| {
-                            for menu_image in menu_images {
+                            for (index, menu_image) in menu_images.iter().enumerate() {
                                 menu_bar_parent.spawn((
+                                    Button,
                                     Node {
                                         width: px(32.),
                                         height: px(32.),
@@ -157,7 +158,7 @@ pub fn setup_ui(
                                         ..default()
                                     },
                                     ImageNode {
-                                        image: menu_image,
+                                        image: menu_image.clone(),
                                         image_mode: NodeImageMode::Auto,
                                         color: Color::srgb_u8(157, 136, 93),
                                         ..default()
@@ -166,6 +167,7 @@ pub fn setup_ui(
                                         should_block_lower: true,
                                         is_hoverable: true,
                                     },
+                                    MenuButton { button_id: index },
                                 ));
                             }
                         });
@@ -175,7 +177,7 @@ pub fn setup_ui(
                             ..default()
                         },
                         Pickable {
-                            should_block_lower: false,
+                            should_block_lower: true,
                             is_hoverable: false,
                         },
                     ));
@@ -188,7 +190,7 @@ pub fn setup_ui(
                                 ..default()
                             },
                             Pickable {
-                                should_block_lower: false,
+                                should_block_lower: true,
                                 is_hoverable: false,
                             },
                         ))
@@ -202,7 +204,7 @@ pub fn setup_ui(
                                 TextColor(Color::srgb_u8(223, 210, 194)),
                                 Node { ..default() },
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -216,7 +218,7 @@ pub fn setup_ui(
                                 DateText,
                                 Node { ..default() },
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -230,7 +232,7 @@ pub fn setup_ui(
                                 ClockText,
                                 Node { ..default() },
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -241,7 +243,7 @@ pub fn setup_ui(
                             ..default()
                         },
                         Pickable {
-                            should_block_lower: false,
+                            should_block_lower: true,
                             is_hoverable: false,
                         },
                     ));
@@ -253,12 +255,71 @@ pub fn setup_ui(
                         },
                         TextColor(Color::srgb_u8(223, 210, 194)),
                         MoonText,
-                        Node { ..default() },
+                        Node {
+                            align_self: AlignSelf::Center,
+                            ..default()
+                        },
                         Pickable {
-                            should_block_lower: false,
+                            should_block_lower: true,
                             is_hoverable: false,
                         },
                     ));
+                    // Spacer
+                    top_bar_parent.spawn((
+                        Node {
+                            width: px(32.),
+                            ..default()
+                        },
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: false,
+                        },
+                    ));
+                    // Player and Character info
+                    top_bar_parent
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::End,
+                                padding: UiRect::horizontal(px(16.)),
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|player_info_parent| {
+                            player_info_parent.spawn((
+                                Text::new("--"),
+                                TextFont {
+                                    font_size: 13.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(223, 210, 194)),
+                                PlayerNameText,
+                                Node { ..default() },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                            player_info_parent.spawn((
+                                Text::new("--"),
+                                TextFont {
+                                    font_size: 11.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(200, 187, 171)),
+                                CharacterNameText,
+                                Node { ..default() },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
                 });
             parent
                 .spawn((
@@ -279,7 +340,7 @@ pub fn setup_ui(
                     },
                     UIFrameMarker,
                     Pickable {
-                        should_block_lower: false,
+                        should_block_lower: true,
                         is_hoverable: false,
                     },
                 ))
@@ -294,7 +355,7 @@ pub fn setup_ui(
                                 ..default()
                             },
                             Pickable {
-                                should_block_lower: false,
+                                should_block_lower: true,
                                 is_hoverable: false,
                             },
                         ))
@@ -307,7 +368,7 @@ pub fn setup_ui(
                                 },
                                 TextColor(Color::srgb_u8(223, 210, 194)),
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -329,7 +390,7 @@ pub fn setup_ui(
                                 ..default()
                             },
                             Pickable {
-                                should_block_lower: false,
+                                should_block_lower: true,
                                 is_hoverable: false,
                             },
                         ))
@@ -344,7 +405,7 @@ pub fn setup_ui(
                                 Node { ..default() },
                                 HoveredCellInfoText,
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -361,7 +422,7 @@ pub fn setup_ui(
                                     ..default()
                                 },
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -374,7 +435,7 @@ pub fn setup_ui(
                                         ..default()
                                     },
                                     Pickable {
-                                        should_block_lower: false,
+                                        should_block_lower: true,
                                         is_hoverable: false,
                                     },
                                 ))
@@ -408,7 +469,7 @@ pub fn setup_ui(
                                             },
                                             ZIndex(3 - position.abs()),
                                             Pickable {
-                                                should_block_lower: false,
+                                                should_block_lower: true,
                                                 is_hoverable: false,
                                             },
                                         ));
@@ -424,7 +485,7 @@ pub fn setup_ui(
                                 Node { ..default() },
                                 HoveredCellInfoText,
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -438,7 +499,7 @@ pub fn setup_ui(
                                 Node { ..default() },
                                 HoveredCellInfoText,
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -452,7 +513,7 @@ pub fn setup_ui(
                                 Node { ..default() },
                                 HoveredCellInfoText,
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));
@@ -466,7 +527,7 @@ pub fn setup_ui(
                                 Node { ..default() },
                                 HoveredCellInfoText,
                                 Pickable {
-                                    should_block_lower: false,
+                                    should_block_lower: true,
                                     is_hoverable: false,
                                 },
                             ));

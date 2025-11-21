@@ -1,10 +1,11 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ConnectionStatus, WorldCache};
+use crate::state::resources::{ConnectionStatus, PlayerInfo, WorldCache};
 
 pub fn handle_server_message(
     mut connection: ResMut<ConnectionStatus>,
+    mut player_info: ResMut<PlayerInfo>,
     mut cache: ResMut<WorldCache>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
@@ -21,10 +22,25 @@ pub fn handle_server_message(
 
     for message in messages {
         match message {
-            shared::protocol::ServerMessage::LoginSuccess { player_id } => {
-                info!("✓ Login successful, player ID: {}", player_id);
+            shared::protocol::ServerMessage::LoginSuccess { player, character } => {
+                info!("✓ Login successful, player ID: {}", player.id);
                 connection.logged_in = true;
-                connection.player_id = Some(player_id);
+                connection.player_id = Some(player.id as u64);
+
+                // Store player name from received data
+                player_info.temp_player_name = Some(player.family_name.clone());
+                info!("Player '{}' logged in (ID: {})", player.family_name, player.id);
+
+                // Store character if provided
+                if let Some(character_data) = character {
+                    let character_name = if let Some(nickname) = &character_data.nickname {
+                        format!("{} \"{}\" {}", character_data.first_name, nickname, character_data.family_name)
+                    } else {
+                        format!("{} {}", character_data.first_name, character_data.family_name)
+                    };
+                    player_info.temp_character_name = Some(character_name.clone());
+                    info!("Character '{}' loaded (ID: {})", character_name, character_data.id);
+                }
             }
             shared::protocol::ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);

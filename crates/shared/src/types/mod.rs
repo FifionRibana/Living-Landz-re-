@@ -4,6 +4,7 @@ mod common;
 mod resource;
 mod terrain;
 
+pub mod game;
 pub mod grid;
 
 pub use actions::*;
