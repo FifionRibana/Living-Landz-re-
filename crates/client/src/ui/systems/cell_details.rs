@@ -1,13 +1,14 @@
 use std::io::Cursor;
 
 use bevy::{asset::RenderAssetUsages, prelude::*};
-use shared::atlas::GaugeAtlas;
+use shared::atlas::{GaugeAtlas, MoonAtlas};
 
 use crate::{
     grid::{components::HexSelectIndicator, resources::SelectedHexes},
     ui::{
-        components::{CharacterNameText, ClockText, DateText, MenuButton, MoonText, PlayerNameText},
+        components::{ActionDescriptionText, ActionButtonMarker, ActionsPanelMarker, ActionTitleText, CharacterNameText, ChatInputContainer, ChatInputField, ChatInputState, ChatInputText, ChatMessagesContainer, ChatPanelMarker, ChatSendButton, ChatToggleButton, ClockText, DateText, MenuButton, MoonPhaseImage, MoonText, PlayerNameText},
         debug::HoveredCellInfoText,
+        resources::ChatState,
     },
 };
 
@@ -18,6 +19,7 @@ pub fn setup_ui(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     gauge_atlas: Res<GaugeAtlas>,
+    moon_atlas: Res<MoonAtlas>,
 ) {
     // let frame = asset_server.load("ui/wood_and_leather_frame_4_05x.png");
     let top_bar_image = asset_server.load("ui/ui_top_bar.png");
@@ -111,6 +113,7 @@ pub fn setup_ui(
         .with_children(|parent| {
             parent
                 .spawn((
+                    Button,
                     ImageNode {
                         image: top_bar_image.clone(),
                         // image: frame_handler.clone(),
@@ -130,7 +133,7 @@ pub fn setup_ui(
                     },
                     Pickable {
                         should_block_lower: true,
-                        is_hoverable: false,
+                        is_hoverable: true,
                     },
                 ))
                 .with_children(|top_bar_parent| {
@@ -144,7 +147,7 @@ pub fn setup_ui(
                             },
                             Pickable {
                                 should_block_lower: true,
-                                is_hoverable: false,
+                                is_hoverable: true,
                             },
                         ))
                         .with_children(|menu_bar_parent| {
@@ -247,23 +250,66 @@ pub fn setup_ui(
                             is_hoverable: false,
                         },
                     ));
-                    top_bar_parent.spawn((
-                        Text::new("--"),
-                        TextFont {
-                            font_size: 12.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb_u8(223, 210, 194)),
-                        MoonText,
-                        Node {
-                            align_self: AlignSelf::Center,
-                            ..default()
-                        },
-                        Pickable {
-                            should_block_lower: true,
-                            is_hoverable: false,
-                        },
-                    ));
+                    // Moon phase display with UI overlay
+                    top_bar_parent
+                        .spawn((
+                            Node {
+                                width: px(48.),
+                                height: px(48.),
+                                align_self: AlignSelf::Center,
+                                position_type: PositionType::Relative,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|moon_container| {
+                            // Moon phase image
+                            if let Some(moon_image) = moon_atlas.get_handle(3) {
+                                moon_container.spawn((
+                                    ImageNode {
+                                        image: moon_image.clone(),
+                                        ..default()
+                                    },
+                                    Node {
+                                        width: px(28.),
+                                        height: px(28.),
+                                        position_type: PositionType::Absolute,
+                                        left: px(10.),
+                                        top: px(10.),
+                                        ..default()
+                                    },
+                                    MoonPhaseImage,
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: false,
+                                    },
+                                ));
+                            }
+                            // UI overlay (moon ring)
+                            moon_container.spawn((
+                                ImageNode {
+                                    image: asset_server.load("ui/moon_ring_brass.png"),
+                                    ..default()
+                                },
+                                Node {
+                                    width: px(48.),
+                                    height: px(48.),
+                                    position_type: PositionType::Absolute,
+                                    left: px(0.),
+                                    top: px(0.),
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
                     // Spacer
                     top_bar_parent.spawn((
                         Node {
@@ -339,6 +385,7 @@ pub fn setup_ui(
                         ..default()
                     },
                     UIFrameMarker,
+                    Interaction::None,
                     Pickable {
                         should_block_lower: true,
                         is_hoverable: false,
@@ -531,6 +578,389 @@ pub fn setup_ui(
                                     is_hoverable: false,
                                 },
                             ));
+                        });
+                });
+
+            // Actions panel at the bottom
+            parent
+                .spawn((
+                    ImageNode {
+                        image: paper_panel_image.clone(),
+                        image_mode: NodeImageMode::Sliced(paper_panel_slicer.clone()),
+                        ..default()
+                    },
+                    Node {
+                        height: px(150.),
+                        position_type: PositionType::Absolute,
+                        bottom: px(0.0),
+                        left: px(0.0),
+                        right: px(0.0),
+                        margin: UiRect::all(px(10.)),
+                        padding: UiRect::all(px(16.)),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    ActionsPanelMarker,
+                    UIFrameMarker,
+                    Interaction::None,
+                    Pickable {
+                        should_block_lower: true,
+                        is_hoverable: false,
+                    },
+                ))
+                .with_children(|actions_panel| {
+                    // Title
+                    actions_panel.spawn((
+                        Text::new("Actions"),
+                        TextFont {
+                            font_size: 16.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb_u8(223, 210, 194)),
+                        Node {
+                            margin: UiRect::bottom(px(8.)),
+                            ..default()
+                        },
+                        ActionTitleText,
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: false,
+                        },
+                    ));
+
+                    // Actions container (horizontal scroll)
+                    actions_panel
+                        .spawn((
+                            Node {
+                                width: percent(100.),
+                                height: percent(100.),
+                                flex_direction: FlexDirection::Row,
+                                column_gap: px(8.),
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|actions_container| {
+                            // Example action button: Build Road
+                            actions_container
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(100.),
+                                        height: px(80.),
+                                        flex_direction: FlexDirection::Column,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        padding: UiRect::all(px(8.)),
+                                        border: UiRect::all(px(2.)),
+                                        ..default()
+                                    },
+                                    BorderColor::all(Color::srgb_u8(150, 130, 100)),
+                                    BackgroundColor(Color::srgb_u8(100, 90, 70)),
+                                    ActionButtonMarker {
+                                        action_type: "build_road".to_string(),
+                                    },
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: true,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("Build\nRoad"),
+                                        TextFont {
+                                            font_size: 12.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(223, 210, 194)),
+                                        // TextLayout::new_with_justify(Justify::Center),
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                });
+
+                            // Example action button: Build Building
+                            actions_container
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(100.),
+                                        height: px(80.),
+                                        flex_direction: FlexDirection::Column,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        padding: UiRect::all(px(8.)),
+                                        border: UiRect::all(px(2.)),
+                                        ..default()
+                                    },
+                                    BorderColor::all(Color::srgb_u8(150, 130, 100)),
+                                    BackgroundColor(Color::srgb_u8(100, 90, 70)),
+                                    ActionButtonMarker {
+                                        action_type: "build_building".to_string(),
+                                    },
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: true,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("Build\nBuilding"),
+                                        TextFont {
+                                            font_size: 12.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(223, 210, 194)),
+                                        // TextLayout::new_with_justify(Justify::Center),
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                });
+                        });
+                });
+
+            // Chat panel at the bottom left
+            parent
+                .spawn((
+                    ImageNode {
+                        image: paper_panel_image.clone(),
+                        image_mode: NodeImageMode::Sliced(paper_panel_slicer.clone()),
+                        ..default()
+                    },
+                    Node {
+                        width: px(350.),
+                        height: px(250.),
+                        position_type: PositionType::Absolute,
+                        bottom: px(0.0),
+                        left: px(0.0),
+                        margin: UiRect::all(px(10.)),
+                        padding: UiRect::all(px(16.)),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    ChatPanelMarker,
+                    Interaction::None,
+                    Pickable {
+                        should_block_lower: true,
+                        is_hoverable: false,
+                    },
+                ))
+                .with_children(|chat_panel| {
+                    // Title bar with toggle button
+                    chat_panel
+                        .spawn((
+                            Node {
+                                width: percent(100.),
+                                height: px(24.),
+                                flex_direction: FlexDirection::Row,
+                                justify_content: JustifyContent::SpaceBetween,
+                                align_items: AlignItems::Center,
+                                margin: UiRect::bottom(px(8.)),
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|title_bar| {
+                            // Title
+                            title_bar.spawn((
+                                Text::new("Chat"),
+                                TextFont {
+                                    font_size: 16.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(223, 210, 194)),
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+
+                            // Toggle button
+                            title_bar
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(20.),
+                                        height: px(20.),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(1.)),
+                                        ..default()
+                                    },
+                                    BorderColor::all(Color::srgb_u8(150, 130, 100)),
+                                    BackgroundColor(Color::srgb_u8(100, 90, 70)),
+                                    ChatToggleButton,
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: true,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("-"),
+                                        TextFont {
+                                            font_size: 14.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(223, 210, 194)),
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                });
+                        });
+
+                    // Messages container (scrollable area)
+                    chat_panel
+                        .spawn((
+                            Node {
+                                width: percent(100.),
+                                height: percent(100.),
+                                flex_direction: FlexDirection::Column,
+                                overflow: Overflow::clip_y(),
+                                margin: UiRect::bottom(px(8.)),
+                                ..default()
+                            },
+                            ChatMessagesContainer,
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|messages| {
+                            // Example messages
+                            messages.spawn((
+                                Text::new("Player1: Hello!"),
+                                TextFont {
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(223, 210, 194)),
+                                Node {
+                                    margin: UiRect::bottom(px(4.)),
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                            messages.spawn((
+                                Text::new("Player2: Hi there!"),
+                                TextFont {
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(223, 210, 194)),
+                                Node {
+                                    margin: UiRect::bottom(px(4.)),
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
+
+                    // Input container
+                    chat_panel
+                        .spawn((
+                            Node {
+                                width: percent(100.),
+                                height: px(32.),
+                                flex_direction: FlexDirection::Row,
+                                column_gap: px(8.),
+                                ..default()
+                            },
+                            ChatInputContainer,
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|input_container| {
+                            // Input field
+                            input_container.spawn((
+                                Node {
+                                    width: percent(100.),
+                                    height: px(32.),
+                                    padding: UiRect::all(px(8.)),
+                                    border: UiRect::all(px(2.)),
+                                    ..default()
+                                },
+                                BorderColor::all(Color::srgb_u8(150, 130, 100)),
+                                BackgroundColor(Color::srgb_u8(80, 70, 50)),
+                                ChatInputField,
+                                ChatInputState::default(),
+                                Interaction::None,
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: true,
+                                },
+                            ))
+                            .with_children(|input| {
+                                input.spawn((
+                                    Text::new(""),
+                                    TextFont {
+                                        font_size: 12.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb_u8(223, 210, 194)),
+                                    ChatInputText,
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: false,
+                                    },
+                                ));
+                            });
+
+                            // Send button
+                            input_container
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(60.),
+                                        height: px(32.),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        padding: UiRect::all(px(8.)),
+                                        border: UiRect::all(px(2.)),
+                                        ..default()
+                                    },
+                                    BorderColor::all(Color::srgb_u8(150, 130, 100)),
+                                    BackgroundColor(Color::srgb_u8(100, 90, 70)),
+                                    ChatSendButton,
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: true,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("Send"),
+                                        TextFont {
+                                            font_size: 12.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(223, 210, 194)),
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                });
                         });
                 });
         });
