@@ -13,21 +13,22 @@ pub fn handle_hexagon_selection(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     grid_config: Res<GridConfig>,
-    // Check if cursor is over UI
-    ui_interaction_query: Query<&Interaction, (With<Node>, With<Pickable>)>,
+    // Check if cursor is over UI - now all UI elements (buttons and panels) have Interaction
+    ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
 ) -> Result {
     if mouse_button.just_pressed(MouseButton::Left) {
-        // Check if cursor is over any UI element that blocks lower layers
-        let is_over_ui = ui_interaction_query
-            .iter()
-            .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
+        let window = windows.single()?;
+
+        // Check if cursor is over any UI element that should block lower layers
+        let is_over_ui = ui_interaction_query.iter().any(|(interaction, pickable)| {
+            pickable.should_block_lower
+                && matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+        });
 
         // Don't select hexagons if cursor is over UI
         if is_over_ui {
             return Ok(());
         }
-
-        let window = windows.single()?;
         let (camera, camera_transform) = cameras.single()?;
 
         if let Some(position) = window

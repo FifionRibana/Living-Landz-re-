@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use chrono::{Datelike, Local, Timelike};
+use shared::atlas::MoonAtlas;
 
 use crate::state::resources::GameTimeConfig;
-use crate::ui::components::{ClockText, DateText, MoonText};
+use crate::ui::components::{ClockText, DateText, MoonPhaseImage, MoonText};
 
 pub fn update_clock(
     mut query: Query<(
@@ -60,6 +61,35 @@ fn get_lunar_phase() -> (f32, String) {
     };
 
     (phase, phase_name.to_string())
+}
+
+pub fn get_lunar_phase_index() -> u32 {
+    let now = Local::now();
+
+    // Nombre de jours depuis la nouvelle lune de référence (2000-01-06)
+    let known_new_moon = chrono::NaiveDate::from_ymd_opt(2000, 1, 6).unwrap();
+    let current_date = now.date_naive();
+    let days_since = (current_date - known_new_moon).num_days() as f32;
+
+    // Cycle lunaire: ~29.53 jours
+    let lunar_cycle = 29.53;
+    let phase = (days_since % lunar_cycle) / lunar_cycle; // 0.0 - 1.0
+
+    // Retourne l'index de la phase (0-7)
+    (phase * 8.0) as u32 % 8
+}
+
+pub fn update_moon_phase_image(
+    mut query: Query<&mut ImageNode, With<MoonPhaseImage>>,
+    moon_atlas: Res<MoonAtlas>,
+) {
+    let phase_index = get_lunar_phase_index();
+
+    for mut image in &mut query {
+        if let Some(moon_handle) = moon_atlas.get_handle(phase_index) {
+            image.image = moon_handle.clone();
+        }
+    }
 }
 
 fn format_day_ordinal(day: u32) -> String {
