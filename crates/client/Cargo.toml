@@ -11,6 +11,7 @@ path = "src/main.rs"
 shared = { path = "../shared" }
 
 bevy = { workspace = true }
+bevy_ui_text_input = "0.6"
 bincode = { workspace = true }
 hexx = { workspace = true }
 image = { workspace = true }
