@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::input_focus::InputFocus;
+use bevy_ui_text_input::TextInputNode;
 
 use crate::camera::components::MainCamera;
 use crate::camera::resources::CameraSettings;
@@ -8,7 +10,16 @@ pub fn camera_movement(
     keys: Res<ButtonInput<KeyCode>>,
     settings: Res<CameraSettings>,
     mut camera: Query<(&mut Transform, &Projection), With<MainCamera>>,
+    input_focus: Res<InputFocus>,
+    text_inputs: Query<(), With<TextInputNode>>,
 ) {
+    // Don't move camera if any text input has focus
+    if let Some(focused_entity) = input_focus.0 {
+        if text_inputs.get(focused_entity).is_ok() {
+            return;
+        }
+    }
+
     let Ok((mut transform, projection)) = camera.single_mut() else {
         return;
     };

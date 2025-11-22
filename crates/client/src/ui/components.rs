@@ -56,10 +56,7 @@ pub struct ChatToggleButton;
 pub struct ChatInputContainer;
 
 #[derive(Component)]
-pub struct ChatInputText;
+pub struct ChatIconButton;
 
-#[derive(Component, Default)]
-pub struct ChatInputState {
-    pub text: String,
-    pub is_focused: bool,
-}
+#[derive(Component)]
+pub struct ChatNotificationBadge;

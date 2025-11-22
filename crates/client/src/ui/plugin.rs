@@ -11,7 +11,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ChatState { is_expanded: false })
+        app.insert_resource(ChatState::default())
+            .add_plugins(bevy_ui_text_input::TextInputPlugin)
             .add_systems(
                 Startup,
                 (resources::setup_gauge_atlas, resources::setup_moon_atlas, systems::setup_ui).chain(),
@@ -27,10 +28,9 @@ impl Plugin for UiPlugin {
                     systems::handle_action_button_interactions,
                     systems::handle_chat_send_button,
                     systems::handle_chat_toggle_button,
+                    systems::handle_chat_icon_button,
                     systems::update_chat_visibility,
-                    systems::handle_chat_input_focus,
-                    systems::handle_chat_input_keyboard,
-                    systems::update_chat_input_display,
+                    systems::update_chat_notification_badge,
                     // systems::update_actions_panel_layout,
                 ),
             );
