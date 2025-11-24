@@ -1,4 +1,5 @@
--- Add up migration script here
+-- Create resource lookup tables
+
 CREATE TABLE resources.resource_categories (
     id SMALLINT PRIMARY KEY,
     name VARCHAR UNIQUE NOT NULL
