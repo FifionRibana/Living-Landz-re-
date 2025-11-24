@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use shared::{
-    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingSpecificTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkId, grid::GridCell
+    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingSpecificTypeEnum, BuildingTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkId, grid::GridCell
 };
 use sqlx::{PgPool, Row};
 
