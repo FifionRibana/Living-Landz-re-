@@ -151,7 +151,7 @@ impl TreeTypeEnum {
             _ => None,
         }
     }
-    
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().as_str() {
             "cedar" => Some(Self::Cedar),
@@ -162,25 +162,32 @@ impl TreeTypeEnum {
     }
 
     pub fn iter() -> impl Iterator<Item = TreeTypeEnum> {
-        [
-            TreeTypeEnum::Cedar,
-            TreeTypeEnum::Larch,
-            TreeTypeEnum::Oak,
-        ]
-        .into_iter()
+        [TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak].into_iter()
     }
-    
+
     pub fn from_biome(biome: BiomeTypeEnum) -> Vec<TreeTypeEnum> {
         match biome {
             BiomeTypeEnum::Savanna => vec![],
-            BiomeTypeEnum::Grassland => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
-            BiomeTypeEnum::TropicalSeasonalForest => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
-            BiomeTypeEnum::TropicalRainForest => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
-            BiomeTypeEnum::TropicalDeciduousForest => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
-            BiomeTypeEnum::TemperateRainForest => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
-            BiomeTypeEnum::Wetland => vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak],
+            BiomeTypeEnum::Grassland => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
+            BiomeTypeEnum::TropicalSeasonalForest => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
+            BiomeTypeEnum::TropicalRainForest => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
+            BiomeTypeEnum::TropicalDeciduousForest => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
+            BiomeTypeEnum::TemperateRainForest => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
+            BiomeTypeEnum::Wetland => {
+                vec![TreeTypeEnum::Cedar, TreeTypeEnum::Larch, TreeTypeEnum::Oak]
+            }
             BiomeTypeEnum::Taiga => vec![],
-            _ => vec![]
+            _ => vec![],
         }
     }
 }
@@ -213,7 +220,39 @@ pub enum BuildingTypeEnum {
     Market = 55,
 }
 
+// Unknown
+// Tree
+// ManufacturingWorkshop
+// Agriculture
+// AnimalBreeding
+// Entertainment
+// Cult
+// Commerce
 impl BuildingTypeEnum {
+    pub fn to_specific_type(&self) -> BuildingSpecificTypeEnum {
+        match self {
+            Self::Blacksmith => BuildingSpecificTypeEnum::ManufacturingWorkshop,
+            Self::BlastFurnace => BuildingSpecificTypeEnum::ManufacturingWorkshop,
+            Self::Bloomery => BuildingSpecificTypeEnum::ManufacturingWorkshop,
+            Self::CarpenterShop => BuildingSpecificTypeEnum::ManufacturingWorkshop,
+            Self::GlassFactory => BuildingSpecificTypeEnum::ManufacturingWorkshop,
+            Self::Farm => BuildingSpecificTypeEnum::Agriculture,
+            Self::Cowshed => BuildingSpecificTypeEnum::AnimalBreeding,
+            Self::Piggery => BuildingSpecificTypeEnum::AnimalBreeding,
+            Self::Sheepfold => BuildingSpecificTypeEnum::AnimalBreeding,
+            Self::Stable => BuildingSpecificTypeEnum::AnimalBreeding,
+            Self::Theater => BuildingSpecificTypeEnum::Entertainment,
+            Self::Temple => BuildingSpecificTypeEnum::Cult,
+            Self::Bakehouse => BuildingSpecificTypeEnum::Commerce,
+            Self::Brewery => BuildingSpecificTypeEnum::Commerce,
+            Self::Distillery => BuildingSpecificTypeEnum::Commerce,
+            Self::Slaughterhouse => BuildingSpecificTypeEnum::Commerce,
+            Self::IceHouse => BuildingSpecificTypeEnum::Commerce,
+            Self::Market => BuildingSpecificTypeEnum::Commerce,
+            _ => BuildingSpecificTypeEnum::Unknown,
+        }
+    }
+
     pub fn to_id(self) -> i16 {
         self as i16
     }
@@ -267,14 +306,23 @@ impl BuildingTypeEnum {
 
     pub fn category(&self) -> BuildingCategoryEnum {
         match self {
-            Self::Blacksmith | Self::BlastFurnace | Self::Bloomery
-            | Self::CarpenterShop | Self::GlassFactory => BuildingCategoryEnum::ManufacturingWorkshops,
+            Self::Blacksmith
+            | Self::BlastFurnace
+            | Self::Bloomery
+            | Self::CarpenterShop
+            | Self::GlassFactory => BuildingCategoryEnum::ManufacturingWorkshops,
             Self::Farm => BuildingCategoryEnum::Agriculture,
-            Self::Cowshed | Self::Piggery | Self::Sheepfold | Self::Stable => BuildingCategoryEnum::AnimalBreeding,
+            Self::Cowshed | Self::Piggery | Self::Sheepfold | Self::Stable => {
+                BuildingCategoryEnum::AnimalBreeding
+            }
             Self::Theater => BuildingCategoryEnum::Entertainment,
             Self::Temple => BuildingCategoryEnum::Cult,
-            Self::Bakehouse | Self::Brewery | Self::Distillery
-            | Self::Slaughterhouse | Self::IceHouse | Self::Market => BuildingCategoryEnum::Commerce,
+            Self::Bakehouse
+            | Self::Brewery
+            | Self::Distillery
+            | Self::Slaughterhouse
+            | Self::IceHouse
+            | Self::Market => BuildingCategoryEnum::Commerce,
         }
     }
 
