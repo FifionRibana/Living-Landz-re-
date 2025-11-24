@@ -1,3 +1,4 @@
+-- Create all schemas
 CREATE SCHEMA IF NOT EXISTS actions;
 CREATE SCHEMA IF NOT EXISTS buildings;
 CREATE SCHEMA IF NOT EXISTS terrain;

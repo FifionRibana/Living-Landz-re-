@@ -1,4 +1,5 @@
--- Add up migration script here
+-- Create action lookup tables
+
 CREATE TABLE actions.action_statuses (
     id SMALLINT PRIMARY KEY,
     name VARCHAR UNIQUE NOT NULL,

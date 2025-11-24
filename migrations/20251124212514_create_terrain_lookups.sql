@@ -1,4 +1,5 @@
--- Add up migration script here
+-- Create terrain lookup tables
+
 CREATE TABLE terrain.biome_types (
     id SMALLINT PRIMARY KEY,
     name VARCHAR UNIQUE NOT NULL

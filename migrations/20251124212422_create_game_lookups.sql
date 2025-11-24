@@ -1,4 +1,5 @@
--- Add up migration script here
+-- Create game lookup tables and main game tables
+
 -- Table pour les langues (lookup)
 CREATE TABLE game.languages (
     id SMALLINT PRIMARY KEY,
@@ -19,7 +20,7 @@ CREATE TABLE game.coats_of_arms (
     name VARCHAR NOT NULL,
     description TEXT,
     image_data BYTEA,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Table principale des joueurs
@@ -30,8 +31,8 @@ CREATE TABLE game.players (
     coat_of_arms_id BIGINT REFERENCES game.coats_of_arms(id) ON DELETE SET NULL,
     motto VARCHAR,
     origin_location VARCHAR NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_players_family_name ON game.players(family_name);
@@ -42,19 +43,19 @@ CREATE UNIQUE INDEX idx_players_family_name_unique ON game.players(family_name);
 CREATE TABLE game.characters (
     id BIGSERIAL PRIMARY KEY,
     player_id BIGINT NOT NULL REFERENCES game.players(id) ON DELETE CASCADE,
-    
+
     first_name VARCHAR NOT NULL,
     family_name VARCHAR NOT NULL,
     second_name VARCHAR,
     nickname VARCHAR,
-    
+
     coat_of_arms_id BIGINT REFERENCES game.coats_of_arms(id) ON DELETE SET NULL,
     image_id BIGINT,
     motto VARCHAR,
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    
+
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
     UNIQUE(player_id, first_name, family_name)
 );
 
