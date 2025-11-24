@@ -1,3 +1,6 @@
+mod action_indicator;
+pub use action_indicator::*;
+
 mod hex_hover_indicator;
 pub use hex_hover_indicator::HexHoverIndicator;
 

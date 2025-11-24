@@ -1,10 +1,9 @@
-use super::resources::{HexMesh};
-
 use bevy::prelude::*;
 use hexx::HexOrientation;
 
 use shared::constants;
 use shared::grid::GridConfig;
+use crate::grid::resources::HexMesh;
 
 pub fn setup_grid_config(mut commands: Commands) {
     let radius = constants::HEX_SIZE;

@@ -5,13 +5,14 @@
 use bevy::prelude::*;
 
 use crate::state::resources;
-use super::{resources::ChatState, systems};
+use super::{resources::{ActionState, ChatState}, systems};
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ChatState::default())
+            .insert_resource(ActionState::default())
             .add_plugins(bevy_ui_text_input::TextInputPlugin)
             .add_systems(
                 Startup,
@@ -20,18 +21,36 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    systems::update_ui,
+                    // UI visibility updates
+                    systems::update_cell_details_visibility,
+                    systems::update_action_bar_visibility,
+                    systems::update_action_panel_visibility,
+                    systems::update_chat_visibility,
+                    systems::update_chat_notification_badge,
+                    // Dynamic updates
                     systems::update_clock,
                     systems::update_moon_phase_image,
                     systems::update_player_info,
+                    systems::update_cell_action_display,
+                    systems::hide_action_panel_during_action,
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    // Button interactions
                     systems::handle_menu_button_interactions,
+                    systems::handle_action_category_button_interactions,
+                    systems::update_action_category_button_appearance,
+                    systems::handle_action_tab_button_interactions,
                     systems::handle_action_button_interactions,
                     systems::handle_chat_send_button,
                     systems::handle_chat_toggle_button,
                     systems::handle_chat_icon_button,
-                    systems::update_chat_visibility,
-                    systems::update_chat_notification_badge,
-                    // systems::update_actions_panel_layout,
+                    // Action panel content updates
+                    systems::update_action_panel_content,
+                    systems::handle_building_button_interactions,
+                    systems::handle_action_run_button,
                 ),
             );
     }

@@ -112,6 +112,79 @@ impl BuildingsTable {
         Ok(())
     }
 
+    /// Crée un nouveau bâtiment en construction
+    pub async fn create_building(
+        &self,
+        building_id: u64,
+        building_type: BuildingSpecificTypeEnum,
+        category: BuildingCategoryEnum,
+        chunk: &TerrainChunkId,
+        cell: &GridCell,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            INSERT INTO buildings.buildings_base
+                (id, building_type_id, category_id, chunk_x, chunk_y, cell_q, cell_r, created_at, quality, durability, damage, is_built)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+        )
+        .bind(building_id as i64)
+        .bind(building_type.to_id())
+        .bind(category.to_id())
+        .bind(chunk.x)
+        .bind(chunk.y)
+        .bind(cell.q)
+        .bind(cell.r)
+        .bind(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64)
+        .bind(1.0_f64) // quality
+        .bind(1.0_f64) // durability
+        .bind(0.0_f64) // damage
+        .bind(false)    // is_built = false (en construction)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create building: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Marque un bâtiment comme construit
+    pub async fn mark_building_as_built(&self, building_id: u64) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE buildings.buildings_base
+            SET is_built = true
+            WHERE id = $1
+            "#,
+        )
+        .bind(building_id as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to mark building as built: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Supprime un bâtiment (en cas d'échec de construction)
+    pub async fn delete_building(&self, building_id: u64) -> Result<(), String> {
+        // Supprime d'abord les données spécifiques (trees, etc.) - cascade devrait le faire
+        // mais on peut être explicite
+        sqlx::query(
+            r#"
+            DELETE FROM buildings.buildings_base
+            WHERE id = $1
+            "#,
+        )
+        .bind(building_id as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to delete building: {}", e))?;
+
+        Ok(())
+    }
+
     pub async fn load_chunk_buildings(
         &self,
         chunk_id: &TerrainChunkId,
@@ -120,14 +193,14 @@ impl BuildingsTable {
 
         let base_buildings_rows = sqlx::query(
             r#"
-            SELECT 
+            SELECT
                 b.id, b.building_type_id, b.category_id,
-                b.cell_q, b.cell_r, 
+                b.cell_q, b.cell_r,
                 b.quality, b.durability, b.damage, b.created_at,
                 bt.specific_type_id
             FROM buildings.buildings_base b
             JOIN buildings.building_types bt ON b.building_type_id = bt.id
-            WHERE chunk_x = $1 AND chunk_y = $2
+            WHERE chunk_x = $1 AND chunk_y = $2 AND is_built = true
         "#,
         )
         .bind(chunk_id.x)

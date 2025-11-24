@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use shared::GameState;
 
+mod action_processor;
 mod database;
 mod networking;
 mod utils;
@@ -63,13 +64,30 @@ async fn main() {
     }
 
     let sessions = networking::Sessions::default();
+    let db_tables_arc = Arc::new(db_tables);
 
+    // Créer le processeur d'actions AVANT d'initialiser le serveur
+    let action_processor = Arc::new(action_processor::ActionProcessor::new(
+        db_tables_arc.clone(),
+        sessions.clone()
+    ));
+
+    // Charger les actions actives au démarrage
+    if let Err(e) = action_processor.load_active_actions().await {
+        tracing::error!("Failed to load active actions: {}", e);
+    }
+
+    // Initialiser le serveur réseau avec l'action_processor
     networking::server::initialize_server(
         sessions.clone(),
-        Arc::new(db_tables)
+        db_tables_arc.clone(),
+        action_processor.clone()
     );
 
-    tokio::task::spawn_blocking(|| {
+    // Démarrer le processeur d'actions en arrière-plan
+    action_processor::start_action_processor(action_processor.clone());
+
+    tokio::task::spawn_blocking(move || {
         App::new()
             .add_plugins(MinimalPlugins)
             .insert_resource(sessions)

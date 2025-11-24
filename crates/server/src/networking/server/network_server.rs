@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 
+use crate::action_processor::ActionProcessor;
 use crate::database::client::DatabaseTables;
 
 use super::super::Sessions;
@@ -17,7 +18,7 @@ impl NetworkServer {
         Self { address, port }
     }
 
-    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>) {
+    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -29,16 +30,17 @@ impl NetworkServer {
             tracing::info!("Accept listeners");
             let sessions_clone = sessions.clone();
             let db_tables_clone = db_tables.clone();
+            let action_processor_clone = action_processor.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
-                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone).await;
+                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone, action_processor_clone).await;
             });
         }
     }
 }
 
-pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>) {
+pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>) {
     tracing::info!("Starting network server...");
 
     // Normal server startup
@@ -51,10 +53,11 @@ pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>) {
 
     let sessions_clone = sessions.clone();
     let db_tables_clone = db_tables.clone();
+    let action_processor_clone = action_processor.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
-        server.start(sessions_clone, db_tables_clone).await;
+        server.start(sessions_clone, db_tables_clone, action_processor_clone).await;
     });
 
     tracing::info!("✓ Network server spawned");

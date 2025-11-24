@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ConnectionStatus, PlayerInfo, WorldCache};
+use crate::state::resources::{ActionTracker, ConnectionStatus, PlayerInfo, TrackedAction, WorldCache};
 
 pub fn handle_server_message(
     mut connection: ResMut<ConnectionStatus>,
     mut player_info: ResMut<PlayerInfo>,
     mut cache: ResMut<WorldCache>,
+    mut action_tracker: ResMut<ActionTracker>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
 ) {
@@ -60,6 +61,52 @@ pub fn handle_server_message(
 
                 cache.insert_cells(&cell_data);
                 cache.insert_buildings(&building_data);
+            }
+            shared::protocol::ServerMessage::ActionStatusUpdate {
+                action_id,
+                player_id,
+                chunk_id,
+                cell,
+                status,
+                action_type,
+                completion_time,
+            } => {
+                info!(
+                    "Action {} status update: {:?} for player {} at chunk ({}, {}) cell ({}, {})",
+                    action_id, status, player_id, chunk_id.x, chunk_id.y, cell.q, cell.r
+                );
+
+                let tracked_action = TrackedAction {
+                    action_id,
+                    player_id,
+                    chunk_id,
+                    cell,
+                    action_type,
+                    status,
+                    completion_time,
+                };
+
+                action_tracker.update_action(tracked_action);
+            }
+            shared::protocol::ServerMessage::ActionCompleted {
+                action_id,
+                chunk_id,
+                cell,
+                action_type,
+            } => {
+                info!(
+                    "Action {} completed at chunk ({}, {}) cell ({}, {})",
+                    action_id, chunk_id.x, chunk_id.y, cell.q, cell.r
+                );
+
+                // L'action est terminée, demander au serveur de rafraîchir les données du chunk
+                // pour voir le nouveau bâtiment construit (ou autre résultat de l'action)
+                info!("Requesting chunk data refresh for ({}, {})", chunk_id.x, chunk_id.y);
+
+                network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
+                    terrain_name: "main".to_string(), // TODO: utiliser le vrai nom du terrain
+                    terrain_chunk_ids: vec![chunk_id],
+                });
             }
             shared::protocol::ServerMessage::Pong => {}
             _ => {
