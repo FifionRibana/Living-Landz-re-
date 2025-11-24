@@ -119,6 +119,25 @@ pub enum ServerMessage {
         reason: String,
     },
 
+    /// Action status update sent to the player who initiated the action
+    ActionStatusUpdate {
+        action_id: u64,
+        player_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        status: crate::ActionStatusEnum,
+        action_type: crate::ActionTypeEnum,
+        completion_time: u64,
+    },
+
+    /// Action result broadcast to all players in the chunk after completion
+    ActionCompleted {
+        action_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        action_type: crate::ActionTypeEnum,
+    },
+
     /// Pong (ping answer)
     Pong,
 }

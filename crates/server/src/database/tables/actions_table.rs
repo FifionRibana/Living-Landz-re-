@@ -19,10 +19,14 @@ impl ScheduledActionsTable {
         let base_action = &action.base_data;
 
         // let action_type = base_action.action_type();
+        tracing::info!(
+            "Adding scheduled action of type {:?} (id: {}), for player {}",
+            base_action.action_type, base_action.player_id, base_action.action_type.to_id()
+        );
 
         let db_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO scheduled_actions 
-             (player_id, cell_q, cell_r, chunk_x, chunk_y, action_type_id, action_specific_type_id, start_time, duration_ms, completion_time, status)
+            "INSERT INTO actions.scheduled_actions 
+             (player_id, cell_q, cell_r, chunk_x, chunk_y, action_type_id, action_specific_type_id, start_time, duration_ms, completion_time, status_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              RETURNING id"
         )
@@ -41,9 +45,18 @@ impl ScheduledActionsTable {
         .await
         .map_err(|e| format!("DB error: {}", e))?;
 
+        tracing::info!(
+            "Scheduled action inserted with ID {}", db_id
+        );
+
         // Insérer dans la table spécifique
         self.add_action_data(db_id as u64, &action.specific_data)
             .await?;
+
+        tracing::info!(
+            "Added scheduled action ID {} for player {}",
+            db_id, base_action.player_id
+        );
 
         Ok(db_id as u64)
     }
@@ -65,7 +78,7 @@ impl ScheduledActionsTable {
                 .map_err(|e| format!("DB error: {}", e))?;
             }
             SpecificAction::BuildRoad(a) => {
-                sqlx::query("INSERT INTO actions.build_road_actions (action_id) VALUES ($1, $2)")
+                sqlx::query("INSERT INTO actions.build_road_actions (action_id) VALUES ($1)")
                     .bind(action_id as i64)
                     .execute(&self.pool)
                     .await
@@ -320,5 +333,87 @@ impl ScheduledActionsTable {
         }
 
         Ok(actions)
+    }
+
+    /// Charge toutes les actions actives (Pending ou InProgress)
+    pub async fn load_active_actions(&self) -> Result<Vec<(u64, u64, TerrainChunkId, GridCell, ActionTypeEnum, ActionStatusEnum, u64, u64, u64)>, String> {
+        let result = sqlx::query(
+            r#"
+            SELECT
+                id, player_id, chunk_x, chunk_y, cell_q, cell_r,
+                action_type_id, status_id, start_time, duration_ms, completion_time
+            FROM actions.scheduled_actions
+            WHERE status_id IN (1, 2)
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load active actions: {}", e))?;
+
+        let mut actions = Vec::new();
+
+        for row in result {
+            let action_id = row.get::<i64, &str>("id") as u64;
+            let player_id = row.get::<i64, &str>("player_id") as u64;
+            let Some(action_type) = ActionTypeEnum::from_id(row.get("action_type_id")) else {
+                continue;
+            };
+            let Some(status) = ActionStatusEnum::from_id(row.get("status_id")) else {
+                continue;
+            };
+
+            let chunk_id = TerrainChunkId {
+                x: row.get("chunk_x"),
+                y: row.get("chunk_y"),
+            };
+
+            let cell = GridCell {
+                q: row.get("cell_q"),
+                r: row.get("cell_r"),
+            };
+
+            let start_time = row.get::<i64, &str>("start_time") as u64;
+            let duration_ms = row.get::<i64, &str>("duration_ms") as u64;
+            let completion_time = row.get::<i64, &str>("completion_time") as u64;
+
+            actions.push((action_id, player_id, chunk_id, cell, action_type, status, start_time, duration_ms, completion_time));
+        }
+
+        Ok(actions)
+    }
+
+    /// Met à jour le statut d'une action
+    pub async fn update_action_status(&self, action_id: u64, new_status: ActionStatusEnum) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE actions.scheduled_actions
+            SET status_id = $1
+            WHERE id = $2
+            "#
+        )
+        .bind(new_status.to_id())
+        .bind(action_id as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update action status: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Récupère le building_type_id pour une action BuildBuilding
+    pub async fn get_build_building_type(&self, action_id: u64) -> Result<Option<i16>, String> {
+        let result = sqlx::query(
+            r#"
+            SELECT building_type_id
+            FROM actions.build_building_actions
+            WHERE action_id = $1
+            "#
+        )
+        .bind(action_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get building type: {}", e))?;
+
+        Ok(result.map(|row| row.get::<i32, &str>("building_type_id") as i16))
     }
 }

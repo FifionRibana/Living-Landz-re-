@@ -3,10 +3,13 @@ use std::collections::HashSet;
 use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
 use hexx::Hex;
 use rand::{Rng, SeedableRng};
-use shared::atlas::TreeAtlas;
+use shared::atlas::{BuildingAtlas, TreeAtlas};
 use shared::grid::GridConfig;
 use shared::{
-    BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum, BuildingSpecific, BuildingSpecificTypeEnum, TerrainChunkData, TerrainChunkId, TreeAge, TreeTypeEnum, constants, get_biome_color
+    AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
+    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CultData,
+    EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId, TreeAge,
+    TreeTypeEnum, constants, get_biome_color,
 };
 
 use super::components::{Biome, Building, Terrain};
@@ -150,6 +153,7 @@ pub fn spawn_building(
     buildings: Query<&Building>,
     images: Res<Assets<Image>>,
     tree_atlas: Res<TreeAtlas>,
+    building_atlas: Res<BuildingAtlas>,
     grid_config: Res<GridConfig>,
 ) {
     let Some(world_cache) = world_cache_opt else {
@@ -236,7 +240,156 @@ pub fn spawn_building(
                     },
                 ));
             }
-            _ => {}
+            (BuildingCategoryEnum::ManufacturingWorkshops, BuildingSpecific::ManufacturingWorkshop(data)) => {
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.workshop_type.to_building_type(),
+                    0,
+                    building_id,
+                    world_position,
+                    "Workshop",
+                );
+            }
+            (BuildingCategoryEnum::Agriculture, BuildingSpecific::Agriculture(data)) => {
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.agriculture_type.to_building_type(),
+                    0,
+                    building_id,
+                    world_position,
+                    "Farm",
+                );
+            }
+            (BuildingCategoryEnum::AnimalBreeding, BuildingSpecific::AnimalBreeding(data)) => {
+                let variant = 0; // Use first variant, could be randomized
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.animal_type.to_building_type(),
+                    variant,
+                    building_id,
+                    world_position,
+                    "AnimalBreeding",
+                );
+            }
+            (BuildingCategoryEnum::Entertainment, BuildingSpecific::Entertainment(data)) => {
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.entertainment_type.to_building_type(),
+                    0,
+                    building_id,
+                    world_position,
+                    "Entertainment",
+                );
+            }
+            (BuildingCategoryEnum::Cult, BuildingSpecific::Cult(data)) => {
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.cult_type.to_building_type(),
+                    0,
+                    building_id,
+                    world_position,
+                    "Cult",
+                );
+            }
+            (BuildingCategoryEnum::Commerce, BuildingSpecific::Commerce(data)) => {
+                spawn_building_sprite(
+                    &mut commands,
+                    &building_atlas,
+                    &images,
+                    data.commerce_type.to_building_type(),
+                    0,
+                    building_id,
+                    world_position,
+                    "Commerce",
+                );
+            }
+            _ => {
+                // Fallback pour les types inconnus
+                let color = Color::srgba(0.5, 0.5, 0.5, 1.0);
+                let size = Vec2::new(32.0, 32.0);
+
+                commands.spawn((
+                    Name::new(format!("Building_{}", building_id)),
+                    Sprite {
+                        color,
+                        custom_size: Some(size),
+                        ..default()
+                    },
+                    Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
+                    GlobalTransform::default(),
+                    Visibility::default(),
+                    Building {
+                        id: building_id as i64,
+                    },
+                ));
+            }
         };
+    }
+}
+
+fn spawn_building_sprite(
+    commands: &mut Commands,
+    building_atlas: &BuildingAtlas,
+    images: &Assets<Image>,
+    building_type: BuildingTypeEnum,
+    variant: usize,
+    building_id: u64,
+    world_position: Vec2,
+    category_name: &str,
+) {
+    if let Some(image_handle) = building_atlas.get_sprite(building_type, variant) {
+        let image_size = images.get(&*image_handle).map(|img| {
+            let size = img.texture_descriptor.size;
+            Vec2::new(size.width as f32, size.height as f32)
+        });
+
+        let custom_size = image_size.map(|size| {
+            Vec2::new(64.0, 64.0 * (size.y / size.x))
+        });
+
+        commands.spawn((
+            Name::new(format!("{}_{}", category_name, building_id)),
+            Sprite {
+                image: image_handle.clone(),
+                custom_size,
+                ..default()
+            },
+            Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
+            GlobalTransform::default(),
+            Visibility::default(),
+            Building {
+                id: building_id as i64,
+            },
+        ));
+    } else {
+        // Fallback: colored square if sprite not found
+        warn!("Sprite '{:?}' variant {} not found in building atlas", building_type, variant);
+        let color = Color::srgba(0.6, 0.4, 0.2, 1.0);
+        let size = Vec2::new(32.0, 32.0);
+
+        commands.spawn((
+            Name::new(format!("{}_{}", category_name, building_id)),
+            Sprite {
+                color,
+                custom_size: Some(size),
+                ..default()
+            },
+            Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
+            GlobalTransform::default(),
+            Visibility::default(),
+            Building {
+                id: building_id as i64,
+            },
+        ));
     }
 }

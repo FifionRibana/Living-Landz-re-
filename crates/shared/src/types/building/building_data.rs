@@ -1,4 +1,8 @@
-use crate::{BuildingCategoryEnum, BuildingSpecificTypeEnum, TerrainChunkId, TreeTypeEnum, grid::GridCell};
+use crate::{
+    AgricultureTypeEnum, AnimalBreedingTypeEnum, BuildingCategoryEnum,
+    BuildingSpecificTypeEnum, CommerceTypeEnum, CultTypeEnum, EntertainmentTypeEnum,
+    ManufacturingWorkshopTypeEnum, TerrainChunkId, TreeTypeEnum, grid::GridCell,
+};
 use bincode::{Decode, Encode};
 
 pub trait BuildingSpecificData: Clone {
@@ -10,7 +14,11 @@ pub enum BuildingSpecific {
     Unknown(),
     Tree(TreeData),
     ManufacturingWorkshop(ManufacturingWorkshopData),
-    // ...
+    Agriculture(AgricultureData),
+    AnimalBreeding(AnimalBreedingData),
+    Entertainment(EntertainmentData),
+    Cult(CultData),
+    Commerce(CommerceData),
 }
 
 impl BuildingSpecific {
@@ -18,6 +26,11 @@ impl BuildingSpecific {
         match self {
             Self::Tree(t) => t.category(),
             Self::ManufacturingWorkshop(w) => w.category(),
+            Self::Agriculture(a) => a.category(),
+            Self::AnimalBreeding(a) => a.category(),
+            Self::Entertainment(e) => e.category(),
+            Self::Cult(c) => c.category(),
+            Self::Commerce(c) => c.category(),
             Self::Unknown() => BuildingCategoryEnum::Unknown,
         }
     }
@@ -26,6 +39,11 @@ impl BuildingSpecific {
         match self {
             Self::Tree(_) => 1,
             Self::ManufacturingWorkshop(_) => 2,
+            Self::Agriculture(_) => 3,
+            Self::AnimalBreeding(_) => 4,
+            Self::Entertainment(_) => 5,
+            Self::Cult(_) => 6,
+            Self::Commerce(_) => 7,
             Self::Unknown() => 0,
         }
     }
@@ -47,11 +65,74 @@ impl BuildingSpecificData for TreeData {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct ManufacturingWorkshopData {}
+pub struct ManufacturingWorkshopData {
+    pub workshop_type: ManufacturingWorkshopTypeEnum,
+    pub variant: u32,
+}
 
 impl BuildingSpecificData for ManufacturingWorkshopData {
     fn category(&self) -> BuildingCategoryEnum {
         BuildingCategoryEnum::ManufacturingWorkshops
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct AgricultureData {
+    pub agriculture_type: AgricultureTypeEnum,
+    pub variant: u32,
+}
+
+impl BuildingSpecificData for AgricultureData {
+    fn category(&self) -> BuildingCategoryEnum {
+        BuildingCategoryEnum::Agriculture
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct AnimalBreedingData {
+    pub animal_type: AnimalBreedingTypeEnum,
+    pub variant: u32,
+}
+
+impl BuildingSpecificData for AnimalBreedingData {
+    fn category(&self) -> BuildingCategoryEnum {
+        BuildingCategoryEnum::AnimalBreeding
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct EntertainmentData {
+    pub entertainment_type: EntertainmentTypeEnum,
+    pub variant: u32,
+}
+
+impl BuildingSpecificData for EntertainmentData {
+    fn category(&self) -> BuildingCategoryEnum {
+        BuildingCategoryEnum::Entertainment
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CultData {
+    pub cult_type: CultTypeEnum,
+    pub variant: u32,
+}
+
+impl BuildingSpecificData for CultData {
+    fn category(&self) -> BuildingCategoryEnum {
+        BuildingCategoryEnum::Cult
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CommerceData {
+    pub commerce_type: CommerceTypeEnum,
+    pub variant: u32,
+}
+
+impl BuildingSpecificData for CommerceData {
+    fn category(&self) -> BuildingCategoryEnum {
+        BuildingCategoryEnum::Commerce
     }
 }
 

@@ -6,16 +6,45 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
+use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::database::client::DatabaseTables;
 use shared::protocol::{ClientMessage, ServerMessage};
 
 use super::super::Sessions;
+
+/// Helper function to add action to both DB and cache
+async fn add_action_and_cache(
+    action_table: &crate::database::tables::ScheduledActionsTable,
+    action_processor: &ActionProcessor,
+    action_data: &ActionData,
+    action_type: ActionTypeEnum,
+) -> Result<u64, String> {
+    // Add to database
+    let action_id = action_table.add_scheduled_action(action_data).await?;
+
+    // Add to cache
+    let completion_time = action_data.base_data.start_time + (action_data.base_data.duration_ms / 1000);
+    action_processor.add_action(ActionInfo {
+        action_id,
+        player_id: action_data.base_data.player_id,
+        chunk_id: action_data.base_data.chunk.clone(),
+        cell: action_data.base_data.cell.clone(),
+        action_type,
+        status: ActionStatusEnum::Pending,
+        start_time: action_data.base_data.start_time,
+        duration_ms: action_data.base_data.duration_ms,
+        completion_time,
+    }).await;
+
+    Ok(action_id)
+}
 
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
     sessions: Sessions,
     db_tables: Arc<DatabaseTables>,
+    action_processor: Arc<ActionProcessor>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -28,55 +57,79 @@ pub async fn handle_connection(
     };
 
     let (mut write, mut read) = ws_stream.split();
-    let player_id = rand::random::<u64>();
+    let session_id = rand::random::<u64>();
 
-    sessions.insert(player_id, addr);
+    // Créer un channel pour les messages asynchrones (depuis action_processor)
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-    while let Some(msg) = read.next().await {
-        match msg {
-            Ok(Message::Binary(data)) => {
-                tracing::info!("Received message from {}: {} bytes", addr, data.len());
-                match bincode::decode_from_slice(&data[..], bincode::config::standard()) {
-                    Ok((client_msg, _)) => {
-                        tracing::debug!("Received: {:?}", client_msg);
+    sessions.insert(session_id, addr, tx).await;
 
-                        let responses =
-                            handle_client_message(client_msg, player_id, &db_tables).await;
+    // Traiter les messages entrants et sortants
+    loop {
+        tokio::select! {
+            // Messages entrants du client
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Binary(data))) => {
+                        tracing::info!("Received message from {}: {} bytes", addr, data.len());
+                        match bincode::decode_from_slice(&data[..], bincode::config::standard()) {
+                            Ok((client_msg, _)) => {
+                                tracing::debug!("Received: {:?}", client_msg);
 
-                        for response in responses {
-                            let response_data =
-                                bincode::encode_to_vec(&response, bincode::config::standard())
-                                    .unwrap();
-                            let _ = write.send(Message::Binary(response_data.into())).await;
+                                let responses =
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor).await;
+
+                                // Envoyer les réponses DIRECTEMENT (comme avant)
+                                for response in responses {
+                                    let response_data =
+                                        bincode::encode_to_vec(&response, bincode::config::standard())
+                                            .unwrap();
+                                    if let Err(e) = write.send(Message::Binary(response_data.into())).await {
+                                        tracing::error!("Failed to send direct response: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to deserialize message from {}\n{}", addr, e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        // } else {
-                        tracing::warn!("Failed to deserialize message from {}\n{}", addr, e);
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        break;
                     }
+                    None => break,
+                    _ => {}
                 }
             }
-            Ok(Message::Close(_)) => break,
-            Err(e) => {
-                tracing::error!("WebSocket error: {}", e);
-                break;
+            // Messages asynchrones depuis action_processor
+            Some(async_message) = rx.recv() => {
+                tracing::info!("Sending async message to session {}: {:?}", session_id, async_message);
+                let data = bincode::encode_to_vec(&async_message, bincode::config::standard()).unwrap();
+                if let Err(e) = write.send(Message::Binary(data.into())).await {
+                    tracing::error!("Failed to send async message: {}", e);
+                    break;
+                }
             }
-            _ => {}
         }
     }
 
-    sessions.remove(&player_id).await;
+    sessions.remove(&session_id).await;
     tracing::info!("Connection closed: {}", addr);
 }
 
 async fn handle_client_message(
     msg: ClientMessage,
-    player_id: u64,
+    session_id: u64,
+    sessions: &Sessions,
     db_tables: &DatabaseTables,
+    action_processor: &ActionProcessor,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
-            tracing::info!("Player {} attempting to log in as {}", player_id, username);
+            tracing::info!("Session {} attempting to log in as {}", session_id, username);
 
             // Try to get or create the player in the database
             match shared::types::game::methods::get_or_create_player(
@@ -88,6 +141,9 @@ async fn handle_client_message(
             ).await {
                 Ok(player) => {
                     tracing::info!("Player {} logged in successfully with DB ID {}", username, player.id);
+
+                    // Associate session with player_id
+                    sessions.authenticate_session(session_id, player.id as u64).await;
 
                     // Get or create a default character
                     match shared::types::game::methods::get_or_create_default_character(
@@ -234,6 +290,15 @@ async fn handle_client_message(
             cell,
             building_specific_type,
         } => {
+            tracing::info!(
+                "Player {} requested to build {:?} at chunk ({},{}) cell ({},{})",
+                player_id,
+                building_specific_type,
+                chunk_id.x,
+                chunk_id.y,
+                cell.q,
+                cell.r
+            );
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildBuilding(BuildBuildingAction {
@@ -243,30 +308,51 @@ async fn handle_client_message(
                 building_specific_type,
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::BuildBuilding,
                     action_specific_type: ActionSpecificTypeEnum::BuildBuilding,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::BuildBuilding).await {
+                Ok(action_id) => {
+                    tracing::info!("Scheduled build building action with ID {}", action_id);
+
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::BuildBuilding,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
@@ -275,38 +361,67 @@ async fn handle_client_message(
             chunk_id,
             cell,
         } => {
+            tracing::info!(
+                "Player {} requested to build road at chunk ({},{}) cell ({},{})",
+                player_id,
+                chunk_id.x,
+                chunk_id.y,
+                cell.q,
+                cell.r
+            );
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildRoad(BuildRoadAction {
                 player_id,
-                chunk_id,
-                cell,
+                chunk_id: chunk_id.clone(),
+                cell: cell.clone(),
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::BuildRoad,
                     action_specific_type: ActionSpecificTypeEnum::BuildRoad,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::BuildRoad).await {
+                Ok(action_id) => {
+                    tracing::info!("Scheduled build road action {}", action_id);
+
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::BuildRoad,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
@@ -327,30 +442,49 @@ async fn handle_client_message(
                 quantity,
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::CraftResource,
                     action_specific_type: ActionSpecificTypeEnum::CraftResource,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::CraftResource).await {
+                Ok(action_id) => {
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::CraftResource,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
@@ -364,35 +498,54 @@ async fn handle_client_message(
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::HarvestResource(HarvestResourceAction {
                 player_id,
-                chunk_id,
-                cell,
+                chunk_id: chunk_id.clone(),
+                cell: cell.clone(),
                 resource_specific_type,
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::HarvestResource,
                     action_specific_type: ActionSpecificTypeEnum::HarvestResource,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::HarvestResource).await {
+                Ok(action_id) => {
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::HarvestResource,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
@@ -411,30 +564,49 @@ async fn handle_client_message(
                 cell: cell.clone(),
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::MoveUnit,
                     action_specific_type: ActionSpecificTypeEnum::MoveUnit,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::MoveUnit).await {
+                Ok(action_id) => {
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::MoveUnit,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
@@ -453,30 +625,49 @@ async fn handle_client_message(
                 content,
             });
 
-            action_table.add_scheduled_action(&ActionData {
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell.clone(),
+            });
+
+            let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
                     cell: cell.clone(),
-
                     action_type: ActionTypeEnum::SendMessage,
                     action_specific_type: ActionSpecificTypeEnum::SendMessage,
-
-                    start_time: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    duration_ms: specific_data.duration_ms(&ActionContext {
-                        player_id,
-                        grid_cell: cell.clone(),
-                    }),
-                    completion_time: 0,
-
-                    // action_type: ActionType::BuildBuilding,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
                     status: ActionStatusEnum::Pending,
                 },
                 specific_data,
-            });
+            };
+
+            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::SendMessage).await {
+                Ok(action_id) => {
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id: chunk_id.clone(),
+                        cell: cell.clone(),
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::SendMessage,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule action: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
 
             responses
         }
