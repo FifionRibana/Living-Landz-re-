@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{BuildingCategoryEnum, BuildingSpecificTypeEnum, TerrainChunkId, grid::GridCell};
+use shared::{BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, TerrainChunkId, grid::GridCell};
 
 use crate::{
     networking::client::NetworkClient,
@@ -569,32 +569,26 @@ fn execute_action(
             if let Some(building_id) = &action_state.selected_building_id {
                 info!("Executing building construction: {} at cell {:?}", building_id, cell);
 
-                // Map building_id to BuildingSpecificTypeEnum
+                // Map building_id to BuildingTypeEnum
                 let building_type = match building_id.as_str() {
-                    // ManufacturingWorkshops
-                    "blacksmith" | "blast_furnace" | "bloomery" | "carpenter_shop" | "glass_factory" => {
-                        BuildingSpecificTypeEnum::ManufacturingWorkshop
-                    }
-                    // Agriculture
-                    "farm" => {
-                        BuildingSpecificTypeEnum::Agriculture
-                    }
-                    // AnimalBreeding
-                    "cowshed" | "piggery" | "sheepfold" | "stable" => {
-                        BuildingSpecificTypeEnum::AnimalBreeding
-                    }
-                    // Entertainment
-                    "theater" => {
-                        BuildingSpecificTypeEnum::Entertainment
-                    }
-                    // Cult
-                    "temple" => {
-                        BuildingSpecificTypeEnum::Cult
-                    }
-                    // Commerce
-                    "bakehouse" | "brewery" | "distillery" | "slaughterhouse" | "ice_house" | "market" => {
-                        BuildingSpecificTypeEnum::Commerce
-                    }
+                    "blacksmith" => BuildingTypeEnum::Blacksmith,
+                    "blast_furnace" => BuildingTypeEnum::BlastFurnace,
+                    "bloomery" => BuildingTypeEnum::Bloomery,
+                    "carpenter_shop" => BuildingTypeEnum::CarpenterShop,
+                    "glass_factory" => BuildingTypeEnum::GlassFactory,
+                    "farm" => BuildingTypeEnum::Farm,
+                    "cowshed" => BuildingTypeEnum::Cowshed,
+                    "piggery" => BuildingTypeEnum::Piggery,
+                    "sheepfold" => BuildingTypeEnum::Sheepfold,
+                    "stable" => BuildingTypeEnum::Stable,
+                    "theater" => BuildingTypeEnum::Theater,
+                    "temple" => BuildingTypeEnum::Temple,
+                    "bakehouse" => BuildingTypeEnum::Bakehouse,
+                    "brewery" => BuildingTypeEnum::Brewery,
+                    "distillery" => BuildingTypeEnum::Distillery,
+                    "slaughterhouse" => BuildingTypeEnum::Slaughterhouse,
+                    "ice_house" => BuildingTypeEnum::IceHouse,
+                    "market" => BuildingTypeEnum::Market,
                     _ => {
                         warn!("Unknown building type: {}", building_id);
                         return;
@@ -606,7 +600,7 @@ fn execute_action(
                     player_id,
                     chunk_id,
                     cell,
-                    building_specific_type: building_type,
+                    building_type,
                 });
 
                 info!("✓ Building construction request sent to server");

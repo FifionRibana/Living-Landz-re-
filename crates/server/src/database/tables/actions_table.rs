@@ -72,7 +72,7 @@ impl ScheduledActionsTable {
                     "INSERT INTO actions.build_building_actions (action_id, building_type_id) VALUES ($1, $2)",
                 )
                 .bind(action_id as i64)
-                .bind(a.building_specific_type.to_id())
+                .bind(a.building_type.to_id())
                 .execute(&self.pool)
                 .await
                 .map_err(|e| format!("DB error: {}", e))?;
@@ -201,16 +201,19 @@ impl ScheduledActionsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
-                    let Some(building_specific_type) =
-                        BuildingSpecificTypeEnum::from_id(build_building.get("building_type_id"))
+                    let Some(building_type) =
+                        BuildingTypeEnum::from_id(build_building.get("building_type_id"))
                     else {
                         continue;
                     };
+
+                    let building_specific_type = building_type.to_specific_type();
 
                     SpecificAction::BuildBuilding(BuildBuildingAction {
                         player_id,
                         chunk_id: chunk_id.clone(),
                         cell: cell.clone(),
+                        building_type,
                         building_specific_type,
                     })
                 }
