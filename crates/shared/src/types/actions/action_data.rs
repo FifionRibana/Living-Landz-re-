@@ -3,8 +3,8 @@ use sqlx::prelude::FromRow;
 
 use crate::{
     ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildingCategoryEnum,
-    BuildingSpecific, BuildingSpecificTypeEnum, ResourceSpecificTypeEnum, TerrainChunkId,
-    grid::GridCell,
+    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, ResourceSpecificTypeEnum,
+    TerrainChunkId, grid::GridCell,
 };
 
 pub struct ActionContext {
@@ -30,6 +30,7 @@ pub struct BuildBuildingAction {
     pub player_id: u64,
     pub chunk_id: TerrainChunkId,
     pub cell: GridCell,
+    pub building_type: BuildingTypeEnum,
     pub building_specific_type: BuildingSpecificTypeEnum,
     // TODO: Add the recipe and resources used
 }

@@ -221,31 +221,128 @@ impl ActionProcessor {
 
     /// Crée un bâtiment en construction pour une action BuildBuilding
     async fn create_building_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+        use shared::{
+            AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum,
+            BuildingBaseData, BuildingData, BuildingSpecific, BuildingTypeEnum,
+            CommerceData, CommerceTypeEnum, CultData, CultTypeEnum,
+            EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData,
+            ManufacturingWorkshopTypeEnum,
+        };
+
         // Récupérer le type de bâtiment depuis la base de données
         let building_type_id = self.db_tables.actions.get_build_building_type(action_id).await?
             .ok_or_else(|| format!("No building type found for action {}", action_id))?;
 
-        // Convertir building_type_id en BuildingSpecificTypeEnum
-        let building_type = shared::BuildingSpecificTypeEnum::from_id(building_type_id)
+        // Convertir building_type_id en BuildingTypeEnum
+        let building_type = BuildingTypeEnum::from_id(building_type_id)
             .ok_or_else(|| format!("Invalid building type ID: {}", building_type_id))?;
 
-        // Déterminer la catégorie du bâtiment
-        let category = match building_type {
-            shared::BuildingSpecificTypeEnum::ManufacturingWorkshop => shared::BuildingCategoryEnum::ManufacturingWorkshops,
-            _ => shared::BuildingCategoryEnum::Unknown,
+        // Déterminer la catégorie et le type spécifique
+        let building_specific_type = building_type.to_specific_type();
+        let category = building_type.category();
+
+        // Créer les données spécifiques selon le type de bâtiment
+        let specific_data = match building_specific_type {
+            shared::BuildingSpecificTypeEnum::ManufacturingWorkshop => {
+                let workshop_type = match building_type {
+                    BuildingTypeEnum::Blacksmith => ManufacturingWorkshopTypeEnum::Blacksmith,
+                    BuildingTypeEnum::BlastFurnace => ManufacturingWorkshopTypeEnum::BlastFurnace,
+                    BuildingTypeEnum::Bloomery => ManufacturingWorkshopTypeEnum::Bloomery,
+                    BuildingTypeEnum::CarpenterShop => ManufacturingWorkshopTypeEnum::CarpenterShop,
+                    BuildingTypeEnum::GlassFactory => ManufacturingWorkshopTypeEnum::GlassFactory,
+                    _ => ManufacturingWorkshopTypeEnum::Blacksmith,
+                };
+                BuildingSpecific::ManufacturingWorkshop(ManufacturingWorkshopData {
+                    workshop_type,
+                    variant: 0,
+                })
+            }
+            shared::BuildingSpecificTypeEnum::Agriculture => {
+                let agriculture_type = match building_type {
+                    BuildingTypeEnum::Farm => AgricultureTypeEnum::Farm,
+                    _ => AgricultureTypeEnum::Farm,
+                };
+                BuildingSpecific::Agriculture(AgricultureData {
+                    agriculture_type,
+                    variant: 0,
+                })
+            }
+            shared::BuildingSpecificTypeEnum::AnimalBreeding => {
+                let animal_type = match building_type {
+                    BuildingTypeEnum::Cowshed => AnimalBreedingTypeEnum::Cowshed,
+                    BuildingTypeEnum::Piggery => AnimalBreedingTypeEnum::Piggery,
+                    BuildingTypeEnum::Sheepfold => AnimalBreedingTypeEnum::Sheepfold,
+                    BuildingTypeEnum::Stable => AnimalBreedingTypeEnum::Stable,
+                    _ => AnimalBreedingTypeEnum::Cowshed,
+                };
+                BuildingSpecific::AnimalBreeding(AnimalBreedingData {
+                    animal_type,
+                    variant: 0,
+                })
+            }
+            shared::BuildingSpecificTypeEnum::Entertainment => {
+                let entertainment_type = match building_type {
+                    BuildingTypeEnum::Theater => EntertainmentTypeEnum::Theater,
+                    _ => EntertainmentTypeEnum::Theater,
+                };
+                BuildingSpecific::Entertainment(EntertainmentData {
+                    entertainment_type,
+                    variant: 0,
+                })
+            }
+            shared::BuildingSpecificTypeEnum::Cult => {
+                let cult_type = match building_type {
+                    BuildingTypeEnum::Temple => CultTypeEnum::Temple,
+                    _ => CultTypeEnum::Temple,
+                };
+                BuildingSpecific::Cult(CultData {
+                    cult_type,
+                    variant: 0,
+                })
+            }
+            shared::BuildingSpecificTypeEnum::Commerce => {
+                let commerce_type = match building_type {
+                    BuildingTypeEnum::Bakehouse => CommerceTypeEnum::Bakehouse,
+                    BuildingTypeEnum::Brewery => CommerceTypeEnum::Brewery,
+                    BuildingTypeEnum::Distillery => CommerceTypeEnum::Distillery,
+                    BuildingTypeEnum::Slaughterhouse => CommerceTypeEnum::Slaughterhouse,
+                    BuildingTypeEnum::IceHouse => CommerceTypeEnum::IceHouse,
+                    BuildingTypeEnum::Market => CommerceTypeEnum::Market,
+                    _ => CommerceTypeEnum::Bakehouse,
+                };
+                BuildingSpecific::Commerce(CommerceData {
+                    commerce_type,
+                    variant: 0,
+                })
+            }
+            _ => BuildingSpecific::Unknown(),
+        };
+
+        // Créer les données de base du bâtiment
+        let building_data = BuildingData {
+            base_data: BuildingBaseData {
+                id: action_id,
+                category,
+                specific_type: building_specific_type,
+                chunk: action_info.chunk_id.clone(),
+                cell: action_info.cell.clone(),
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                quality: 1.0,
+                durability: 1.0,
+                damage: 0.0,
+            },
+            specific_data,
         };
 
         // Créer le bâtiment en construction (is_built = false)
-        self.db_tables.buildings.create_building(
-            action_id, // Utiliser action_id comme building_id
-            building_type,
-            category,
-            &action_info.chunk_id,
-            &action_info.cell,
-        ).await?;
+        self.db_tables.buildings.create_building(&building_data).await?;
 
         tracing::info!(
-            "Created building (in construction) for action {} at chunk ({}, {}) cell ({}, {})",
+            "Created building {:?} (in construction) for action {} at chunk ({}, {}) cell ({}, {})",
+            building_type,
             action_id,
             action_info.chunk_id.x,
             action_info.chunk_id.y,

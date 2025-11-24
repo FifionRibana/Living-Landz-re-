@@ -288,11 +288,13 @@ async fn handle_client_message(
             player_id,
             chunk_id,
             cell,
-            building_specific_type,
+            building_type,
         } => {
+            let building_specific_type = building_type.to_specific_type();
             tracing::info!(
-                "Player {} requested to build {:?} at chunk ({},{}) cell ({},{})",
+                "Player {} requested to build {:?} ({:?}) at chunk ({},{}) cell ({},{})",
                 player_id,
+                building_type,
                 building_specific_type,
                 chunk_id.x,
                 chunk_id.y,
@@ -305,6 +307,7 @@ async fn handle_client_message(
                 player_id,
                 chunk_id: chunk_id.clone(),
                 cell: cell.clone(),
+                building_type,
                 building_specific_type,
             });
 
