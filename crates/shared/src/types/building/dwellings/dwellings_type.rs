@@ -1,4 +1,3 @@
-use crate::BiomeType;
 use bincode::{Encode, Decode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Encode, Decode)]

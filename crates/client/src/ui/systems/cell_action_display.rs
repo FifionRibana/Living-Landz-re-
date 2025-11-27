@@ -11,8 +11,6 @@ use crate::{
 pub fn update_cell_action_display(
     action_tracker: Res<ActionTracker>,
     selected_hexes: Res<SelectedHexes>,
-    mut panel_query: Query<(&mut Visibility, &Children), With<CellDetailsPanelMarker>>,
-    mut text_query: Query<&mut Text>,
 ) {
     // Vérifier si une cellule est sélectionnée
     if selected_hexes.ids.is_empty() {

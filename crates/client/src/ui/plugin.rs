@@ -4,8 +4,11 @@
 
 use bevy::prelude::*;
 
+use super::{
+    resources::{ActionState, ChatState},
+    systems,
+};
 use crate::state::resources;
-use super::{resources::{ActionState, ChatState}, systems};
 
 pub struct UiPlugin;
 
@@ -16,13 +19,21 @@ impl Plugin for UiPlugin {
             .add_plugins(bevy_ui_text_input::TextInputPlugin)
             .add_systems(
                 Startup,
-                (resources::setup_gauge_atlas, resources::setup_moon_atlas, systems::setup_ui).chain(),
+                (
+                    resources::setup_gauge_atlas,
+                    resources::setup_moon_atlas,
+                    systems::setup_ui,
+                )
+                    .chain(),
             )
             .add_systems(
                 Update,
                 (
                     // UI visibility updates
                     systems::update_cell_details_visibility,
+                    systems::update_cell_details_content,
+                        // .before(systems::update_chat_notification_badge)
+                        // .before(systems::update_player_info),
                     systems::update_action_bar_visibility,
                     systems::update_action_panel_visibility,
                     systems::update_chat_visibility,

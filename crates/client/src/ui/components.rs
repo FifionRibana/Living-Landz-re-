@@ -86,6 +86,18 @@ pub struct ActionRunButton;
 #[derive(Component)]
 pub struct CellDetailsPanelMarker;
 
+#[derive(Component)]
+pub struct CellDetailsTitleText;
+
+#[derive(Component)]
+pub struct CellDetailsBiomeText;
+
+#[derive(Component)]
+pub struct CellDetailsBuildingImage;
+
+#[derive(Component)]
+pub struct CellDetailsQualityGaugeContainer;
+
 // Top bar components
 #[derive(Component)]
 pub struct TopBarMarker;
@@ -114,3 +126,6 @@ pub struct ChatIconButton;
 
 #[derive(Component)]
 pub struct ChatNotificationBadge;
+
+#[derive(Component)]
+pub struct ChatNotificationBadgeText;

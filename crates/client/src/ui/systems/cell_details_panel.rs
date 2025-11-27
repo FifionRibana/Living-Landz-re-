@@ -1,7 +1,13 @@
 use bevy::{ecs::relationship::RelatedSpawnerCommands, prelude::*};
 use shared::atlas::GaugeAtlas;
 
-use crate::ui::{components::CellDetailsPanelMarker, debug::HoveredCellInfoText};
+use crate::ui::{
+    components::{
+        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsPanelMarker,
+        CellDetailsQualityGaugeContainer, CellDetailsTitleText,
+    },
+    debug::HoveredCellInfoText,
+};
 
 pub fn setup_cell_details_panel(
     parent: &mut RelatedSpawnerCommands<ChildOf>,
@@ -65,12 +71,13 @@ pub fn setup_cell_details_panel(
                 ))
                 .with_children(|frame_parent| {
                     frame_parent.spawn((
-                        Text::new("Blacksmith"),
+                        Text::new(""),
                         TextFont {
                             font_size: 13.0,
                             ..default()
                         },
                         TextColor(Color::srgb_u8(223, 210, 194)),
+                        CellDetailsTitleText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
@@ -102,14 +109,14 @@ pub fn setup_cell_details_panel(
                 ))
                 .with_children(|frame_parent| {
                     frame_parent.spawn((
-                        Text::new("Plain (deciduous forest)"),
+                        Text::new(""),
                         TextFont {
                             font_size: 12.0,
                             ..default()
                         },
                         TextColor(Color::srgb_u8(67, 60, 37)),
                         Node { ..default() },
-                        HoveredCellInfoText,
+                        CellDetailsBiomeText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
@@ -127,6 +134,8 @@ pub fn setup_cell_details_panel(
                             image_mode: NodeImageMode::Stretch,
                             ..default()
                         },
+                        CellDetailsBuildingImage,
+                        Visibility::Hidden,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
@@ -140,6 +149,8 @@ pub fn setup_cell_details_panel(
                                 align_items: AlignItems::Center,
                                 ..default()
                             },
+                            CellDetailsQualityGaugeContainer,
+                            Visibility::Hidden,
                             Pickable {
                                 should_block_lower: true,
                                 is_hoverable: false,
@@ -147,7 +158,7 @@ pub fn setup_cell_details_panel(
                         ))
                         .with_children(|quality_parent| {
                             for position in -4i32..=4i32 {
-                                let light = match position.abs() as u32 {
+                                let light = match position.unsigned_abs() {
                                     0 => 3,
                                     1 => 2,
                                     2 => 1,
@@ -165,7 +176,7 @@ pub fn setup_cell_details_panel(
                                     },
                                     ImageNode {
                                         image: gauge_atlas
-                                            .get_handles(position.abs() as u32, light)
+                                            .get_handles(position.unsigned_abs(), light)
                                             .expect("")
                                             .clone(),
                                         image_mode: NodeImageMode::Auto,

@@ -10,7 +10,7 @@ license = "MIT"
 
 
 [workspace.dependencies]
-bevy = { version = "0.17.2", default-features = false, features = [
+bevy = { version = "0.17.3", default-features = false, features = [
     "async_executor",
     "bevy_color",
     "bevy_core_pipeline",
@@ -37,6 +37,8 @@ bevy = { version = "0.17.2", default-features = false, features = [
     "multi_threaded",
     "default_font",
     "png",
+
+    "debug"
 ] }
 
 anyhow = "1.0"
