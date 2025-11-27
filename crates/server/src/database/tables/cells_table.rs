@@ -37,7 +37,7 @@ impl CellsTable {
             });
 
             query_builder.push(
-                "ON CONFLICT (q, r) DO UPDATE SET chunk_x = EXCLUDED.chunk_x, chunk_y = EXCLUDED.chunk_y, biome = EXCLUDED.biome"
+                "ON CONFLICT (q, r) DO UPDATE SET chunk_x = EXCLUDED.chunk_x, chunk_y = EXCLUDED.chunk_y, biome_id = EXCLUDED.biome_id"
             );
 
             query_builder.build().execute(&mut *tx).await?;

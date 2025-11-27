@@ -3,6 +3,7 @@ use crate::database::tables;
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
+use crate::world::resources::SdfConfig;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
 use hexx::HexOrientation;
@@ -10,7 +11,7 @@ use shared::BuildingData;
 use shared::GameState;
 use shared::constants;
 use shared::grid::GridConfig;
-use shared::{BiomeType, get_biome_color, get_biome_from_color};
+use shared::{get_biome_color, get_biome_from_color};
 
 pub fn setup_grid_config() -> GridConfig {
     let radius = constants::HEX_SIZE;
@@ -39,35 +40,35 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     let terrain_db = &db_tables.terrains;
     let building_db = &db_tables.buildings;
 
-    // let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
-    //     &map_name.to_string(),
-    //     &maps.binary_map,
-    //     &Vec2::splat(5.),
-    //     &format!("assets/maps/{}_binarymap.bin", map_name),
-    // );
+    let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
+        &map_name.to_string(),
+        &maps.binary_map,
+        &Vec2::splat(5.),
+        &format!("assets/maps/{}_binarymap.bin", map_name),
+    );
 
-    // for (id, chunk) in terrain_mesh_data.chunks {
-    //     terrain_db
-    //         .save_terrain(chunk.to_shared_terrain_chunk_data(map_name, id))
-    //         .await
-    //         .expect("Failed to save terrain");
-    // }
+    for (id, chunk) in terrain_mesh_data.chunks {
+        terrain_db
+            .save_terrain(chunk.to_shared_terrain_chunk_data(map_name, id))
+            .await
+            .expect("Failed to save terrain");
+    }
 
-    // let biome_mesh_data = BiomeMeshData::from_image(
-    //     &map_name.to_string(),
-    //     &maps.biome_map,
-    //     &mask, //maps.binary_map.to_luma8(),
-    //     &chunk_masks,
-    //     &Vec2::splat(5.),
-    //     "assets/maps/",
-    // );
+    let biome_mesh_data = BiomeMeshData::from_image(
+        &map_name.to_string(),
+        &maps.biome_map,
+        &mask, //maps.binary_map.to_luma8(),
+        &chunk_masks,
+        &Vec2::splat(5.),
+        "assets/maps/",
+    );
 
-    // for (id, chunk) in biome_mesh_data.chunks.into_iter() {
-    //     terrain_db
-    //         .save_terrain_biome(chunk.to_shared_biome_chunk_data(map_name, id))
-    //         .await
-    //         .expect("Failed to save terrain biome");
-    // }
+    for (id, chunk) in biome_mesh_data.chunks.into_iter() {
+        terrain_db
+            .save_terrain_biome(chunk.to_shared_biome_chunk_data(map_name, id))
+            .await
+            .expect("Failed to save terrain biome");
+    }
 
     let grid_config = &setup_grid_config();
     let sampled_cells = BiomeMeshData::sample_biome(

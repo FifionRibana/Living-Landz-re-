@@ -7,18 +7,20 @@ use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::constants;
 use shared::{MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
+use shared::{TerrainChunkSdfData, constants};
 
 use super::mesh_data::MeshData;
 
 use crate::utils::{algorithm, file_system};
+use crate::world::resources::SdfConfig;
 
-#[derive(Default, Serialize, Deserialize, Encode, Decode, Clone)]
+#[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
     pub width: u32,
     pub height: u32,
     pub mesh_data: MeshData,
+    pub sdf_data: Vec<TerrainChunkSdfData>,
     pub outlines: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,
 }
@@ -33,13 +35,14 @@ impl TerrainChunkMeshData {
                 normals: self.mesh_data.normals.clone(),
                 uvs: self.mesh_data.uvs.clone(),
             },
+            sdf_data: self.sdf_data.clone(),
             outline: self.outlines.clone(),
             generated_at: self.generated_at,
         }
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Encode, Decode, Clone)]
+#[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainMeshData {
     pub name: String,
     /// Largeur et hauteur du terrain
@@ -153,17 +156,90 @@ impl TerrainMeshData {
             t3.elapsed()
         );
 
-        tracing::info!("Generating mesh faces from outlines");
+        let chunk_contours_ref = &chunk_contours;
+
+        tracing::info!("Generating sdf points from outlines");
         let t4 = std::time::Instant::now();
 
-        let chunk_contours_ref = &chunk_contours;
+        // TODO: transform into parallel iterator
+        let chunk_sdf_data_ref: HashMap<_, _> = chunk_contours_ref
+            .par_iter() // Paralléliser sur les chunks
+            .map(|(id, contours)| {
+                let chunk_origin = Vec2::new(
+                    id.x as f32 * constants::CHUNK_SIZE.x,
+                    id.y as f32 * constants::CHUNK_SIZE.y,
+                );
+
+                let sdf_data: Vec<TerrainChunkSdfData> = contours
+                    .iter()
+                    .map(|contour| {
+                        let image_width = 64.0;
+                        let image_height = 64.0;
+
+                        let scale_x = constants::CHUNK_SIZE.x / image_width;
+                        let scale_y = constants::CHUNK_SIZE.y / image_height;
+
+                        let world_contour: Vec<Vec2> = contour
+                            .iter()
+                            .map(|&point| {
+                                chunk_origin
+                                    + Vec2::new(
+                                        point[0] as f32 * scale_x,
+                                        point[1] as f32 * scale_y,
+                                    )
+                            })
+                            .collect();
+
+                        tracing::info!(
+                            "Chunk {:?} - origin: {:?}, contour len: {}, image bounds: {:?} to {:?}, world bounds: {:?} to {:?}",
+                            id,
+                            chunk_origin,
+                            contour.len(),
+                            contour.iter().fold([f64::MAX, f64::MAX], |acc, p| [acc[0].min(p[0]), acc[1].min(p[1])]),
+                            contour.iter().fold([f64::MIN, f64::MIN], |acc, p| [acc[0].max(p[0]), acc[1].max(p[1])]),
+                            world_contour.iter().fold(Vec2::MAX, |acc, &p| acc.min(p)),
+                            world_contour.iter().fold(Vec2::MIN, |acc, &p| acc.max(p)),
+                        );
+
+                        // Utiliser les dimensions réelles de l'image, pas un carré
+                        let image_width = 600.0;
+                        let image_height = 503.0;  // Ou récupérer depuis buffer.height()
+                        
+                        let mut data = TerrainChunkSdfData::new(64);
+                        let local_contour: Vec<Vec2> = contour
+                            .iter()
+                            .map(|&point| Vec2::new(point[0] as f32, point[1] as f32))
+                            .collect();
+
+                        data.values = TerrainMeshData::generate_sdf_data(
+                            &local_contour,
+                            Vec2::ZERO,
+                            &SdfConfig {
+                                resolution: 64,
+                                chunk_world_size_x: 600.0,  // Largeur de l'image/mesh en pixels
+                                chunk_world_size_y: 503.0,  // Hauteur de l'image/mesh en pixels
+                                max_distance: 30.0,       // 30 pixels de transition pour la plage
+                            },
+                        );
+                        data
+                    })
+                    .collect();
+
+                (*id, sdf_data)
+            })
+            .collect();
+
+        tracing::info!("    SDF points generated in {:?}", t4.elapsed());
+
+        tracing::info!("Generating mesh faces from outlines");
+        let t5 = std::time::Instant::now();
 
         let chunk_meshes = chunk_contours_ref
             .into_iter()
             .map(|(&id, contours)| (id, TerrainMeshData::mesh_faces_from_contour(&contours)))
             .collect::<HashMap<_, _>>();
 
-        tracing::info!("    Meshes generated in {:?}", t4.elapsed());
+        tracing::info!("    Meshes generated in {:?}", t5.elapsed());
 
         tracing::info!("TerrainMeshData completed in {:?}", start.elapsed());
 
@@ -185,6 +261,10 @@ impl TerrainMeshData {
                                 outlines: chunk_contours_ref
                                     .get(&id)
                                     .expect("Chunk contour not found")
+                                    .clone(),
+                                sdf_data: chunk_sdf_data_ref
+                                    .get(&id)
+                                    .expect("Chunk SDF data not found")
                                     .clone(),
                                 generated_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
@@ -280,5 +360,69 @@ impl TerrainMeshData {
         }
 
         Ok(())
+    }
+
+    // Dans generate_sdf_data
+    pub fn generate_sdf_data(
+        contour_points: &[Vec2],
+        chunk_origin: Vec2,
+        config: &SdfConfig,
+    ) -> Vec<u8> {
+        let res = config.resolution as usize;
+        let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
+        let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
+        
+        (0..res * res)
+            .into_par_iter()
+            .map(|idx| {
+                let x = idx % res;
+                let y = idx / res;
+                
+                let local_pos = chunk_origin + Vec2::new(
+                    (x as f32 + 0.5) * texel_size_x,
+                    (y as f32 + 0.5) * texel_size_y,
+                );
+                
+                let dist = TerrainMeshData::compute_min_distance_to_contour(local_pos, contour_points);
+                let normalized = (dist / config.max_distance).clamp(0.0, 1.0);
+                
+                (normalized * 255.0) as u8
+            })
+            .collect()
+    }
+
+    fn compute_min_distance_to_contour(point: Vec2, contour: &[Vec2]) -> f32 {
+        if contour.len() < 2 {
+            return f32::MAX;
+        }
+
+        let mut min_dist = f32::MAX;
+
+        for i in 0..contour.len() {
+            let a = contour[i];
+            let b = contour[(i + 1) % contour.len()];
+
+            let dist = TerrainMeshData::distance_point_to_segment(point, a, b);
+            min_dist = min_dist.min(dist);
+        }
+
+        min_dist
+    }
+
+    fn distance_point_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+        let ab = b - a;
+        let ap = p - a;
+
+        let ab_len_sq = ab.length_squared();
+
+        if ab_len_sq < f32::EPSILON {
+            return ap.length();
+        }
+
+        let t = (ap.dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+
+        let closest = a + ab * t;
+
+        (p - closest).length()
     }
 }

@@ -62,7 +62,7 @@ impl TerrainsTable {
         });
 
         let biome_rows = sqlx::query(
-            "SELECT biome, data, generated_at FROM terrain.terrain_biomes WHERE name = $1 AND chunk_x = $2 AND chunk_y = $3"
+            "SELECT biome_id, data, generated_at FROM terrain.terrain_biomes WHERE name = $1 AND chunk_x = $2 AND chunk_y = $3"
         )
             .bind(name)
             .bind(terrain_chunk_id.x)

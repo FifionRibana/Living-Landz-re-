@@ -56,7 +56,8 @@ impl BuildingsTable {
                     ON CONFLICT (cell_q, cell_r)
                     DO UPDATE SET
                         id = EXCLUDED.id,
-                        category = EXCLUDED.category,
+                        building_type_id = EXCLUDED.building_type_id,
+                        category_id = EXCLUDED.category_id,
                         quality = EXCLUDED.quality,
                         durability = EXCLUDED.durability,
                         damage = EXCLUDED.damage,
@@ -100,7 +101,7 @@ impl BuildingsTable {
                 r#"
                     ON CONFLICT (building_id)
                     DO UPDATE SET
-                        tree_type = EXCLUDED.tree_type,
+                        tree_type_id = EXCLUDED.tree_type_id,
                         density = EXCLUDED.density,
                         age = EXCLUDED.age,
                         variant = EXCLUDED.variant
@@ -110,202 +111,214 @@ impl BuildingsTable {
             tree_query_builder.build().execute(&mut *tx).await?;
 
             // MANUFACTURING WORKSHOPS
-            let workshops_iter = chunk.iter().filter_map(|b| {
+            let workshops: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::ManufacturingWorkshop(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.workshop_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut workshop_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.manufacturing_workshops (building_id, workshop_type_id, variant)",
-            );
+            if !workshops.is_empty() {
+                let mut workshop_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.manufacturing_workshops (building_id, workshop_type_id, variant)",
+                );
 
-            workshop_query_builder.push_values(
-                workshops_iter,
-                |mut b, (id, workshop_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(workshop_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                workshop_query_builder.push_values(
+                    workshops,
+                    |mut b, (id, workshop_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(workshop_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            workshop_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        workshop_type_id = EXCLUDED.workshop_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                workshop_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            workshop_type_id = EXCLUDED.workshop_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            workshop_query_builder.build().execute(&mut *tx).await?;
+                workshop_query_builder.build().execute(&mut *tx).await?;
+            }
 
             // AGRICULTURE
-            let agriculture_iter = chunk.iter().filter_map(|b| {
+            let agriculture: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::Agriculture(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.agriculture_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut agriculture_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.agriculture (building_id, agriculture_type_id, variant)",
-            );
+            if !agriculture.is_empty() {
+                let mut agriculture_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.agriculture (building_id, agriculture_type_id, variant)",
+                );
 
-            agriculture_query_builder.push_values(
-                agriculture_iter,
-                |mut b, (id, agriculture_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(agriculture_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                agriculture_query_builder.push_values(
+                    agriculture,
+                    |mut b, (id, agriculture_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(agriculture_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            agriculture_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        agriculture_type_id = EXCLUDED.agriculture_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                agriculture_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            agriculture_type_id = EXCLUDED.agriculture_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            agriculture_query_builder.build().execute(&mut *tx).await?;
+                agriculture_query_builder.build().execute(&mut *tx).await?;
+            }
 
             // ANIMAL BREEDING
-            let animal_breeding_iter = chunk.iter().filter_map(|b| {
+            let animal_breeding: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::AnimalBreeding(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.animal_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut animal_breeding_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.animal_breeding (building_id, animal_type_id, variant)",
-            );
+            if !animal_breeding.is_empty() {
+                let mut animal_breeding_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.animal_breeding (building_id, animal_type_id, variant)",
+                );
 
-            animal_breeding_query_builder.push_values(
-                animal_breeding_iter,
-                |mut b, (id, animal_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(animal_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                animal_breeding_query_builder.push_values(
+                    animal_breeding,
+                    |mut b, (id, animal_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(animal_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            animal_breeding_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        animal_type_id = EXCLUDED.animal_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                animal_breeding_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            animal_type_id = EXCLUDED.animal_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            animal_breeding_query_builder.build().execute(&mut *tx).await?;
+                animal_breeding_query_builder.build().execute(&mut *tx).await?;
+            }
 
             // ENTERTAINMENT
-            let entertainment_iter = chunk.iter().filter_map(|b| {
+            let entertainment: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::Entertainment(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.entertainment_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut entertainment_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.entertainment (building_id, entertainment_type_id, variant)",
-            );
+            if !entertainment.is_empty() {
+                let mut entertainment_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.entertainment (building_id, entertainment_type_id, variant)",
+                );
 
-            entertainment_query_builder.push_values(
-                entertainment_iter,
-                |mut b, (id, entertainment_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(entertainment_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                entertainment_query_builder.push_values(
+                    entertainment,
+                    |mut b, (id, entertainment_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(entertainment_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            entertainment_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        entertainment_type_id = EXCLUDED.entertainment_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                entertainment_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            entertainment_type_id = EXCLUDED.entertainment_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            entertainment_query_builder.build().execute(&mut *tx).await?;
+                entertainment_query_builder.build().execute(&mut *tx).await?;
+            }
 
             // CULT
-            let cult_iter = chunk.iter().filter_map(|b| {
+            let cult: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::Cult(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.cult_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut cult_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.cult (building_id, cult_type_id, variant)",
-            );
+            if !cult.is_empty() {
+                let mut cult_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.cult (building_id, cult_type_id, variant)",
+                );
 
-            cult_query_builder.push_values(
-                cult_iter,
-                |mut b, (id, cult_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(cult_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                cult_query_builder.push_values(
+                    cult,
+                    |mut b, (id, cult_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(cult_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            cult_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        cult_type_id = EXCLUDED.cult_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                cult_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            cult_type_id = EXCLUDED.cult_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            cult_query_builder.build().execute(&mut *tx).await?;
+                cult_query_builder.build().execute(&mut *tx).await?;
+            }
 
             // COMMERCE
-            let commerce_iter = chunk.iter().filter_map(|b| {
+            let commerce: Vec<_> = chunk.iter().filter_map(|b| {
                 if let BuildingSpecific::Commerce(data) = &b.specific_data {
                     Some((b.base_data.id as i64, data.commerce_type, data.variant))
                 } else {
                     None
                 }
-            });
+            }).collect();
 
-            let mut commerce_query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO buildings.commerce (building_id, commerce_type_id, variant)",
-            );
+            if !commerce.is_empty() {
+                let mut commerce_query_builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO buildings.commerce (building_id, commerce_type_id, variant)",
+                );
 
-            commerce_query_builder.push_values(
-                commerce_iter,
-                |mut b, (id, commerce_type, variant)| {
-                    b.push_bind(id)
-                        .push_bind(commerce_type.to_id())
-                        .push_bind(variant as i32);
-                },
-            );
+                commerce_query_builder.push_values(
+                    commerce,
+                    |mut b, (id, commerce_type, variant)| {
+                        b.push_bind(id)
+                            .push_bind(commerce_type.to_id())
+                            .push_bind(variant as i32);
+                    },
+                );
 
-            commerce_query_builder.push(
-                r#"
-                    ON CONFLICT (building_id)
-                    DO UPDATE SET
-                        commerce_type_id = EXCLUDED.commerce_type_id,
-                        variant = EXCLUDED.variant
-                "#,
-            );
+                commerce_query_builder.push(
+                    r#"
+                        ON CONFLICT (building_id)
+                        DO UPDATE SET
+                            commerce_type_id = EXCLUDED.commerce_type_id,
+                            variant = EXCLUDED.variant
+                    "#,
+                );
 
-            commerce_query_builder.build().execute(&mut *tx).await?;
+                commerce_query_builder.build().execute(&mut *tx).await?;
+            }
         }
 
         tx.commit().await?;
@@ -504,10 +517,8 @@ impl BuildingsTable {
             SELECT
                 b.id, b.building_type_id, b.category_id,
                 b.cell_q, b.cell_r,
-                b.quality, b.durability, b.damage, b.created_at,
-                bt.specific_type_id
+                b.quality, b.durability, b.damage, b.created_at
             FROM buildings.buildings_base b
-            JOIN buildings.building_types bt ON b.building_type_id = bt.id
             WHERE chunk_x = $1 AND chunk_y = $2 AND is_built = true
         "#,
         )
@@ -520,7 +531,8 @@ impl BuildingsTable {
             let id = r.get::<i64, &str>("id");
             let category = BuildingCategoryEnum::from_id(r.get("category_id"))
                 .unwrap_or(BuildingCategoryEnum::Unknown);
-            let specific_type = BuildingSpecificTypeEnum::from_id(r.get("specific_type_id"))
+            let building_type_id: i32 = r.get("building_type_id");
+            let specific_type = BuildingSpecificTypeEnum::from_id(building_type_id as i16)
                 .unwrap_or(BuildingSpecificTypeEnum::Unknown);
 
             let base_data = BuildingBaseData {

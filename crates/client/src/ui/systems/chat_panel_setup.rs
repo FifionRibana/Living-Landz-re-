@@ -3,7 +3,7 @@ use bevy_ui_text_input::{TextInputBuffer, TextInputNode, TextInputQueue, TextInp
 
 use crate::ui::components::{
     ChatIconButton, ChatInputContainer, ChatInputField, ChatMessagesContainer,
-    ChatNotificationBadge, ChatPanelMarker, ChatSendButton, ChatToggleButton,
+    ChatNotificationBadge, ChatNotificationBadgeText, ChatPanelMarker, ChatSendButton, ChatToggleButton,
 };
 
 pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &Res<AssetServer>) {
@@ -334,6 +334,7 @@ pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
                             ..default()
                         },
                         TextColor(Color::WHITE),
+                        ChatNotificationBadgeText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,

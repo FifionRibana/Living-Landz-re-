@@ -4,7 +4,7 @@ use bevy_ui_text_input::{TextInputBuffer, TextInputQueue, actions::TextInputActi
 use crate::{
     grid::resources::SelectedHexes,
     ui::{
-        components::{ChatIconButton, ChatInputContainer, ChatInputField, ChatMessagesContainer, ChatNotificationBadge, ChatPanelMarker, ChatSendButton, ChatToggleButton},
+        components::{ChatIconButton, ChatInputContainer, ChatInputField, ChatMessagesContainer, ChatNotificationBadge, ChatNotificationBadgeText, ChatPanelMarker, ChatSendButton, ChatToggleButton},
         resources::ChatState,
     },
 };
@@ -148,7 +148,7 @@ pub fn handle_chat_icon_button(
 pub fn update_chat_notification_badge(
     chat_state: Res<ChatState>,
     mut badge_query: Query<(&mut Visibility, &Children), With<ChatNotificationBadge>>,
-    mut text_query: Query<&mut Text>,
+    mut text_query: Query<&mut Text, With<ChatNotificationBadgeText>>,
 ) {
     if chat_state.is_changed() {
         for (mut visibility, children) in badge_query.iter_mut() {
