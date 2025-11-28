@@ -170,60 +170,38 @@ impl TerrainMeshData {
                     id.y as f32 * constants::CHUNK_SIZE.y,
                 );
 
-                let sdf_data: Vec<TerrainChunkSdfData> = contours
-                    .iter()
-                    .map(|contour| {
-                        let image_width = 64.0;
-                        let image_height = 64.0;
+                let sdf_data: Vec<TerrainChunkSdfData> = {
+                    // Collecter tous les contours valides (filtrés)
+                    let all_contours: Vec<Vec<Vec2>> = contours
+                        .iter()
+                        .map(|contour| {
+                            contour
+                                .iter()
+                                .map(|&point| Vec2::new(point[0] as f32, point[1] as f32))
+                                .collect()
+                        })
+                        .collect();
 
-                        let scale_x = constants::CHUNK_SIZE.x / image_width;
-                        let scale_y = constants::CHUNK_SIZE.y / image_height;
-
-                        let world_contour: Vec<Vec2> = contour
-                            .iter()
-                            .map(|&point| {
-                                chunk_origin
-                                    + Vec2::new(
-                                        point[0] as f32 * scale_x,
-                                        point[1] as f32 * scale_y,
-                                    )
-                            })
-                            .collect();
-
-                        tracing::info!(
-                            "Chunk {:?} - origin: {:?}, contour len: {}, image bounds: {:?} to {:?}, world bounds: {:?} to {:?}",
-                            id,
-                            chunk_origin,
-                            contour.len(),
-                            contour.iter().fold([f64::MAX, f64::MAX], |acc, p| [acc[0].min(p[0]), acc[1].min(p[1])]),
-                            contour.iter().fold([f64::MIN, f64::MIN], |acc, p| [acc[0].max(p[0]), acc[1].max(p[1])]),
-                            world_contour.iter().fold(Vec2::MAX, |acc, &p| acc.min(p)),
-                            world_contour.iter().fold(Vec2::MIN, |acc, &p| acc.max(p)),
-                        );
-
-                        // Utiliser les dimensions réelles de l'image, pas un carré
+                    if all_contours.is_empty() {
+                        vec![]
+                    } else {
                         let image_width = 600.0;
-                        let image_height = 503.0;  // Ou récupérer depuis buffer.height()
-                        
-                        let mut data = TerrainChunkSdfData::new(64);
-                        let local_contour: Vec<Vec2> = contour
-                            .iter()
-                            .map(|&point| Vec2::new(point[0] as f32, point[1] as f32))
-                            .collect();
+                        let image_height = 503.0;
 
-                        data.values = TerrainMeshData::generate_sdf_data(
-                            &local_contour,
+                        let mut data = TerrainChunkSdfData::new(64);
+                        data.values = TerrainMeshData::generate_sdf_data_multi_contours(
+                            &all_contours,
                             Vec2::ZERO,
                             &SdfConfig {
                                 resolution: 64,
-                                chunk_world_size_x: 600.0,  // Largeur de l'image/mesh en pixels
-                                chunk_world_size_y: 503.0,  // Hauteur de l'image/mesh en pixels
-                                max_distance: 30.0,       // 30 pixels de transition pour la plage
+                                chunk_world_size_x: image_width,
+                                chunk_world_size_y: image_height,
+                                max_distance: 30.0,
                             },
                         );
-                        data
-                    })
-                    .collect();
+                        vec![data] // Une seule SDF fusionnée
+                    }
+                };
 
                 (*id, sdf_data)
             })
@@ -371,21 +349,23 @@ impl TerrainMeshData {
         let res = config.resolution as usize;
         let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
         let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
-        
+
         (0..res * res)
             .into_par_iter()
             .map(|idx| {
                 let x = idx % res;
                 let y = idx / res;
-                
-                let local_pos = chunk_origin + Vec2::new(
-                    (x as f32 + 0.5) * texel_size_x,
-                    (y as f32 + 0.5) * texel_size_y,
-                );
-                
-                let dist = TerrainMeshData::compute_min_distance_to_contour(local_pos, contour_points);
+
+                let local_pos = chunk_origin
+                    + Vec2::new(
+                        (x as f32 + 0.5) * texel_size_x,
+                        (y as f32 + 0.5) * texel_size_y,
+                    );
+
+                let dist =
+                    TerrainMeshData::compute_min_distance_to_contour(local_pos, contour_points);
                 let normalized = (dist / config.max_distance).clamp(0.0, 1.0);
-                
+
                 (normalized * 255.0) as u8
             })
             .collect()
@@ -407,6 +387,115 @@ impl TerrainMeshData {
         }
 
         min_dist
+    }
+
+    pub fn generate_sdf_data_multi_contours(
+        all_contours: &[Vec<Vec2>],
+        chunk_origin: Vec2,
+        config: &SdfConfig,
+    ) -> Vec<u8> {
+        let res = config.resolution as usize;
+        let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
+        let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
+
+        // Tolérance en pixels pour la détection des bords
+        let edge_threshold = 2.0;
+        let max_x = config.chunk_world_size_x - edge_threshold;
+        let max_y = config.chunk_world_size_y - edge_threshold;
+
+        // Collecter tous les segments valides (pas alignés sur les bords)
+        let valid_segments: Vec<(Vec2, Vec2)> = all_contours
+            .iter()
+            .flat_map(|contour| {
+                if contour.len() < 2 {
+                    return vec![];
+                }
+
+                (0..contour.len())
+                    .filter_map(|i| {
+                        let a = contour[i];
+                        let b = contour[(i + 1) % contour.len()];
+
+                        if TerrainMeshData::is_segment_on_chunk_edge(a, b, edge_threshold, max_x, max_y) {
+                            None // Ignorer ce segment
+                        } else {
+                            Some((a, b))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        if valid_segments.is_empty() {
+            return vec![255u8; res * res];
+        }
+
+        (0..res * res)
+            .into_par_iter()
+            .map(|idx| {
+                let x = idx % res;
+                let y = idx / res;
+
+                let local_pos = chunk_origin
+                    + Vec2::new(
+                        (x as f32 + 0.5) * texel_size_x,
+                        (y as f32 + 0.5) * texel_size_y,
+                    );
+
+                let min_dist = valid_segments
+                    .iter()
+                    .map(|(a, b)| TerrainMeshData::distance_point_to_segment(local_pos, *a, *b))
+                    .fold(f32::MAX, f32::min);
+
+                let normalized = (min_dist / config.max_distance).clamp(0.0, 1.0);
+                (normalized * 255.0) as u8
+            })
+            .collect()
+    }
+
+    /// Vérifie si un segment est entièrement sur un bord du chunk
+    fn is_segment_on_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+        // Bord gauche
+        if a.x < threshold && b.x < threshold {
+            return true;
+        }
+        // Bord droit
+        if a.x > max_x && b.x > max_x {
+            return true;
+        }
+        // Bord bas
+        if a.y < threshold && b.y < threshold {
+            return true;
+        }
+        // Bord haut
+        if a.y > max_y && b.y > max_y {
+            return true;
+        }
+        false
+    }
+
+    /// Vérifie si un segment est aligné sur un bord du chunk (côte artificielle à ignorer)
+    fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+        // Tolérance pour la position sur le bord
+        let pos_threshold = threshold;
+        // Tolérance pour l'alignement (segment quasi horizontal ou vertical)
+        let align_threshold = threshold;
+
+        // Bord gauche : les deux points près de x=0 ET segment quasi vertical
+        let on_left =
+            a.x < pos_threshold && b.x < pos_threshold && (a.x - b.x).abs() < align_threshold;
+
+        // Bord droit : les deux points près de x=max ET segment quasi vertical
+        let on_right = a.x > max_x && b.x > max_x && (a.x - b.x).abs() < align_threshold;
+
+        // Bord bas : les deux points près de y=0 ET segment quasi horizontal
+        let on_bottom =
+            a.y < pos_threshold && b.y < pos_threshold && (a.y - b.y).abs() < align_threshold;
+
+        // Bord haut : les deux points près de y=max ET segment quasi horizontal
+        let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
+
+        on_left || on_right || on_bottom || on_top
     }
 
     fn distance_point_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
