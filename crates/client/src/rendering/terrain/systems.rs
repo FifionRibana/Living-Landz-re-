@@ -78,13 +78,15 @@ pub fn spawn_terrain(
 
         // Debug des positions de la mesh
         let pos_min = mesh_data
-            .triangles.clone()
+            .triangles
+            .clone()
             .iter()
             .fold([f32::MAX, f32::MAX, f32::MAX], |acc, p| {
                 [acc[0].min(p[0]), acc[1].min(p[1]), acc[2].min(p[2])]
             });
         let pos_max = mesh_data
-            .triangles.clone()
+            .triangles
+            .clone()
             .iter()
             .fold([f32::MIN, f32::MIN, f32::MIN], |acc, p| {
                 [acc[0].max(p[0]), acc[1].max(p[1]), acc[2].max(p[2])]
@@ -92,14 +94,19 @@ pub fn spawn_terrain(
 
         info!("Mesh positions - min: {:?}, max: {:?}", pos_min, pos_max);
 
-        let uvs =
-            generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
 
+
+        let uvs = generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
+        
+        let mut triangles = mesh_data_ref.triangles.clone();
+        // Étendre les bords de 1 pixel pour éviter les coutures
+        extend_mesh_edges(&mut triangles, 600.0, 503.0, 1.0);
+        
         let mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::RENDER_WORLD,
         )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, mesh_data_ref.triangles.clone())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, triangles.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, mesh_data_ref.normals.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone());
 
@@ -547,17 +554,40 @@ pub fn setup_default_terrain_material(
     // commands.insert_resource(DefaultTerrainMaterial(default_material));
 }
 
+fn extend_mesh_edges(positions: &mut [[f32; 3]], image_width: f32, image_height: f32, extend: f32) {
+    let edge_threshold = 1.0;
+
+    for pos in positions.iter_mut() {
+        // Bord gauche
+        if pos[0] < edge_threshold {
+            pos[0] -= extend;
+        }
+        // Bord droit
+        if pos[0] > image_width - edge_threshold {
+            pos[0] += extend;
+        }
+        // Bord bas
+        if pos[1] < edge_threshold {
+            pos[1] -= extend;
+        }
+        // Bord haut
+        if pos[1] > image_height - edge_threshold {
+            pos[1] += extend;
+        }
+    }
+}
+
 fn generate_uvs_from_positions(positions: &[[f32; 3]], chunk_world_size: Vec2) -> Vec<[f32; 2]> {
     // Utiliser les dimensions fixes de l'image, pas les bounds de la mesh
-    let image_width = chunk_world_size.x;//600.0;
+    let image_width = chunk_world_size.x; //600.0;
     let image_height = chunk_world_size.y; //503.0;
-    
+
     positions
         .iter()
         .map(|pos| {
             [
                 pos[0] / image_width,
-                (pos[1] / image_height),  // Y inversé
+                (pos[1] / image_height), // Y inversé
             ]
         })
         .collect()
