@@ -8,8 +8,8 @@ use shared::atlas::{BuildingAtlas, TreeAtlas};
 use shared::grid::GridConfig;
 use shared::{
     AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
-    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CoastalSkirtData, CommerceData,
-    CultData, EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
+    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CultData,
+    EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
     TerrainChunkSdfData, TreeAge, TreeTypeEnum, constants, get_biome_color,
 };
 
@@ -710,42 +710,4 @@ fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y:
     let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
 
     on_left || on_right || on_bottom || on_top
-}
-
-// client/src/terrain/skirt_mesh.rs
-
-pub fn build_skirt_mesh(
-    skirt_data: &CoastalSkirtData,
-    chunk_size: Vec2,
-) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>) {
-    let n_inner = skirt_data.inner_points.len();
-    let n_outer = skirt_data.outer_points.len();
-
-    let normal_z = [0.0, 0.0, 1.0];
-    let color_inner = [1.0, 1.0, 1.0, 1.0];
-    let color_outer = [1.0, 1.0, 1.0, 0.0];
-
-    let num_vertices = skirt_data.indices.len();
-
-    let mut triangles = Vec::with_capacity(num_vertices);
-    let mut normals = Vec::with_capacity(num_vertices);
-    let mut uvs = Vec::with_capacity(num_vertices);
-    let mut colors = Vec::with_capacity(num_vertices);
-
-    for &idx in &skirt_data.indices {
-        let idx = idx as usize;
-
-        let (pos, is_outer) = if idx < n_inner {
-            (skirt_data.inner_points[idx], false)
-        } else {
-            (skirt_data.outer_points[idx - n_inner], true)
-        };
-
-        triangles.push([pos[0], pos[1], 0.0]);
-        normals.push(normal_z);
-        uvs.push([pos[0] / chunk_size.x, pos[1] / chunk_size.y]);
-        colors.push(if is_outer { color_outer } else { color_inner });
-    }
-
-    (triangles, normals, uvs, colors)
 }
