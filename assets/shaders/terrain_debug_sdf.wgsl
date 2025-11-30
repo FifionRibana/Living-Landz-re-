@@ -28,19 +28,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     
     let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
     
-    // Convertir en distance signée [-1, 1]
-    let sdf_signed = (sdf_raw - 0.5) * 2.0;
-    
-    // Opacité
-    let opacity = smoothstep(sdf_params.opacity_start, sdf_params.opacity_end, sdf_signed);
-    
-    // Couleur
-    let color_t = smoothstep(sdf_params.beach_start, sdf_params.beach_end, sdf_signed);
-    let color = mix(sand_color.rgb, grass_color.rgb, color_t);
-    
-    if opacity < 0.01 {
-        discard;
+    // Debug : afficher rouge/vert
+    if sdf_raw > 0.5 {
+        return vec4<f32>(0.0, sdf_raw, 0.0, 1.0);
+    } else {
+        return vec4<f32>(1.0 - sdf_raw, 0.0, 0.0, 1.0);
     }
-    
-    return vec4<f32>(color, opacity);
 }
