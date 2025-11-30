@@ -18,7 +18,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // La texture overlap d'un demi-texel de chaque côté
     // On doit mapper UV [0, 1] → [0.5/64, 63.5/64] pour centrer sur la zone du chunk
     let tex_res = 64.0;
-    let half_texel = 0.9 / tex_res;
+    let half_texel = 0.4 / tex_res;
     
     // Centrer: décaler de half_texel et réduire l'échelle
     let uv_centered = in.uv * (1.0 - 2.0 * half_texel) + half_texel;

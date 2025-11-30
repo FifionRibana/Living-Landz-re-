@@ -15,18 +15,20 @@ struct SdfParams {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // La texture overlap d'un demi-texel de chaque côté
-    // On doit mapper UV [0, 1] → [0.5/64, 63.5/64] pour centrer sur la zone du chunk
     let tex_res = 64.0;
-    let half_texel = 0.9 / tex_res;
+    let overlap = 0.4;
     
-    // Centrer: décaler de half_texel et réduire l'échelle
-    let uv_centered = in.uv * (1.0 - 2.0 * half_texel) + half_texel;
+    let total_span = tex_res - 1.0 + 2.0 * overlap;
+    let uv_start = overlap / total_span;
+    let uv_end = (tex_res - 1.0 + overlap) / total_span;
     
-    // Correction Y (flip vertical)
-    let uv_corrected = vec2<f32>(uv_centered.x, uv_centered.y);
+    // Appliquer le mapping sur chaque composante
+    let uv_mapped = vec2<f32>(
+        mix(uv_start, uv_end, in.uv.x),
+        mix(uv_start, uv_end, in.uv.y)
+    );
     
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_mapped).r;
     
     // Debug : afficher rouge/vert
     if sdf_raw > 0.5 {

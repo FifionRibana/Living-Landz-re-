@@ -7,13 +7,13 @@ use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::{CoastalSkirtData, MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
+use shared::{MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
 use shared::{TerrainChunkSdfData, constants};
 
 use super::mesh_data::MeshData;
 
 use crate::utils::{algorithm, file_system};
-use crate::world::resources::{SdfConfig, SkirtConfig};
+use crate::world::resources::SdfConfig;
 
 #[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
@@ -661,92 +661,6 @@ pub fn generate_full_chunk_mesh(chunk_size: Vec2) -> MeshData {
     }
 }
 
-pub fn generate_skirt_data(
-    contour_points: &[Vec2],
-    chunk_size: Vec2,
-    config: &SkirtConfig,
-    edge_threshold: f32,
-) -> Option<CoastalSkirtData> {
-    let (coastal_points, is_closed, edge_info) = filter_coastal_points_with_edges(
-        contour_points,
-        edge_threshold,
-        chunk_size.x,
-        chunk_size.y,
-    );
-
-    if coastal_points.len() < 2 {
-        return None;
-    }
-
-    // Simplifier le contour pour éviter les micro-segments
-    let simplified = simplify_contour(&coastal_points, 2.0);
-    let simplified_edges = resample_edge_info(
-        &coastal_points,
-        &edge_info,
-        &simplified,
-        edge_threshold,
-        chunk_size,
-    );
-
-    if simplified.len() < 2 {
-        return None;
-    }
-
-    let n = simplified.len();
-
-    // Calculer les normales avec un lissage plus fort
-    let normals = compute_smoothed_normals(&simplified, config.smoothing_window.max(9), is_closed);
-
-    // Calculer les distances sûres
-    let distances = compute_safe_offset_distances(
-        &simplified,
-        &normals,
-        config.width,
-        config.min_width_factor,
-        is_closed,
-    );
-
-    // Générer les points extérieurs
-    let outer_contour: Vec<Vec2> = simplified
-        .iter()
-        .enumerate()
-        .map(|(i, &p)| p + normals[i] * distances[i])
-        .collect();
-
-    // Snap les points de bord
-    let snapped_inner = snap_edge_points(&simplified, &simplified_edges, chunk_size);
-    let snapped_outer = snap_edge_points(&outer_contour, &simplified_edges, chunk_size);
-
-    let inner_points: Vec<[f32; 2]> = snapped_inner.iter().map(|p| [p.x, p.y]).collect();
-    let outer_points: Vec<[f32; 2]> = snapped_outer.iter().map(|p| [p.x, p.y]).collect();
-
-    let loop_end = if is_closed { n } else { n - 1 };
-    let mut indices = Vec::with_capacity(loop_end * 6);
-
-    for i in 0..loop_end {
-        let next_i = (i + 1) % n;
-
-        let i0 = i as u32;
-        let i1 = next_i as u32;
-        let o0 = (n + i) as u32;
-        let o1 = (n + next_i) as u32;
-
-        indices.push(i0);
-        indices.push(o0);
-        indices.push(i1);
-
-        indices.push(i1);
-        indices.push(o0);
-        indices.push(o1);
-    }
-
-    Some(CoastalSkirtData {
-        inner_points,
-        outer_points,
-        indices,
-    })
-}
-
 /// Simplification Douglas-Peucker
 fn simplify_contour(points: &[Vec2], tolerance: f32) -> Vec<Vec2> {
     if points.len() < 3 {
@@ -1245,7 +1159,7 @@ fn generate_global_sdf(
         })
         .collect()
 }
-
+/// Découpe la SDF globale en chunks avec overlap correct
 fn split_sdf_into_chunks(
     global_sdf: &[u8],
     global_width: usize,
@@ -1256,34 +1170,30 @@ fn split_sdf_into_chunks(
 ) -> HashMap<TerrainChunkId, Vec<u8>> {
     let mut result = HashMap::new();
 
-    // Overlap de 1 texel de chaque côté
-    let overlap = 1usize;
-    let output_resolution = chunk_resolution; // La texture finale reste 64x64
+    // Overlap en texels (0.5 de chaque côté = 1 texel total d'extension)
+    let overlap = 0.5f32;
 
     for cy in 0..n_chunk_y {
         for cx in 0..n_chunk_x {
             let chunk_id = TerrainChunkId { x: cx, y: cy };
 
-            let mut sdf_values = Vec::with_capacity(output_resolution * output_resolution);
+            let mut sdf_values = Vec::with_capacity(chunk_resolution * chunk_resolution);
 
-            for sy in 0..output_resolution {
-                for sx in 0..output_resolution {
-                    // Calculer la position dans la SDF globale avec overlap
-                    // On étire légèrement la zone samplée pour inclure les bords voisins
-                    let t_x = sx as f32 / (output_resolution - 1) as f32; // 0.0 à 1.0
-                    let t_y = sy as f32 / (output_resolution - 1) as f32;
+            let base_x = cx as f32 * chunk_resolution as f32;
+            let base_y = cy as f32 * chunk_resolution as f32;
 
-                    // Position dans la SDF globale (avec extension d'un demi-texel de chaque côté)
-                    let global_x = (cx as usize * chunk_resolution) as f32
-                        + t_x * (chunk_resolution as f32)
-                        - 0.5
-                        + t_x; // Décalage pour centrer
-                    let global_y = (cy as usize * chunk_resolution) as f32
-                        + t_y * (chunk_resolution as f32)
-                        - 0.5
-                        + t_y;
+            for sy in 0..chunk_resolution {
+                for sx in 0..chunk_resolution {
+                    // Mapper [0, 63] → [-0.5, 63.5] dans la SDF globale
+                    let t_x = sx as f32 / (chunk_resolution - 1) as f32; // 0 à 1
+                    let t_y = sy as f32 / (chunk_resolution - 1) as f32;
 
-                    // Interpolation bilinéaire
+                    // Position avec overlap symétrique
+                    let global_x =
+                        base_x - overlap + t_x * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
+                    let global_y =
+                        base_y - overlap + t_y * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
+
                     let value = sample_sdf_bilinear(
                         global_sdf,
                         global_width,
@@ -1303,15 +1213,14 @@ fn split_sdf_into_chunks(
     result
 }
 
-/// Sample la SDF avec interpolation bilinéaire
 fn sample_sdf_bilinear(sdf: &[u8], width: usize, height: usize, x: f32, y: f32) -> u8 {
     let x0 = (x.floor() as i32).clamp(0, width as i32 - 1) as usize;
     let y0 = (y.floor() as i32).clamp(0, height as i32 - 1) as usize;
     let x1 = (x0 + 1).min(width - 1);
     let y1 = (y0 + 1).min(height - 1);
 
-    let fx = x - x.floor();
-    let fy = y - y.floor();
+    let fx = (x - x.floor()).clamp(0.0, 1.0);
+    let fy = (y - y.floor()).clamp(0.0, 1.0);
 
     let v00 = sdf[y0 * width + x0] as f32;
     let v10 = sdf[y0 * width + x1] as f32;
@@ -1322,5 +1231,5 @@ fn sample_sdf_bilinear(sdf: &[u8], width: usize, height: usize, x: f32, y: f32) 
     let v1 = v01 * (1.0 - fx) + v11 * fx;
     let v = v0 * (1.0 - fy) + v1 * fy;
 
-    v.round() as u8
+    v.round().clamp(0.0, 255.0) as u8
 }
