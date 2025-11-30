@@ -8,14 +8,15 @@ use shared::atlas::{BuildingAtlas, TreeAtlas};
 use shared::grid::GridConfig;
 use shared::{
     AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
-    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CultData,
-    EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
+    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CoastalSkirtData, CommerceData,
+    CultData, EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
     TerrainChunkSdfData, TreeAge, TreeTypeEnum, constants, get_biome_color,
 };
 
 use super::components::{Biome, Building, Terrain};
-use super::materials::{DefaultTerrainMaterial, TerrainMaterial};
+use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
+use crate::rendering::terrain::materials::SdfParams;
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -94,21 +95,35 @@ pub fn spawn_terrain(
 
         info!("Mesh positions - min: {:?}, max: {:?}", pos_min, pos_max);
 
+        // TODO : vérifier les liaisons entre chunk
+        // TODO : étendre le sdf à l'extérieur du contour plutôt que s'arrêter net
+        // TODO : sdf pour les biomes ou via shader pour blend avec terrain
 
+        // Générer les UV avant d'étendre les bords
+        let mut all_triangles = mesh_data_ref.triangles.clone();
+        let all_normals = mesh_data_ref.normals.clone();
+        let all_uvs = mesh_data_ref.uvs.clone();
+        // generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
 
-        let uvs = generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
-        
-        let mut triangles = mesh_data_ref.triangles.clone();
+        // Vertex colors : terrain principal = opaque
+        let all_colors: Vec<[f32; 4]> = vec![[1.0, 1.0, 1.0, 1.0]; all_triangles.len()];
+
+        let uvs =
+            generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
+
+        // let mut triangles = mesh_data_ref.triangles.clone();
+
         // Étendre les bords de 1 pixel pour éviter les coutures
-        extend_mesh_edges(&mut triangles, 600.0, 503.0, 1.0);
-        
+        extend_mesh_edges(&mut all_triangles, 600.0, 503.0, 1.0);
+
         let mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::RENDER_WORLD,
         )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, triangles.clone())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, mesh_data_ref.normals.clone())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone());
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, all_triangles)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, all_uvs.clone());
+        // .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, all_colors);
 
         let world_position = Vec2::new(
             terrain.id.x as f32 * constants::CHUNK_SIZE.x,
@@ -120,15 +135,41 @@ pub fn spawn_terrain(
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
+            info!("Creating material WITH SDF for chunk {:?}", terrain.id);
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture,
-                params: Vec4::new(0.0, 0.4, 1.0, 0.0), // has_coast = 1.0
+                sdf_params: SdfParams {
+                    beach_start: -0.15,
+                    beach_end: 0.6,
+                    opacity_start: -0.15,
+                    opacity_end: 0.0,
+                }, // has_coast = 1.0
                 ..default()
             }))
         } else {
+            info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
+            let dummy_sdf = images.add(Image::new(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![255u8], // Tout terre
+                TextureFormat::R8Unorm,
+                default(),
+            ));
+
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
-                params: Vec4::new(0.0, 0.0, 0.0, 0.0), // has_coast = 0.0
-                ..default()
+                sdf_texture: dummy_sdf,
+                sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
+                grass_color: LinearRgba::new(0.36, 0.52, 0.28, 1.0),
+                sdf_params: SdfParams {
+                    beach_start: 0.0,
+                    beach_end: 0.0,
+                    opacity_start: -1.0,
+                    opacity_end: -1.0,
+                },
             }))
         };
 
@@ -148,12 +189,31 @@ pub fn spawn_terrain(
             );
         }
 
+        if let Some(sdf) = terrain.sdf_data.first() {
+            let min_val = sdf.values.iter().min().unwrap_or(&0);
+            let max_val = sdf.values.iter().max().unwrap_or(&0);
+            let mid_count = sdf.values.iter().filter(|&&v| v > 100 && v < 156).count();
+            let land_count = sdf.values.iter().filter(|&&v| v > 128).count();
+            let water_count = sdf.values.iter().filter(|&&v| v < 128).count();
+
+            info!(
+                "Chunk {:?} SDF - min: {}, max: {}, land: {}, water: {}, near_edge: {}, total: {}",
+                terrain.id,
+                min_val,
+                max_val,
+                land_count,
+                water_count,
+                mid_count,
+                sdf.values.len()
+            );
+        }
+
         // Debug des UV
-        let uv_min = uvs
+        let uv_min = all_uvs
             .clone()
             .iter()
             .fold(Vec2::MAX, |acc, &uv| acc.min(Vec2::new(uv[0], uv[1])));
-        let uv_max = uvs
+        let uv_max = all_uvs
             .clone()
             .iter()
             .fold(Vec2::MIN, |acc, &uv| acc.max(Vec2::new(uv[0], uv[1])));
@@ -547,7 +607,12 @@ pub fn setup_default_terrain_material(
 
     let default_material = materials.add(TerrainMaterial {
         sdf_texture: dummy_texture,
-        params: Vec4::new(0.0, 0.2, 0.0, 0.0), // has_coast = 0
+        sdf_params: SdfParams {
+            beach_start: 0.,
+            beach_end: 0.2,
+            opacity_start: 0.,
+            opacity_end: 0.,
+        }, // has_coast = 0.0
         ..default()
     });
 
@@ -592,38 +657,95 @@ fn generate_uvs_from_positions(positions: &[[f32; 3]], chunk_world_size: Vec2) -
         })
         .collect()
 }
-// fn generate_uvs_from_positions(positions: &[[f32; 3]], chunk_world_size: Vec2) -> Vec<[f32; 2]> {
-//     if positions.is_empty() {
-//         return vec![];
-//     }
 
-//     // Trouver les bounds du chunk
-//     let mut min_x = f32::MAX;
-//     let mut min_y = f32::MAX;
-//     let mut max_x = f32::MIN;
-//     let mut max_y = f32::MIN;
+fn filter_coastal_segments(contour: &[Vec2], threshold: f32, max_x: f32, max_y: f32) -> Vec<Vec2> {
+    if contour.len() < 3 {
+        return vec![];
+    }
 
-//     for pos in positions {
-//         min_x = min_x.min(pos[0]);
-//         min_y = min_y.min(pos[1]);
-//         max_x = max_x.max(pos[0]);
-//         max_y = max_y.max(pos[1]);
-//     }
+    let mut result: Vec<Vec2> = Vec::new();
+    let n = contour.len();
 
-//     let extent_x = if (max_x - min_x).abs() < f32::EPSILON {
-//         1.0
-//     } else {
-//         max_x - min_x
-//     };
-//     let extent_y = if (max_y - min_y).abs() < f32::EPSILON {
-//         1.0
-//     } else {
-//         max_y - min_y
-//     };
+    for i in 0..n {
+        let a = contour[i];
+        let b = contour[(i + 1) % n];
 
-//     // Normaliser chaque position en UV [0, 1]
-//     positions
-//         .iter()
-//         .map(|pos| [(pos[0] - min_x) / extent_x, (pos[1] - min_y) / extent_y])
-//         .collect()
-// }
+        // Ignorer les segments alignés sur les bords du chunk
+        if is_segment_on_chunk_edge(a, b, threshold, max_x, max_y) {
+            continue;
+        }
+
+        // Ajouter le point a s'il n'est pas déjà présent
+        if result.is_empty() || (*result.last().unwrap() - a).length() > 0.01 {
+            result.push(a);
+        }
+    }
+
+    // Supprimer le dernier point s'il est identique au premier (contour fermé)
+    if result.len() > 1 && (*result.first().unwrap() - *result.last().unwrap()).length() < 0.01 {
+        result.pop();
+    }
+
+    result
+}
+
+/// Vérifie si un segment est aligné sur un bord du chunk (côte artificielle à ignorer)
+fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+    // Tolérance pour la position sur le bord
+    let pos_threshold = threshold;
+    // Tolérance pour l'alignement (segment quasi horizontal ou vertical)
+    let align_threshold = threshold;
+
+    // Bord gauche : les deux points près de x=0 ET segment quasi vertical
+    let on_left = a.x < pos_threshold && b.x < pos_threshold && (a.x - b.x).abs() < align_threshold;
+
+    // Bord droit : les deux points près de x=max ET segment quasi vertical
+    let on_right = a.x > max_x && b.x > max_x && (a.x - b.x).abs() < align_threshold;
+
+    // Bord bas : les deux points près de y=0 ET segment quasi horizontal
+    let on_bottom =
+        a.y < pos_threshold && b.y < pos_threshold && (a.y - b.y).abs() < align_threshold;
+
+    // Bord haut : les deux points près de y=max ET segment quasi horizontal
+    let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
+
+    on_left || on_right || on_bottom || on_top
+}
+
+// client/src/terrain/skirt_mesh.rs
+
+pub fn build_skirt_mesh(
+    skirt_data: &CoastalSkirtData,
+    chunk_size: Vec2,
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>) {
+    let n_inner = skirt_data.inner_points.len();
+    let n_outer = skirt_data.outer_points.len();
+
+    let normal_z = [0.0, 0.0, 1.0];
+    let color_inner = [1.0, 1.0, 1.0, 1.0];
+    let color_outer = [1.0, 1.0, 1.0, 0.0];
+
+    let num_vertices = skirt_data.indices.len();
+
+    let mut triangles = Vec::with_capacity(num_vertices);
+    let mut normals = Vec::with_capacity(num_vertices);
+    let mut uvs = Vec::with_capacity(num_vertices);
+    let mut colors = Vec::with_capacity(num_vertices);
+
+    for &idx in &skirt_data.indices {
+        let idx = idx as usize;
+
+        let (pos, is_outer) = if idx < n_inner {
+            (skirt_data.inner_points[idx], false)
+        } else {
+            (skirt_data.outer_points[idx - n_inner], true)
+        };
+
+        triangles.push([pos[0], pos[1], 0.0]);
+        normals.push(normal_z);
+        uvs.push([pos[0] / chunk_size.x, pos[1] / chunk_size.y]);
+        colors.push(if is_outer { color_outer } else { color_inner });
+    }
+
+    (triangles, normals, uvs, colors)
+}
