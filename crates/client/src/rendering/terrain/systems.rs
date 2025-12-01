@@ -16,7 +16,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::SdfParams;
+use crate::rendering::terrain::materials::{SdfParams, WaveParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -138,12 +138,20 @@ pub fn spawn_terrain(
             info!("Creating material WITH SDF for chunk {:?}", terrain.id);
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture,
+                sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
+                grass_color: LinearRgba::new(0.36, 0.52, 0.28, 1.0),
                 sdf_params: SdfParams {
                     beach_start: -0.15,
                     beach_end: 0.6,
                     opacity_start: -0.15,
                     opacity_end: 0.0,
                 }, // has_coast = 1.0
+                wave_params: WaveParams {
+                    time: 0.0,
+                    wave_speed: 2.0,
+                    wave_amplitude: 0.08,
+                    foam_width: 0.15,
+                },
                 ..default()
             }))
         } else {
@@ -170,6 +178,7 @@ pub fn spawn_terrain(
                     opacity_start: -1.0,
                     opacity_end: -1.0,
                 },
+                ..default()
             }))
         };
 
@@ -710,4 +719,12 @@ fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y:
     let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
 
     on_left || on_right || on_bottom || on_top
+}
+
+pub fn update_terrain_wave_time(time: Res<Time>, mut materials: ResMut<Assets<TerrainMaterial>>) {
+    let elapsed = time.elapsed_secs();
+
+    for (_, material) in materials.iter_mut() {
+        material.wave_params.time = elapsed;
+    }
 }
