@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, BuildingData, TerrainChunkData, TerrainChunkId,
+    BiomeChunkData, BiomeChunkId, BuildingData, TerrainChunkData, TerrainChunkId, OceanData,
     grid::{CellData, GridCell},
 };
 use std::collections::{HashMap, HashSet};
@@ -11,6 +11,7 @@ pub struct WorldCache {
     biomes: BiomeCache,
     cells: CellCache,
     buildings: BuildingCache,
+    ocean: OceanCache,
 }
 
 #[derive(Default, Clone)]
@@ -220,6 +221,41 @@ impl BiomeCache {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct OceanCache {
+    loaded: Option<OceanData>,
+    requested: bool,
+}
+
+impl OceanCache {
+    pub fn insert_ocean(&mut self, ocean_data: OceanData) {
+        info!("Inserting ocean data for world: {}", ocean_data.name);
+        self.loaded = Some(ocean_data);
+        self.requested = false;
+    }
+
+    pub fn get_ocean(&self) -> Option<&OceanData> {
+        self.loaded.as_ref()
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.loaded.is_some()
+    }
+
+    pub fn is_requested(&self) -> bool {
+        self.requested
+    }
+
+    pub fn mark_requested(&mut self) {
+        self.requested = true;
+    }
+
+    pub fn clear(&mut self) {
+        self.loaded = None;
+        self.requested = false;
+    }
+}
+
 impl WorldCache {
     // TERRAIN
     pub fn insert_terrain(&mut self, terrain_data: &TerrainChunkData) {
@@ -307,5 +343,30 @@ impl WorldCache {
         max_distance: i32,
     ) -> (Vec<i64>, Vec<BuildingData>) {
         self.buildings.unload_distant(center, max_distance)
+    }
+
+    // OCEAN
+    pub fn insert_ocean(&mut self, ocean_data: OceanData) {
+        self.ocean.insert_ocean(ocean_data);
+    }
+
+    pub fn get_ocean(&self) -> Option<&OceanData> {
+        self.ocean.get_ocean()
+    }
+
+    pub fn is_ocean_loaded(&self) -> bool {
+        self.ocean.is_loaded()
+    }
+
+    pub fn is_ocean_requested(&self) -> bool {
+        self.ocean.is_requested()
+    }
+
+    pub fn mark_ocean_requested(&mut self) {
+        self.ocean.mark_requested();
+    }
+
+    pub fn clear_ocean(&mut self) {
+        self.ocean.clear();
     }
 }

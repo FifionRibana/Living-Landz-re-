@@ -62,6 +62,10 @@ pub fn handle_server_message(
                 cache.insert_cells(&cell_data);
                 cache.insert_buildings(&building_data);
             }
+            shared::protocol::ServerMessage::OceanData { ocean_data } => {
+                info!("✓ Received ocean data for world: {}", ocean_data.name);
+                cache.insert_ocean(ocean_data);
+            }
             shared::protocol::ServerMessage::ActionStatusUpdate {
                 action_id,
                 player_id,

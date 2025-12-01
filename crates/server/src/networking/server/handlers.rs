@@ -674,6 +674,24 @@ async fn handle_client_message(
 
             responses
         }
+        ClientMessage::RequestOceanData { world_name } => {
+            tracing::info!("Requesting ocean data for world: {}", world_name);
+
+            match db_tables.ocean_data.load_ocean_data(&world_name).await {
+                Ok(Some(ocean_data)) => {
+                    tracing::info!("✓ Ocean data loaded for world: {}", world_name);
+                    vec![ServerMessage::OceanData { ocean_data }]
+                }
+                Ok(None) => {
+                    tracing::warn!("No ocean data found for world: {}", world_name);
+                    vec![]
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load ocean data: {}", e);
+                    vec![]
+                }
+            }
+        }
         ClientMessage::Ping => vec![ServerMessage::Pong],
         _ => vec![ServerMessage::Pong],
     }

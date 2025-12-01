@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 
-use crate::{TerrainChunkId, TerrainChunkSdfData, types::MeshData};
+use crate::{TerrainChunkId, TerrainChunkSdfData, HeightmapChunkData, types::MeshData};
 
 #[derive(Debug, Default, Clone, Encode, Decode)]
 pub struct TerrainChunkData {
@@ -9,6 +9,8 @@ pub struct TerrainChunkData {
     // biomes: Vec<BiomeTriangulation>,
     pub mesh_data: MeshData,
     pub sdf_data: Vec<TerrainChunkSdfData>,
+    /// Heightmap chunk data (optional, for ocean rendering)
+    pub heightmap_data: Option<HeightmapChunkData>,
     // pub mesh_data: HashMap<String, MeshData>,
     /// Contours du continent (outline noir)
     pub outline: Vec<Vec<[f64; 2]>>,
