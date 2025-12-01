@@ -19,6 +19,9 @@ pub struct TerrainMaterial {
     
     #[uniform(4)]
     pub sdf_params: SdfParams,
+
+    #[uniform(5)]
+    pub wave_params: WaveParams,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -27,6 +30,14 @@ pub struct SdfParams {
     pub beach_end: f32,
     pub opacity_start: f32,
     pub opacity_end: f32,
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct WaveParams {
+    pub time: f32,
+    pub wave_speed: f32,
+    pub wave_amplitude: f32,
+    pub foam_width: f32,
 }
 
 impl Default for TerrainMaterial {
@@ -41,13 +52,19 @@ impl Default for TerrainMaterial {
                 opacity_start: -0.4,
                 opacity_end: 0.0,
             },
+            wave_params: WaveParams {
+                time: 0.0,
+                wave_speed: 1.0,
+                wave_amplitude: 0.08,
+                foam_width: 0.12,
+            },
         }
     }
 }
 
 impl Material2d for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/terrain_sdf.wgsl".into()
+        "shaders/terrain_ocean_sdf.wgsl".into()
     }
     
     fn alpha_mode(&self) -> AlphaMode2d {
