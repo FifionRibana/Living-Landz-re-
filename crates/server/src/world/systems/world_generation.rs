@@ -3,6 +3,7 @@ use crate::database::tables;
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
+use crate::world::components::generate_ocean_data;
 use crate::world::resources::SdfConfig;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
@@ -38,11 +39,29 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 
     let cell_db = &db_tables.cells;
     let terrain_db = &db_tables.terrains;
+    let ocean_db = &db_tables.ocean_data;
     let building_db = &db_tables.buildings;
+
+    // Generate ocean data (global SDF + heightmap)
+    let ocean_data = generate_ocean_data(
+        map_name.to_string(),
+        &maps.binary_map,
+        &maps.heightmap,
+        maps.config.chunks_x as i32,
+        maps.config.chunks_y as i32,
+        maps.config.chunks_x as f32 * constants::CHUNK_SIZE.x,
+        maps.config.chunks_y as f32 * constants::CHUNK_SIZE.y,
+    );
+
+    ocean_db
+        .save_ocean_data(ocean_data)
+        .await
+        .expect("Failed to save ocean data");
 
     let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
         &map_name.to_string(),
         &maps.binary_map,
+        Some(&maps.heightmap),
         &Vec2::splat(5.),
         &format!("assets/maps/{}_binarymap.bin", map_name),
     );

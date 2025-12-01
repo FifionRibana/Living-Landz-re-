@@ -60,7 +60,7 @@ fn fbm(p: vec2<f32>) -> f32 {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_res = 64.0;
-    let overlap = 0.5;
+    let overlap = 0.4;
     
     let total_span = tex_res - 1.0 + 2.0 * overlap;
     let uv_start = overlap / total_span;

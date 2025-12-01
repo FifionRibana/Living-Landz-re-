@@ -3,7 +3,7 @@ use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
     BiomeChunkData, BuildingData, BuildingSpecificTypeEnum, BuildingTypeEnum,
-    ResourceSpecificTypeEnum, TerrainChunkId,
+    ResourceSpecificTypeEnum, TerrainChunkId, OceanData,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
 };
@@ -47,6 +47,9 @@ pub enum ClientMessage {
     },
     RequestTerrains {
         terrain_names: Vec<String>,
+    },
+    RequestOceanData {
+        world_name: String,
     },
 
     ActionBuildBuilding {
@@ -109,6 +112,10 @@ pub enum ServerMessage {
         biome_chunk_data: Vec<BiomeChunkData>,
         cell_data: Vec<CellData>,
         building_data: Vec<BuildingData>,
+    },
+
+    OceanData {
+        ocean_data: OceanData,
     },
 
     ActionSuccess {
