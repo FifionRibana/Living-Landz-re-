@@ -675,11 +675,24 @@ async fn handle_client_message(
             responses
         }
         ClientMessage::RequestOceanData { world_name } => {
-            tracing::info!("Requesting ocean data for world: {}", world_name);
+            tracing::info!("=== CLIENT REQUESTED OCEAN DATA ===");
+            tracing::info!("World name: {}", world_name);
 
             match db_tables.ocean_data.load_ocean_data(&world_name).await {
                 Ok(Some(ocean_data)) => {
-                    tracing::info!("✓ Ocean data loaded for world: {}", world_name);
+                    tracing::info!("Ocean data loaded from database:");
+                    tracing::info!("  - width: {}", ocean_data.width);
+                    tracing::info!("  - height: {}", ocean_data.height);
+                    tracing::info!("  - sdf_values: {} bytes", ocean_data.sdf_values.len());
+                    tracing::info!("  - heightmap_values: {} bytes", ocean_data.heightmap_values.len());
+
+                    tracing::info!("Encoding ocean data with bincode for network transmission...");
+                    let encoded_size = bincode::encode_to_vec(&ocean_data, bincode::config::standard())
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    tracing::info!("Encoded size: {} bytes ({:.2} MB)", encoded_size, encoded_size as f64 / 1_000_000.0);
+
+                    tracing::info!("✓ Sending ocean data to client");
                     vec![ServerMessage::OceanData { ocean_data }]
                 }
                 Ok(None) => {

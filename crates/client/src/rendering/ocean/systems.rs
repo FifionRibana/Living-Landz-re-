@@ -1,12 +1,63 @@
-use bevy::{asset::RenderAssetUsages, prelude::*, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use bevy::{
+    asset::RenderAssetUsages,
+    mesh::{Indices, PrimitiveTopology},
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 
+use crate::networking::client::NetworkClient;
 use crate::rendering::ocean::materials::{OceanMaterial, OceanParams};
 use crate::state::resources::WorldCache;
-use crate::networking::client::NetworkClient;
 use shared::constants;
 
 #[derive(Component)]
 pub struct OceanEntity;
+
+/// Crée un mesh 2D rectangulaire avec UVs correctement définis
+fn create_ocean_mesh(width: f32, height: f32) -> Mesh {
+    let half_width = width / 2.0;
+    let half_height = height / 2.0;
+
+    // Vertices du rectangle (4 coins)
+    // Format: [x, y, z]
+    let vertices = vec![
+        [0.0, 0.0, 0.0], // Bottom-left
+        [width, 0.0, 0.0],  // Bottom-right
+        [width, height, 0.0],   // Top-right
+        [0.0, height, 0.0],  // Top-left
+    ];
+
+    // UVs: (0,0) en bas à gauche, (1,1) en haut à droite
+    let uvs = vec![
+        [0.0, 0.0], // Bottom-left
+        [1.0, 0.0], // Bottom-right
+        [1.0, 1.0], // Top-right
+        [0.0, 1.0], // Top-left
+    ];
+
+    // Normales (toutes pointent vers +Z)
+    let normals = vec![
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0],
+    ];
+
+    // Indices pour 2 triangles
+    let indices = vec![
+        0, 1, 2, // Premier triangle
+        0, 2, 3, // Deuxième triangle
+    ];
+
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(indices))
+}
 
 pub fn request_ocean_data(
     mut cache: ResMut<WorldCache>,
@@ -20,7 +71,7 @@ pub fn request_ocean_data(
     if !cache.is_ocean_loaded() && !cache.is_ocean_requested() {
         info!("Requesting ocean data from server");
         network_client.send_message(shared::protocol::ClientMessage::RequestOceanData {
-            world_name: "main".to_string(),
+            world_name: "Gaulyia".to_string(),
         });
         cache.mark_ocean_requested();
     }
@@ -30,6 +81,7 @@ pub fn spawn_ocean(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut ocean_materials: ResMut<Assets<OceanMaterial>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
     cache: Res<WorldCache>,
     ocean_query: Query<Entity, With<OceanEntity>>,
@@ -43,13 +95,11 @@ pub fn spawn_ocean(
         return;
     };
 
-    info!("Spawning ocean with data from server");
-
     // Calculate world dimensions
     let world_width = ocean_data.width as f32 * (constants::CHUNK_SIZE.x / 64.0);
     let world_height = ocean_data.height as f32 * (constants::CHUNK_SIZE.y / 64.0);
 
-    let mesh = Rectangle::new(world_width, world_height);
+    let mesh = create_ocean_mesh(world_width, world_height);
 
     // Create SDF texture from ocean data
     let sdf_image = Image::new(
@@ -95,16 +145,11 @@ pub fn spawn_ocean(
             },
             ..default()
         })),
-        Transform::from_translation(Vec3::new(world_width / 2.0, world_height / 2.0, -2000.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, -500.0)),
     ));
-
-    info!("✓ Ocean spawned: {}x{}", world_width, world_height);
 }
 
-pub fn update_ocean_time(
-    time: Res<Time>,
-    mut materials: ResMut<Assets<OceanMaterial>>,
-) {
+pub fn update_ocean_time(time: Res<Time>, mut materials: ResMut<Assets<OceanMaterial>>) {
     for (_, material) in materials.iter_mut() {
         material.params.time = time.elapsed_secs();
     }

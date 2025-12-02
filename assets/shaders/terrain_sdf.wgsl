@@ -1,3 +1,5 @@
+// assets/shaders/terrain_sdf.wgsl
+
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 struct SdfParams {
@@ -15,32 +17,32 @@ struct SdfParams {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // La texture overlap d'un demi-texel de chaque côté
-    // On doit mapper UV [0, 1] → [0.5/64, 63.5/64] pour centrer sur la zone du chunk
     let tex_res = 64.0;
-    let half_texel = 0.4 / tex_res;
+    let overlap = 0.4;
     
-    // Centrer: décaler de half_texel et réduire l'échelle
-    let uv_centered = in.uv * (1.0 - 2.0 * half_texel) + half_texel;
+    let total_span = tex_res - 1.0 + 2.0 * overlap;
+    let uv_start = overlap / total_span;
+    let uv_end = (tex_res - 1.0 + overlap) / total_span;
     
-    // Correction Y (flip vertical)
-    let uv_corrected = vec2<f32>(uv_centered.x, uv_centered.y);
+    let uv_mapped = vec2<f32>(
+        mix(uv_start, uv_end, in.uv.x),
+        mix(uv_start, uv_end, in.uv.y)
+    );
     
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
-    
-    // Convertir en distance signée [-1, 1]
+    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_mapped).r;
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
     
-    // Opacité
-    let opacity = smoothstep(sdf_params.opacity_start, sdf_params.opacity_end, sdf_signed);
+    // Ne rendre que la terre
+    if sdf_signed < -0.05 {
+        discard;
+    }
     
-    // Couleur
+    // Couleur terrain (sable → herbe)
     let color_t = smoothstep(sdf_params.beach_start, sdf_params.beach_end, sdf_signed);
     let color = mix(sand_color.rgb, grass_color.rgb, color_t);
     
-    if opacity < 0.01 {
-        discard;
-    }
+    // Opacité avec transition douce vers l'eau
+    let opacity = smoothstep(-0.05, 0.1, sdf_signed);
     
     return vec4<f32>(color, opacity);
 }

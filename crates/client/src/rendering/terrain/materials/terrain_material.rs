@@ -64,7 +64,7 @@ impl Default for TerrainMaterial {
 
 impl Material2d for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/terrain_ocean_sdf.wgsl".into()
+        "shaders/terrain_sdf.wgsl".into()
     }
     
     fn alpha_mode(&self) -> AlphaMode2d {

@@ -42,29 +42,74 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     let ocean_db = &db_tables.ocean_data;
     let building_db = &db_tables.buildings;
 
-    // Generate ocean data (global SDF + heightmap)
+    tracing::info!("=== WORLD GENERATION PARAMETERS ===");
+    tracing::info!("Original map dimensions: {}x{}", maps.binary_map.width(), maps.binary_map.height());
+    tracing::info!("Original heightmap dimensions: {}x{}", maps.heightmap.width(), maps.heightmap.height());
+    tracing::info!("Map config chunks: {}x{}", maps.config.chunks_x, maps.config.chunks_y);
+
+    // Scale factor used for terrain upscaling
+    let scale = Vec2::splat(5.);
+    tracing::info!("Scale factor: {}", scale.x);
+
+    // Calculate dimensions AFTER scaling (same as terrain)
+    let scaled_width = maps.binary_map.width() as f32 * scale.x;
+    let scaled_height = maps.binary_map.height() as f32 * scale.y;
+    let scaled_chunks_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+    let scaled_chunks_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
+
+    tracing::info!(
+        "Scaled dimensions: {}x{} -> {} chunks ({}x{})",
+        scaled_width,
+        scaled_height,
+        scaled_chunks_x * scaled_chunks_y,
+        scaled_chunks_x,
+        scaled_chunks_y
+    );
+    tracing::info!("Chunk size: {}x{}", constants::CHUNK_SIZE.x, constants::CHUNK_SIZE.y);
+
+    tracing::info!("=== GENERATING TERRAIN ===");
+    let (terrain_mesh_data, chunk_masks, scaled_binary_map) = TerrainMeshData::from_image(
+        &map_name.to_string(),
+        &maps.binary_map,
+        Some(&maps.heightmap),
+        &scale,
+        &format!("assets/maps/{}_binarymap.bin", map_name),
+    );
+
+    tracing::info!("✓ Terrain generated");
+    tracing::info!("Scaled binary map output: {}x{}", scaled_binary_map.width(), scaled_binary_map.height());
+
+    // Now generate ocean data with SCALED images and correct chunk counts
+    tracing::info!("=== PREPARING OCEAN DATA ===");
+    tracing::info!("Resizing heightmap to match scaled binary map...");
+    let scaled_heightmap = image::imageops::resize(
+        &maps.heightmap.to_luma8(),
+        scaled_binary_map.width(),
+        scaled_binary_map.height(),
+        image::imageops::FilterType::Lanczos3,
+    );
+    tracing::info!("✓ Heightmap resized to: {}x{}", scaled_heightmap.width(), scaled_heightmap.height());
+
+    tracing::info!("Calling generate_ocean_data with:");
+    tracing::info!("  - binary_map: {}x{}", scaled_binary_map.width(), scaled_binary_map.height());
+    tracing::info!("  - heightmap: {}x{}", scaled_heightmap.width(), scaled_heightmap.height());
+    tracing::info!("  - chunks: {}x{}", scaled_chunks_x, scaled_chunks_y);
+    tracing::info!("  - world_size: {}x{}", scaled_chunks_x as f32 * constants::CHUNK_SIZE.x, scaled_chunks_y as f32 * constants::CHUNK_SIZE.y);
+
     let ocean_data = generate_ocean_data(
         map_name.to_string(),
-        &maps.binary_map,
-        &maps.heightmap,
-        maps.config.chunks_x as i32,
-        maps.config.chunks_y as i32,
-        maps.config.chunks_x as f32 * constants::CHUNK_SIZE.x,
-        maps.config.chunks_y as f32 * constants::CHUNK_SIZE.y,
+        &image::DynamicImage::ImageLuma8(scaled_binary_map.clone()),
+        &image::DynamicImage::ImageLuma8(scaled_heightmap),
+        scaled_chunks_x,
+        scaled_chunks_y,
+        scaled_chunks_x as f32 * constants::CHUNK_SIZE.x,
+        scaled_chunks_y as f32 * constants::CHUNK_SIZE.y,
     );
 
     ocean_db
         .save_ocean_data(ocean_data)
         .await
         .expect("Failed to save ocean data");
-
-    let (terrain_mesh_data, chunk_masks, mask) = TerrainMeshData::from_image(
-        &map_name.to_string(),
-        &maps.binary_map,
-        Some(&maps.heightmap),
-        &Vec2::splat(5.),
-        &format!("assets/maps/{}_binarymap.bin", map_name),
-    );
 
     for (id, chunk) in terrain_mesh_data.chunks {
         terrain_db
@@ -76,7 +121,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     let biome_mesh_data = BiomeMeshData::from_image(
         &map_name.to_string(),
         &maps.biome_map,
-        &mask, //maps.binary_map.to_luma8(),
+        &scaled_binary_map, //maps.binary_map.to_luma8(),
         &chunk_masks,
         &Vec2::splat(5.),
         "assets/maps/",
