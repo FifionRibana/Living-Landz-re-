@@ -15,12 +15,14 @@ impl OceanDataTable {
 
     /// Sauvegarde les données globales de l'océan (SDF + heightmap)
     pub async fn save_ocean_data(&self, ocean_data: OceanData) -> Result<(), sqlx::Error> {
-        // Encoder les données avec bincode
-        let ocean_bytes = bincode::encode_to_vec(&ocean_data, bincode::config::standard())
-            .expect("Failed to encode ocean data");
+        let expected_size = ocean_data.width * ocean_data.height;
+        if ocean_data.sdf_values.len() != expected_size {
+            return Err(sqlx::Error::Protocol("SDF size mismatch".to_string()));
+        }
+        if ocean_data.heightmap_values.len() != expected_size {
+            return Err(sqlx::Error::Protocol("Heightmap size mismatch".to_string()));
+        }
 
-        // Note: on pourrait aussi stocker sdf_data et heightmap_data séparément
-        // mais ici on stocke tout dans un seul BYTEA pour cohérence avec le reste
         sqlx::query(
             r#"
             INSERT INTO terrain.ocean_data (name, width, height, max_distance, sdf_data, heightmap_data, generated_at)
@@ -45,14 +47,6 @@ impl OceanDataTable {
         .execute(&self.pool)
         .await?;
 
-        tracing::info!(
-            "✓ Ocean data saved: {}x{} ({} bytes SDF, {} bytes heightmap)",
-            ocean_data.width,
-            ocean_data.height,
-            ocean_data.sdf_values.len(),
-            ocean_data.heightmap_values.len()
-        );
-
         Ok(())
     }
 
@@ -68,35 +62,25 @@ impl OceanDataTable {
         .await?;
 
         Ok(row.map(|r| {
-            let width: i32 = r.get("width");
-            let height: i32 = r.get("height");
-            let max_distance: f32 = r.get("max_distance");
-            let sdf_values: Vec<u8> = r.get("sdf_data");
-            let heightmap_values: Vec<u8> = r.get("heightmap_data");
-            let generated_at: i64 = r.get("generated_at");
-
             OceanData {
                 name: name.to_string(),
-                width: width as usize,
-                height: height as usize,
-                max_distance,
-                sdf_values,
-                heightmap_values,
-                generated_at: generated_at as u64,
+                width: r.get::<i32, _>("width") as usize,
+                height: r.get::<i32, _>("height") as usize,
+                max_distance: r.get("max_distance"),
+                sdf_values: r.get("sdf_data"),
+                heightmap_values: r.get("heightmap_data"),
+                generated_at: r.get::<i64, _>("generated_at") as u64,
             }
         }))
     }
 
     /// Supprime les données d'océan pour un monde
     pub async fn clear_ocean_data(&self, name: &str) -> Result<(), sqlx::Error> {
-        tracing::warn!("🗑️  Clearing {} ocean data from database...", name);
-
         sqlx::query("DELETE FROM terrain.ocean_data WHERE name = $1")
             .bind(name)
             .execute(&self.pool)
             .await?;
 
-        tracing::info!("✓ Ocean data cleared");
         Ok(())
     }
 

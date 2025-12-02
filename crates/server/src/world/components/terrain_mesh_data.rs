@@ -1151,14 +1151,23 @@ fn generate_global_sdf(
     // Rayon de recherche en pixels image
     let search_radius = ((max_distance * world_to_img_x.max(world_to_img_y)) as i32).max(1);
 
+    let total_pixels = sdf_width * sdf_height;
+    tracing::info!(
+        "    SDF generation: image {}x{}, target {}x{}",
+        image.width(),
+        image.height(),
+        sdf_width,
+        sdf_height
+    );
     tracing::info!(
         "    SDF params: sdf_to_img ({:.2}, {:.2}), search_radius: {}",
         sdf_to_img_x,
         sdf_to_img_y,
         search_radius
     );
+    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
 
-    (0..sdf_width * sdf_height)
+    (0..total_pixels)
         .into_par_iter()
         .map(|idx| {
             let sx = idx % sdf_width;
@@ -1230,16 +1239,44 @@ pub fn generate_ocean_data(
     world_width: f32,
     world_height: f32,
 ) -> OceanData {
+    tracing::info!("=== OCEAN DATA GENERATION START ===");
+    tracing::info!("World name: {}", name);
+    tracing::info!("Input binary_map: {}x{}", binary_map.width(), binary_map.height());
+    tracing::info!("Input heightmap: {}x{}", heightmap_image.width(), heightmap_image.height());
+    tracing::info!("Chunks: {}x{} (total: {})", n_chunk_x, n_chunk_y, n_chunk_x * n_chunk_y);
+    tracing::info!("World dimensions: {}x{}", world_width, world_height);
+
     let sdf_resolution = 64usize;
     let global_width = n_chunk_x as usize * sdf_resolution;
     let global_height = n_chunk_y as usize * sdf_resolution;
     let max_distance = 50.0f32;
 
-    tracing::info!("Generating ocean data for world: {}", name);
-    tracing::info!("  Resolution: {}x{}", global_width, global_height);
+    tracing::info!("Target SDF resolution: {}x{}", global_width, global_height);
+
+    let expected_bytes_sdf = global_width * global_height;
+    let expected_bytes_heightmap = global_width * global_height;
+    let expected_mb = (expected_bytes_sdf + expected_bytes_heightmap) as f64 / 1_000_000.0;
+
+    tracing::info!("Expected memory allocation:");
+    tracing::info!("  - SDF: {} bytes ({:.2} MB)", expected_bytes_sdf, expected_bytes_sdf as f64 / 1_000_000.0);
+    tracing::info!("  - Heightmap: {} bytes ({:.2} MB)", expected_bytes_heightmap, expected_bytes_heightmap as f64 / 1_000_000.0);
+    tracing::info!("  - Total: {:.2} MB", expected_mb);
+
+    if expected_mb > 1000.0 {
+        tracing::error!("❌ ALLOCATION TOO LARGE! Expected {:.2} MB > 1000 MB", expected_mb);
+        tracing::error!("Parameters seem wrong:");
+        tracing::error!("  n_chunk_x = {}, n_chunk_y = {}", n_chunk_x, n_chunk_y);
+        tracing::error!("  sdf_resolution = {}", sdf_resolution);
+        tracing::error!("  global_width = {}, global_height = {}", global_width, global_height);
+        panic!("Ocean data generation would allocate too much memory");
+    }
 
     // 1. Générer le SDF global
+    tracing::info!("Converting binary_map to luma8...");
     let binary_luma = binary_map.to_luma8();
+    tracing::info!("✓ Binary luma ready: {}x{}", binary_luma.width(), binary_luma.height());
+
+    tracing::info!("Generating global SDF...");
     let global_sdf = generate_global_sdf(
         &binary_luma,
         global_width,
@@ -1248,24 +1285,35 @@ pub fn generate_ocean_data(
         world_height,
         max_distance,
     );
+    tracing::info!("✓ Global SDF generated: {} bytes", global_sdf.len());
 
     // 2. Générer la heightmap globale
+    tracing::info!("Converting heightmap to luma8...");
     let heightmap_luma = heightmap_image.to_luma8();
+    tracing::info!("✓ Heightmap luma ready: {}x{}", heightmap_luma.width(), heightmap_luma.height());
+
+    tracing::info!("Generating global heightmap...");
     let global_heightmap = generate_global_heightmap(
         &heightmap_luma,
         global_width,
         global_height,
     );
+    tracing::info!("✓ Global heightmap generated: {} bytes", global_heightmap.len());
 
     // 3. Créer OceanData
-    OceanData::new(
+    tracing::info!("Creating OceanData structure...");
+    let ocean_data = OceanData::new(
         name,
         global_width,
         global_height,
         max_distance,
         global_sdf,
         global_heightmap,
-    )
+    );
+    tracing::info!("✓ OceanData created successfully");
+    tracing::info!("=== OCEAN DATA GENERATION END ===");
+
+    ocean_data
 }
 
 /// Génère une heightmap globale à partir d'une image
@@ -1282,8 +1330,9 @@ pub fn generate_global_heightmap(
     let scale_x = img_width / target_width as f32;
     let scale_y = img_height / target_height as f32;
 
+    let total_pixels = target_width * target_height;
     tracing::info!(
-        "    Heightmap params: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
+        "    Heightmap generation: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
         heightmap_image.width(),
         heightmap_image.height(),
         target_width,
@@ -1291,8 +1340,9 @@ pub fn generate_global_heightmap(
         scale_x,
         scale_y
     );
+    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
 
-    (0..target_width * target_height)
+    (0..total_pixels)
         .into_par_iter()
         .map(|idx| {
             let tx = idx % target_width;
