@@ -220,7 +220,7 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
-                let (terrain_chunk_data, biome_chunk_data) = match db_tables
+                let (mut terrain_chunk_data, biome_chunk_data) = match db_tables
                     .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
                     .await
@@ -273,12 +273,61 @@ async fn handle_client_message(
                         )
                     }
                 };
+
+                // Send terrain data first (without roads to keep message size down)
                 responses.push(ServerMessage::TerrainChunkData {
-                    terrain_chunk_data,
+                    terrain_chunk_data: terrain_chunk_data.clone(),
                     biome_chunk_data,
                     cell_data,
                     building_data,
                 });
+
+                // Charger et générer les routes pour ce chunk (envoyé séparément)
+                tracing::info!("Attempting to load road segments for chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
+                match db_tables.road_segments
+                    .load_road_segments_by_chunk(terrain_chunk_id.x, terrain_chunk_id.y)
+                    .await
+                {
+                    Ok(road_segments) if !road_segments.is_empty() => {
+                        tracing::info!(
+                            "Generating road SDF for chunk ({},{}) with {} segments",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            road_segments.len()
+                        );
+
+                        use crate::road::{RoadConfig, compute_intersections, generate_road_sdf};
+
+                        let config = RoadConfig::default();
+                        let intersections = compute_intersections(&road_segments, &config);
+                        let road_sdf = generate_road_sdf(&road_segments, &intersections, &config, terrain_chunk_id.x, terrain_chunk_id.y);
+
+                        tracing::info!(
+                            "✓ Road SDF generated: {}x{} with {} intersections",
+                            config.sdf_resolution.x,
+                            config.sdf_resolution.y,
+                            intersections.len()
+                        );
+
+                        // Send road data separately to avoid message size limits
+                        responses.push(ServerMessage::RoadChunkSdfUpdate {
+                            terrain_name: terrain_name.clone(),
+                            chunk_id: terrain_chunk_id.clone(),
+                            road_sdf_data: road_sdf,
+                        });
+                    }
+                    Ok(road_segments) => {
+                        tracing::info!("No road segments found for chunk ({},{}) (loaded {} segments)", terrain_chunk_id.x, terrain_chunk_id.y, road_segments.len());
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to load road segments for chunk ({},{}): {}",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            e
+                        );
+                    }
+                }
             }
 
             responses

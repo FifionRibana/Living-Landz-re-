@@ -7,13 +7,13 @@ use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::{MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId, OceanData};
-use shared::{TerrainChunkSdfData, HeightmapChunkData, RoadChunkSdfData, constants};
+use shared::{CoastalSkirtData, MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
+use shared::{TerrainChunkSdfData, constants};
 
 use super::mesh_data::MeshData;
 
 use crate::utils::{algorithm, file_system};
-use crate::world::resources::SdfConfig;
+use crate::world::resources::{SdfConfig, SkirtConfig};
 
 #[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
@@ -21,8 +21,6 @@ pub struct TerrainChunkMeshData {
     pub height: u32,
     pub mesh_data: MeshData,
     pub sdf_data: Vec<TerrainChunkSdfData>,
-    pub heightmap_data: Option<HeightmapChunkData>,
-    pub road_sdf_data: Option<RoadChunkSdfData>,
     pub outlines: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,
 }
@@ -38,8 +36,6 @@ impl TerrainChunkMeshData {
                 uvs: self.mesh_data.uvs.clone(),
             },
             sdf_data: self.sdf_data.clone(),
-            heightmap_data: self.heightmap_data.clone(),
-            road_sdf_data: self.road_sdf_data.clone(),
             outline: self.outlines.clone(),
             generated_at: self.generated_at,
         }
@@ -62,7 +58,6 @@ impl TerrainMeshData {
     pub fn from_image(
         name: &str,
         image: &DynamicImage,
-        heightmap_image: Option<&DynamicImage>,
         scale: &Vec2,
         cache_path: &str,
     ) -> (
@@ -110,10 +105,35 @@ impl TerrainMeshData {
         let scaled_width = scaled_image_ref.width();
         let scaled_height = scaled_image_ref.height();
 
+        // === 1. GÉNÉRER LA SDF GLOBALE ===
+        tracing::info!("Generating global SDF");
+        let t_sdf = std::time::Instant::now();
+
+        let sdf_scale = 64.0 / constants::CHUNK_SIZE.x; // Ratio SDF/monde
+        let global_sdf_width = (scaled_width as f32 * sdf_scale).ceil() as u32;
+        let global_sdf_height = (scaled_height as f32 * sdf_scale).ceil() as u32;
+
+        let global_sdf = generate_global_sdf(
+            scaled_image_ref,
+            global_sdf_width,
+            global_sdf_height,
+            50.0, // max_distance en pixels monde
+        );
+
+        tracing::info!(
+            "    Global SDF {}x{} generated in {:?}",
+            global_sdf_width,
+            global_sdf_height,
+            t_sdf.elapsed()
+        );
+
         let n_chunk_x = (scaled_width as f32 / constants::CHUNK_SIZE.x).ceil() as i32;
         let n_chunk_y = (scaled_height as f32 / constants::CHUNK_SIZE.y).ceil() as i32;
 
         let mut chunks = HashMap::new();
+        let mut chunk_sdf_data = HashMap::new();
+
+        let sdf_chunk_size = 64u32; // Résolution SDF par chunk
 
         for cy in 0..n_chunk_y {
             for cx in 0..n_chunk_x {
@@ -128,118 +148,37 @@ impl TerrainMeshData {
                 );
 
                 chunks.insert(chunk_id, cropped);
+
+                // Découper la SDF
+                let sdf_x_offset = (cx as u32) * sdf_chunk_size;
+                let sdf_y_offset = (cy as u32) * sdf_chunk_size;
+
+                let mut sdf_values = Vec::with_capacity((sdf_chunk_size * sdf_chunk_size) as usize);
+
+                for sy in 0..sdf_chunk_size {
+                    for sx in 0..sdf_chunk_size {
+                        let global_x = sdf_x_offset + sx;
+                        let global_y = sdf_y_offset + sy;
+
+                        let value = if global_x < global_sdf_width && global_y < global_sdf_height {
+                            global_sdf[(global_y * global_sdf_width + global_x) as usize]
+                        } else {
+                            0u8 // Eau par défaut hors limites
+                        };
+
+                        sdf_values.push(value);
+                    }
+                }
+
+                let mut data = TerrainChunkSdfData::new(sdf_chunk_size as u8);
+                data.values = sdf_values;
+                chunk_sdf_data.insert(chunk_id, vec![data]);
             }
         }
         tracing::info!("    {} chunks split in {:?}", chunks.len(), t2.elapsed());
 
-        tracing::info!("Generating global SDF");
-        let t_sdf = std::time::Instant::now();
-
-        let sdf_resolution = 64usize;
-        let global_sdf_width = n_chunk_x as usize * sdf_resolution;
-        let global_sdf_height = n_chunk_y as usize * sdf_resolution;
-        let max_distance = 50.0f32;
-
-        let global_sdf = generate_global_sdf(
-            scaled_image_ref,
-            global_sdf_width,
-            global_sdf_height,
-            n_chunk_x as f32 * constants::CHUNK_SIZE.x,
-            n_chunk_y as f32 * constants::CHUNK_SIZE.y,
-            max_distance,
-        );
-
-        tracing::info!(
-            "    Global SDF {}x{} generated in {:?}",
-            global_sdf_width,
-            global_sdf_height,
-            t_sdf.elapsed()
-        );
-
-        tracing::info!("Splitting SDF into chunks");
-        let t3 = std::time::Instant::now();
-
-        let mut chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = HashMap::new();
-
-        let chunk_sdf_values = split_sdf_into_chunks(
-            &global_sdf,
-            global_sdf_width,
-            global_sdf_height,
-            sdf_resolution,
-            n_chunk_x,
-            n_chunk_y,
-        );
-
-        let chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = chunk_sdf_values
-            .into_iter()
-            .map(|(id, values)| {
-                let mut data = TerrainChunkSdfData::new(sdf_resolution as u8);
-                data.values = values;
-                (id, vec![data])
-            })
-            .collect();
-
-        let chunk_sdf_data_ref = &chunk_sdf_data;
-
-        tracing::info!("    SDF chunks created in {:?}", t3.elapsed());
-
-        // Générer la heightmap globale et la découper en chunks (optionnel)
-        let chunk_heightmap_data: HashMap<TerrainChunkId, Option<HeightmapChunkData>> = if let Some(heightmap_img) = heightmap_image {
-            tracing::info!("Generating global heightmap");
-            let t_heightmap = std::time::Instant::now();
-
-            let heightmap_luma = heightmap_img.to_luma8();
-            let global_heightmap = generate_global_heightmap(
-                &heightmap_luma,
-                global_sdf_width,
-                global_sdf_height,
-            );
-
-            tracing::info!(
-                "    Global heightmap {}x{} generated in {:?}",
-                global_sdf_width,
-                global_sdf_height,
-                t_heightmap.elapsed()
-            );
-
-            tracing::info!("Splitting heightmap into chunks");
-            let t_heightmap_split = std::time::Instant::now();
-
-            let chunk_heightmap_values = split_sdf_into_chunks(
-                &global_heightmap,
-                global_sdf_width,
-                global_sdf_height,
-                sdf_resolution,
-                n_chunk_x,
-                n_chunk_y,
-            );
-
-            let result: HashMap<TerrainChunkId, Option<HeightmapChunkData>> = chunk_heightmap_values
-                .into_iter()
-                .map(|(id, values)| {
-                    let data = HeightmapChunkData::from_values(sdf_resolution as u8, values);
-                    (id, Some(data))
-                })
-                .collect();
-
-            tracing::info!("    Heightmap chunks created in {:?}", t_heightmap_split.elapsed());
-
-            result
-        } else {
-            // Pas de heightmap : None pour tous les chunks
-            (0..n_chunk_y)
-                .flat_map(|cy| {
-                    (0..n_chunk_x).map(move |cx| {
-                        (TerrainChunkId { x: cx, y: cy }, None)
-                    })
-                })
-                .collect()
-        };
-
-        let chunk_heightmap_data_ref = &chunk_heightmap_data;
-
         tracing::info!("Detecting chunks outlines");
-        let t4 = std::time::Instant::now();
+        let t3 = std::time::Instant::now();
 
         let chunk_contours = (&chunks)
             .into_iter()
@@ -264,7 +203,7 @@ impl TerrainMeshData {
         tracing::info!(
             "    {} outlines detected in {:?}",
             chunk_contours.len(),
-            t4.elapsed()
+            t3.elapsed()
         );
 
         let chunk_contours_ref = &chunk_contours;
@@ -272,31 +211,55 @@ impl TerrainMeshData {
         tracing::info!("Generating mesh faces from outlines");
         let t5 = std::time::Instant::now();
 
-        let chunk_meshes: HashMap<_, _> = chunk_sdf_data
+        let chunk_meshes: HashMap<_, _> = chunk_contours_ref
             .iter()
-            .filter_map(|(&id, sdf_data)| {
-                if let Some(sdf) = sdf_data.first() {
-                    // Un chunk a besoin d'un mesh s'il contient de la terre
-                    let has_land = sdf.values.iter().any(|&v| v > 128);
+            .filter_map(|(&id, contours)| {
+                let buffer = chunks.get(&id).expect("Chunk buffer not found");
 
-                    if has_land {
-                        Some((id, generate_full_chunk_mesh(constants::CHUNK_SIZE)))
-                    } else {
-                        None
-                    }
+                // Vérifier si c'est un chunk 100% eau
+                let is_water_chunk = buffer.get_pixel(10, 10)[0] <= 30
+                    && buffer.get_pixel(buffer.width() / 2, buffer.height() / 2)[0] <= 30
+                    && buffer.get_pixel(buffer.width() - 10, buffer.height() - 10)[0] <= 30;
+
+                if is_water_chunk && contours.is_empty() {
+                    None // Pas de mesh pour l'eau pure
                 } else {
-                    None
+                    Some((id, generate_full_chunk_mesh(constants::CHUNK_SIZE)))
                 }
             })
             .collect();
 
-        tracing::info!(
-            "    {} meshes generated in {:?}",
-            chunk_meshes.len(),
-            t5.elapsed()
-        );
+        tracing::info!("    Meshes generated in {:?}", t5.elapsed());
 
+        // tracing::info!("Generating skirt from outlines");
         let t6 = std::time::Instant::now();
+
+        // let chunk_skirt_data: HashMap<TerrainChunkId, Vec<CoastalSkirtData>> = chunk_contours_ref
+        //     .par_iter()
+        //     .map(|(id, contours)| {
+        //         let skirts: Vec<CoastalSkirtData> = contours
+        //             .iter()
+        //             .filter_map(|contour| {
+        //                 let contour_vec2: Vec<Vec2> = contour
+        //                     .iter()
+        //                     .map(|p| Vec2::new(p[0] as f32, p[1] as f32))
+        //                     .collect();
+
+        //                 generate_skirt_data(
+        //                     &contour_vec2,
+        //                     Vec2::new(600.0, 503.0),
+        //                     &SkirtConfig::default(),
+        //                     2.0,
+        //                 )
+        //             })
+        //             .collect();
+
+        //         (*id, skirts)
+        //     })
+        //     .collect();
+        // let chunk_skirt_data_ref = &chunk_skirt_data;
+
+        // tracing::info!("    Skirt generated in {:?}", t6.elapsed());
 
         tracing::info!("TerrainMeshData completed in {:?}", start.elapsed());
 
@@ -316,9 +279,7 @@ impl TerrainMeshData {
                                 height: constants::CHUNK_SIZE.y as u32,
                                 mesh_data: meshes.clone(),
                                 outlines: chunk_contours_ref.get(&id).cloned().unwrap_or_default(),
-                                sdf_data: chunk_sdf_data_ref.get(&id).cloned().unwrap_or_default(),
-                                heightmap_data: chunk_heightmap_data_ref.get(&id).cloned().unwrap_or(None),
-                                road_sdf_data: None, // Les routes seront ajoutées dynamiquement
+                                sdf_data: chunk_sdf_data.get(&id).cloned().unwrap_or_default(),
                                 generated_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
@@ -457,7 +418,7 @@ impl TerrainMeshData {
             let a = contour[i];
             let b = contour[(i + 1) % contour.len()];
 
-            let dist = TerrainMeshData::distance_point_to_segment(point, a, b);
+            let dist = distance_point_to_segment(point, a, b);
             min_dist = min_dist.min(dist);
         }
 
@@ -491,13 +452,7 @@ impl TerrainMeshData {
                         let a = contour[i];
                         let b = contour[(i + 1) % contour.len()];
 
-                        if TerrainMeshData::is_segment_on_chunk_edge(
-                            a,
-                            b,
-                            edge_threshold,
-                            max_x,
-                            max_y,
-                        ) {
+                        if is_segment_on_chunk_edge(a, b, edge_threshold, max_x, max_y) {
                             None // Ignorer ce segment
                         } else {
                             Some((a, b))
@@ -525,7 +480,7 @@ impl TerrainMeshData {
 
                 let min_dist = valid_segments
                     .iter()
-                    .map(|(a, b)| TerrainMeshData::distance_point_to_segment(local_pos, *a, *b))
+                    .map(|(a, b)| distance_point_to_segment(local_pos, *a, *b))
                     .fold(f32::MAX, f32::min);
 
                 let normalized = (min_dist / config.max_distance).clamp(0.0, 1.0);
@@ -533,22 +488,28 @@ impl TerrainMeshData {
             })
             .collect()
     }
-
     pub fn generate_signed_sdf_data_multi_contours(
         all_contours: &[Vec<Vec2>],
         chunk_origin: Vec2,
         config: &SdfConfig,
-        is_land: impl Fn(Vec2) -> bool + Sync, // Fonction pour savoir si un point est sur terre
+        is_land: impl Fn(Vec2) -> bool + Sync,
     ) -> Vec<u8> {
         let res = config.resolution as usize;
         let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
         let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
 
         let edge_threshold = 2.0;
-        let max_x = config.chunk_world_size_x - edge_threshold;
-        let max_y = config.chunk_world_size_y - edge_threshold;
+        let max_x = config.chunk_world_size_x;
+        let max_y = config.chunk_world_size_y;
+        let extend_distance = config.max_distance * 2.0;
 
-        let valid_segments: Vec<(Vec2, Vec2)> = all_contours
+        // D'abord, corriger les contours pour avoir des intersections exactes aux bords
+        let corrected_contours: Vec<Vec<Vec2>> = all_contours
+            .iter()
+            .map(|contour| snap_contour_to_edges(contour, edge_threshold, max_x, max_y))
+            .collect();
+
+        let segments: Vec<(Vec2, Vec2)> = corrected_contours
             .iter()
             .flat_map(|contour| {
                 if contour.len() < 2 {
@@ -560,31 +521,36 @@ impl TerrainMeshData {
                         let a = contour[i];
                         let b = contour[(i + 1) % contour.len()];
 
-                        if TerrainMeshData::is_segment_on_chunk_edge(
+                        // Ignorer les segments alignés sur les bords
+                        if is_segment_aligned_on_edge(a, b, edge_threshold, max_x, max_y) {
+                            return None;
+                        }
+
+                        // Prolonger perpendiculairement aux bords
+                        let (extended_a, extended_b) = extend_segment_at_edges(
                             a,
                             b,
                             edge_threshold,
                             max_x,
                             max_y,
-                        ) {
-                            None
-                        } else {
-                            Some((a, b))
-                        }
+                            extend_distance,
+                        );
+
+                        Some((extended_a, extended_b))
                     })
                     .collect::<Vec<_>>()
             })
             .collect();
 
-        if valid_segments.is_empty() {
+        if segments.is_empty() {
             let center = Vec2::new(
                 config.chunk_world_size_x / 2.0,
                 config.chunk_world_size_y / 2.0,
             );
             if is_land(center) {
-                return vec![255u8; res * res]; // Tout terre
+                return vec![255u8; res * res];
             } else {
-                return vec![0u8; res * res]; // Tout eau
+                return vec![0u8; res * res];
             }
         }
 
@@ -600,88 +566,273 @@ impl TerrainMeshData {
                         (y as f32 + 0.5) * texel_size_y,
                     );
 
-                let min_dist = valid_segments
+                let min_dist = segments
                     .iter()
-                    .map(|(a, b)| TerrainMeshData::distance_point_to_segment(local_pos, *a, *b))
+                    .map(|(a, b)| distance_point_to_segment(local_pos, *a, *b))
                     .fold(f32::MAX, f32::min);
 
-                // Signed : positif sur terre, négatif dans l'eau
                 let signed_dist = if is_land(local_pos) {
                     min_dist
                 } else {
                     -min_dist
                 };
 
-                // Encoder : 128 = sur le contour, 0 = loin dans l'eau, 255 = loin sur terre
                 let normalized = (signed_dist / config.max_distance).clamp(-1.0, 1.0);
-                let encoded = ((normalized + 1.0) * 0.5 * 255.0) as u8;
-
-                encoded
+                ((normalized + 1.0) * 0.5 * 255.0) as u8
             })
             .collect()
     }
+}
 
-    /// Vérifie si un segment est entièrement sur un bord du chunk
-    fn is_segment_on_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-        // Bord gauche
-        if a.x < threshold && b.x < threshold {
-            return true;
-        }
-        // Bord droit
-        if a.x > max_x && b.x > max_x {
-            return true;
-        }
-        // Bord bas
-        if a.y < threshold && b.y < threshold {
-            return true;
-        }
-        // Bord haut
-        if a.y > max_y && b.y > max_y {
-            return true;
-        }
-        false
+fn snap_contour_to_edges(contour: &[Vec2], threshold: f32, max_x: f32, max_y: f32) -> Vec<Vec2> {
+    if contour.len() < 2 {
+        return contour.to_vec();
     }
 
-    /// Vérifie si un segment est aligné sur un bord du chunk (côte artificielle à ignorer)
-    fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-        // Tolérance pour la position sur le bord
-        let pos_threshold = threshold;
-        // Tolérance pour l'alignement (segment quasi horizontal ou vertical)
-        let align_threshold = threshold;
+    let mut result: Vec<Vec2> = Vec::with_capacity(contour.len() * 2);
 
-        // Bord gauche : les deux points près de x=0 ET segment quasi vertical
-        let on_left =
-            a.x < pos_threshold && b.x < pos_threshold && (a.x - b.x).abs() < align_threshold;
+    for i in 0..contour.len() {
+        let a = contour[i];
+        let b = contour[(i + 1) % contour.len()];
 
-        // Bord droit : les deux points près de x=max ET segment quasi vertical
-        let on_right = a.x > max_x && b.x > max_x && (a.x - b.x).abs() < align_threshold;
+        // Snap le point A sur le bord s'il est proche
+        let snapped_a = snap_point_to_edge(a, threshold, max_x, max_y);
 
-        // Bord bas : les deux points près de y=0 ET segment quasi horizontal
-        let on_bottom =
-            a.y < pos_threshold && b.y < pos_threshold && (a.y - b.y).abs() < align_threshold;
-
-        // Bord haut : les deux points près de y=max ET segment quasi horizontal
-        let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
-
-        on_left || on_right || on_bottom || on_top
-    }
-
-    fn distance_point_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
-        let ab = b - a;
-        let ap = p - a;
-
-        let ab_len_sq = ab.length_squared();
-
-        if ab_len_sq < f32::EPSILON {
-            return ap.length();
+        // Ajouter le point A (snappé)
+        if result.is_empty() || (*result.last().unwrap() - snapped_a).length() > 0.1 {
+            result.push(snapped_a);
         }
 
-        let t = (ap.dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+        // Vérifier si le segment traverse un bord du chunk
+        // Si oui, ajouter le point d'intersection
+        if let Some(intersection) = find_edge_intersection(a, b, threshold, max_x, max_y) {
+            // Ne pas ajouter si c'est trop proche du point précédent ou suivant
+            let dist_to_a = (intersection - snapped_a).length();
+            let snapped_b = snap_point_to_edge(b, threshold, max_x, max_y);
+            let dist_to_b = (intersection - snapped_b).length();
 
-        let closest = a + ab * t;
-
-        (p - closest).length()
+            if dist_to_a > threshold && dist_to_b > threshold {
+                result.push(intersection);
+            }
+        }
     }
+
+    result
+}
+
+/// Snap un point sur le bord le plus proche s'il est dans le threshold
+fn snap_point_to_edge(p: Vec2, threshold: f32, max_x: f32, max_y: f32) -> Vec2 {
+    let mut snapped = p;
+
+    // Priorité aux coins
+    if p.x < threshold {
+        snapped.x = 0.0;
+    } else if p.x > max_x - threshold {
+        snapped.x = max_x;
+    }
+
+    if p.y < threshold {
+        snapped.y = 0.0;
+    } else if p.y > max_y - threshold {
+        snapped.y = max_y;
+    }
+
+    snapped
+}
+
+/// Trouve le point d'intersection entre un segment et les bords du chunk
+fn find_edge_intersection(
+    a: Vec2,
+    b: Vec2,
+    threshold: f32,
+    max_x: f32,
+    max_y: f32,
+) -> Option<Vec2> {
+    let a_inside = a.x >= threshold
+        && a.x <= max_x - threshold
+        && a.y >= threshold
+        && a.y <= max_y - threshold;
+    let b_inside = b.x >= threshold
+        && b.x <= max_x - threshold
+        && b.y >= threshold
+        && b.y <= max_y - threshold;
+
+    // Si les deux sont à l'intérieur ou les deux à l'extérieur, pas d'intersection pertinente
+    if a_inside == b_inside {
+        return None;
+    }
+
+    // Tester l'intersection avec chaque bord
+    let edges = [
+        (Vec2::new(0.0, 0.0), Vec2::new(0.0, max_y)), // Gauche
+        (Vec2::new(max_x, 0.0), Vec2::new(max_x, max_y)), // Droite
+        (Vec2::new(0.0, 0.0), Vec2::new(max_x, 0.0)), // Bas
+        (Vec2::new(0.0, max_y), Vec2::new(max_x, max_y)), // Haut
+    ];
+
+    for (e1, e2) in edges {
+        if let Some(intersection) = line_segment_intersection(a, b, e1, e2) {
+            // Vérifier que l'intersection est sur le bord du chunk
+            let on_edge = intersection.x <= threshold
+                || intersection.x >= max_x - threshold
+                || intersection.y <= threshold
+                || intersection.y >= max_y - threshold;
+
+            if on_edge {
+                return Some(snap_point_to_edge(intersection, threshold, max_x, max_y));
+            }
+        }
+    }
+
+    None
+}
+
+/// Calcule l'intersection entre deux segments
+fn line_segment_intersection(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2) -> Option<Vec2> {
+    let d1 = a2 - a1;
+    let d2 = b2 - b1;
+
+    let cross = d1.x * d2.y - d1.y * d2.x;
+
+    if cross.abs() < 0.0001 {
+        return None; // Parallèles
+    }
+
+    let d = b1 - a1;
+    let t = (d.x * d2.y - d.y * d2.x) / cross;
+    let u = (d.x * d1.y - d.y * d1.x) / cross;
+
+    // Vérifier que l'intersection est dans les deux segments
+    if t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0 {
+        Some(a1 + d1 * t)
+    } else {
+        None
+    }
+}
+
+fn is_point_on_chunk_edge(p: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+    p.x < threshold || p.x > max_x - threshold || p.y < threshold || p.y > max_y - threshold
+}
+
+fn is_segment_aligned_on_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+    let align_threshold = threshold;
+
+    let on_left = a.x < threshold && b.x < threshold && (a.x - b.x).abs() < align_threshold;
+    let on_right =
+        a.x > max_x - threshold && b.x > max_x - threshold && (a.x - b.x).abs() < align_threshold;
+    let on_bottom = a.y < threshold && b.y < threshold && (a.y - b.y).abs() < align_threshold;
+    let on_top =
+        a.y > max_y - threshold && b.y > max_y - threshold && (a.y - b.y).abs() < align_threshold;
+
+    on_left || on_right || on_bottom || on_top
+}
+
+/// Calcule la distance à un segment, en ignorant les extrémités sur les bords
+fn distance_point_to_segment_edge_aware(
+    p: Vec2,
+    a: Vec2,
+    b: Vec2,
+    a_on_edge: bool,
+    b_on_edge: bool,
+) -> f32 {
+    let ab = b - a;
+    let ap = p - a;
+    let ab_len_sq = ab.length_squared();
+
+    if ab_len_sq < f32::EPSILON {
+        // Segment dégénéré - ignorer si sur bord
+        if a_on_edge {
+            return f32::MAX;
+        }
+        return ap.length();
+    }
+
+    let t = ap.dot(ab) / ab_len_sq;
+
+    // Clamper t mais en tenant compte des bords
+    let t_clamped = if a_on_edge && b_on_edge {
+        // Les deux extrémités sur bord - utiliser seulement la partie centrale
+        t.clamp(0.1, 0.9)
+    } else if a_on_edge {
+        // Extrémité A sur bord - ne pas clamper vers A
+        if t < 0.0 {
+            return f32::MAX; // Ignorer cette distance
+        }
+        t.min(1.0)
+    } else if b_on_edge {
+        // Extrémité B sur bord - ne pas clamper vers B
+        if t > 1.0 {
+            return f32::MAX; // Ignorer cette distance
+        }
+        t.max(0.0)
+    } else {
+        // Aucune extrémité sur bord - comportement normal
+        t.clamp(0.0, 1.0)
+    };
+
+    let closest = a + ab * t_clamped;
+    (p - closest).length()
+}
+
+/// Vérifie si un segment est entièrement sur un bord du chunk
+fn is_segment_on_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+    // Bord gauche
+    if a.x < threshold && b.x < threshold {
+        return true;
+    }
+    // Bord droit
+    if a.x > max_x && b.x > max_x {
+        return true;
+    }
+    // Bord bas
+    if a.y < threshold && b.y < threshold {
+        return true;
+    }
+    // Bord haut
+    if a.y > max_y && b.y > max_y {
+        return true;
+    }
+    false
+}
+
+/// Vérifie si un segment est aligné sur un bord du chunk (côte artificielle à ignorer)
+fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
+    // Tolérance pour la position sur le bord
+    let pos_threshold = threshold;
+    // Tolérance pour l'alignement (segment quasi horizontal ou vertical)
+    let align_threshold = threshold;
+
+    // Bord gauche : les deux points près de x=0 ET segment quasi vertical
+    let on_left = a.x < pos_threshold && b.x < pos_threshold && (a.x - b.x).abs() < align_threshold;
+
+    // Bord droit : les deux points près de x=max ET segment quasi vertical
+    let on_right = a.x > max_x && b.x > max_x && (a.x - b.x).abs() < align_threshold;
+
+    // Bord bas : les deux points près de y=0 ET segment quasi horizontal
+    let on_bottom =
+        a.y < pos_threshold && b.y < pos_threshold && (a.y - b.y).abs() < align_threshold;
+
+    // Bord haut : les deux points près de y=max ET segment quasi horizontal
+    let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
+
+    on_left || on_right || on_bottom || on_top
+}
+
+fn distance_point_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let ap = p - a;
+
+    let ab_len_sq = ab.length_squared();
+
+    if ab_len_sq < f32::EPSILON {
+        return ap.length();
+    }
+
+    let t = (ap.dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+
+    let closest = a + ab * t;
+
+    (p - closest).length()
 }
 
 // server/src/terrain/mesh_generator.rs
@@ -721,6 +872,92 @@ pub fn generate_full_chunk_mesh(chunk_size: Vec2) -> MeshData {
         normals,
         uvs,
     }
+}
+
+pub fn generate_skirt_data(
+    contour_points: &[Vec2],
+    chunk_size: Vec2,
+    config: &SkirtConfig,
+    edge_threshold: f32,
+) -> Option<CoastalSkirtData> {
+    let (coastal_points, is_closed, edge_info) = filter_coastal_points_with_edges(
+        contour_points,
+        edge_threshold,
+        chunk_size.x,
+        chunk_size.y,
+    );
+
+    if coastal_points.len() < 2 {
+        return None;
+    }
+
+    // Simplifier le contour pour éviter les micro-segments
+    let simplified = simplify_contour(&coastal_points, 2.0);
+    let simplified_edges = resample_edge_info(
+        &coastal_points,
+        &edge_info,
+        &simplified,
+        edge_threshold,
+        chunk_size,
+    );
+
+    if simplified.len() < 2 {
+        return None;
+    }
+
+    let n = simplified.len();
+
+    // Calculer les normales avec un lissage plus fort
+    let normals = compute_smoothed_normals(&simplified, config.smoothing_window.max(9), is_closed);
+
+    // Calculer les distances sûres
+    let distances = compute_safe_offset_distances(
+        &simplified,
+        &normals,
+        config.width,
+        config.min_width_factor,
+        is_closed,
+    );
+
+    // Générer les points extérieurs
+    let outer_contour: Vec<Vec2> = simplified
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| p + normals[i] * distances[i])
+        .collect();
+
+    // Snap les points de bord
+    let snapped_inner = snap_edge_points(&simplified, &simplified_edges, chunk_size);
+    let snapped_outer = snap_edge_points(&outer_contour, &simplified_edges, chunk_size);
+
+    let inner_points: Vec<[f32; 2]> = snapped_inner.iter().map(|p| [p.x, p.y]).collect();
+    let outer_points: Vec<[f32; 2]> = snapped_outer.iter().map(|p| [p.x, p.y]).collect();
+
+    let loop_end = if is_closed { n } else { n - 1 };
+    let mut indices = Vec::with_capacity(loop_end * 6);
+
+    for i in 0..loop_end {
+        let next_i = (i + 1) % n;
+
+        let i0 = i as u32;
+        let i1 = next_i as u32;
+        let o0 = (n + i) as u32;
+        let o1 = (n + next_i) as u32;
+
+        indices.push(i0);
+        indices.push(o0);
+        indices.push(i1);
+
+        indices.push(i1);
+        indices.push(o0);
+        indices.push(o1);
+    }
+
+    Some(CoastalSkirtData {
+        inner_points,
+        outer_points,
+        indices,
+    })
 }
 
 /// Simplification Douglas-Peucker
@@ -803,6 +1040,37 @@ fn resample_edge_info(
         .map(|&p| detect_point_edge(p, threshold, chunk_size.x, chunk_size.y))
         .collect()
 }
+fn extend_segment_at_edges(
+    a: Vec2,
+    b: Vec2,
+    edge_threshold: f32,
+    max_x: f32,
+    max_y: f32,
+    extend_distance: f32,
+) -> (Vec2, Vec2) {
+    let a_edge = get_edge_type(a, edge_threshold, max_x, max_y);
+    let b_edge = get_edge_type(b, edge_threshold, max_x, max_y);
+
+    let extended_a = match a_edge {
+        Some(EdgeType::Left) => Vec2::new(a.x - extend_distance, a.y),
+        Some(EdgeType::Right) => Vec2::new(a.x + extend_distance, a.y),
+        Some(EdgeType::Bottom) => Vec2::new(a.x, a.y - extend_distance),
+        Some(EdgeType::Top) => Vec2::new(a.x, a.y + extend_distance),
+        Some(EdgeType::None) => a,
+        _ => a,
+    };
+
+    let extended_b = match b_edge {
+        Some(EdgeType::Left) => Vec2::new(b.x - extend_distance, b.y),
+        Some(EdgeType::Right) => Vec2::new(b.x + extend_distance, b.y),
+        Some(EdgeType::Bottom) => Vec2::new(b.x, b.y - extend_distance),
+        Some(EdgeType::Top) => Vec2::new(b.x, b.y + extend_distance),
+        Some(EdgeType::None) => b,
+        _ => b,
+    };
+
+    (extended_a, extended_b)
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum EdgeType {
@@ -811,6 +1079,20 @@ enum EdgeType {
     Right,
     Bottom,
     Top,
+}
+
+fn get_edge_type(p: Vec2, threshold: f32, max_x: f32, max_y: f32) -> Option<EdgeType> {
+    if p.x < threshold {
+        Some(EdgeType::Left)
+    } else if p.x > max_x - threshold {
+        Some(EdgeType::Right)
+    } else if p.y < threshold {
+        Some(EdgeType::Bottom)
+    } else if p.y > max_y - threshold {
+        Some(EdgeType::Top)
+    } else {
+        None
+    }
 }
 
 fn detect_point_edge(p: Vec2, threshold: f32, max_x: f32, max_y: f32) -> EdgeType {
@@ -1119,68 +1401,107 @@ fn ray_segment_intersection(
     }
 }
 
-fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-    let align_threshold = threshold;
+pub fn generate_signed_sdf_from_image(
+    buffer: &ImageBuffer<Luma<u8>, Vec<u8>>,
+    config: &SdfConfig,
+) -> Vec<u8> {
+    let res = config.resolution as usize;
+    let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
+    let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
 
-    let on_left = a.x < threshold && b.x < threshold && (a.x - b.x).abs() < align_threshold;
-    let on_right =
-        a.x > max_x - threshold && b.x > max_x - threshold && (a.x - b.x).abs() < align_threshold;
-    let on_bottom = a.y < threshold && b.y < threshold && (a.y - b.y).abs() < align_threshold;
-    let on_top =
-        a.y > max_y - threshold && b.y > max_y - threshold && (a.y - b.y).abs() < align_threshold;
+    let img_width = buffer.width() as f32;
+    let img_height = buffer.height() as f32;
 
-    on_left || on_right || on_bottom || on_top
+    // Ratio entre espace monde et pixels image
+    let scale_x = img_width / config.chunk_world_size_x;
+    let scale_y = img_height / config.chunk_world_size_y;
+
+    (0..res * res)
+        .into_par_iter()
+        .map(|idx| {
+            let x = idx % res;
+            let y = idx / res;
+
+            // Position dans l'espace monde
+            let world_x = (x as f32 + 0.5) * texel_size_x;
+            let world_y = (y as f32 + 0.5) * texel_size_y;
+
+            // Position dans l'image
+            let img_x = (world_x * scale_x) as i32;
+            let img_y = (world_y * scale_y) as i32;
+
+            // Déterminer si le point courant est sur terre
+            let current_is_land = if img_x >= 0
+                && img_x < buffer.width() as i32
+                && img_y >= 0
+                && img_y < buffer.height() as i32
+            {
+                buffer.get_pixel(img_x as u32, img_y as u32)[0] > 30
+            } else {
+                false
+            };
+
+            // Chercher la distance au pixel le plus proche de type opposé
+            let search_radius = (config.max_distance * scale_x.max(scale_y)) as i32 + 1;
+            let mut min_dist_sq = f32::MAX;
+
+            for dy in -search_radius..=search_radius {
+                for dx in -search_radius..=search_radius {
+                    let nx = img_x + dx;
+                    let ny = img_y + dy;
+
+                    if nx < 0
+                        || nx >= buffer.width() as i32
+                        || ny < 0
+                        || ny >= buffer.height() as i32
+                    {
+                        continue;
+                    }
+
+                    let neighbor_is_land = buffer.get_pixel(nx as u32, ny as u32)[0] > 30;
+
+                    // Si le voisin est de type opposé, calculer la distance
+                    if neighbor_is_land != current_is_land {
+                        let dist_sq = (dx as f32 / scale_x).powi(2) + (dy as f32 / scale_y).powi(2);
+                        min_dist_sq = min_dist_sq.min(dist_sq);
+                    }
+                }
+            }
+
+            let min_dist = min_dist_sq.sqrt();
+
+            let signed_dist = if current_is_land { min_dist } else { -min_dist };
+
+            let normalized = (signed_dist / config.max_distance).clamp(-1.0, 1.0);
+            ((normalized + 1.0) * 0.5 * 255.0) as u8
+        })
+        .collect()
 }
 
 fn generate_global_sdf(
     image: &ImageBuffer<Luma<u8>, Vec<u8>>,
-    sdf_width: usize,
-    sdf_height: usize,
-    world_width: f32,
-    world_height: f32,
+    sdf_width: u32,
+    sdf_height: u32,
     max_distance: f32,
 ) -> Vec<u8> {
     let img_width = image.width() as f32;
     let img_height = image.height() as f32;
 
-    // Ratio SDF -> image
-    let sdf_to_img_x = img_width / sdf_width as f32;
-    let sdf_to_img_y = img_height / sdf_height as f32;
+    let scale_x = img_width / sdf_width as f32;
+    let scale_y = img_height / sdf_height as f32;
 
-    // Ratio monde -> image (pour max_distance)
-    let world_to_img_x = img_width / world_width;
-    let world_to_img_y = img_height / world_height;
+    let search_radius = (max_distance / scale_x.min(scale_y)).ceil() as i32 + 1;
 
-    // Rayon de recherche en pixels image
-    let search_radius = ((max_distance * world_to_img_x.max(world_to_img_y)) as i32).max(1);
-
-    let total_pixels = sdf_width * sdf_height;
-    tracing::info!(
-        "    SDF generation: image {}x{}, target {}x{}",
-        image.width(),
-        image.height(),
-        sdf_width,
-        sdf_height
-    );
-    tracing::info!(
-        "    SDF params: sdf_to_img ({:.2}, {:.2}), search_radius: {}",
-        sdf_to_img_x,
-        sdf_to_img_y,
-        search_radius
-    );
-    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
-
-    (0..total_pixels)
+    (0..(sdf_width * sdf_height) as usize)
         .into_par_iter()
         .map(|idx| {
-            let sx = idx % sdf_width;
-            let sy = idx / sdf_width;
+            let x = (idx % sdf_width as usize) as i32;
+            let y = (idx / sdf_width as usize) as i32;
 
             // Position dans l'image
-            let img_x = ((sx as f32 + 0.5) * sdf_to_img_x) as i32;
-            let img_y = ((sy as f32 + 0.5) * sdf_to_img_y) as i32;
+            let img_x = ((x as f32 + 0.5) * scale_x) as i32;
+            let img_y = ((y as f32 + 0.5) * scale_y) as i32;
 
-            // Déterminer si le point est sur terre
             let current_is_land = if img_x >= 0
                 && img_x < image.width() as i32
                 && img_y >= 0
@@ -1192,7 +1513,7 @@ fn generate_global_sdf(
             };
 
             // Chercher le pixel de type opposé le plus proche
-            let mut min_dist_sq = i32::MAX;
+            let mut min_dist_sq = f32::MAX;
 
             for dy in -search_radius..=search_radius {
                 for dx in -search_radius..=search_radius {
@@ -1207,20 +1528,19 @@ fn generate_global_sdf(
                     let neighbor_is_land = image.get_pixel(nx as u32, ny as u32)[0] > 30;
 
                     if neighbor_is_land != current_is_land {
-                        let dist_sq = dx * dx + dy * dy;
+                        // Distance en unités monde
+                        let world_dx = dx as f32 * scale_x;
+                        let world_dy = dy as f32 * scale_y;
+                        let dist_sq = world_dx * world_dx + world_dy * world_dy;
                         min_dist_sq = min_dist_sq.min(dist_sq);
                     }
                 }
             }
 
-            // Convertir en distance monde
-            let min_dist_pixels = (min_dist_sq as f32).sqrt();
-            let min_dist_world = min_dist_pixels / world_to_img_x.max(world_to_img_y);
-
-            let min_dist = if min_dist_sq == i32::MAX {
+            let min_dist = if min_dist_sq == f32::MAX {
                 max_distance
             } else {
-                min_dist_world.min(max_distance)
+                min_dist_sq.sqrt()
             };
 
             let signed_dist = if current_is_land { min_dist } else { -min_dist };
@@ -1229,235 +1549,4 @@ fn generate_global_sdf(
             ((normalized + 1.0) * 0.5 * 255.0) as u8
         })
         .collect()
-}
-
-/// Génère les données d'océan globales (SDF + heightmap) pour un monde
-/// À utiliser pour le rendu de l'océan autour du continent
-pub fn generate_ocean_data(
-    name: String,
-    binary_map: &DynamicImage,
-    heightmap_image: &DynamicImage,
-    n_chunk_x: i32,
-    n_chunk_y: i32,
-    world_width: f32,
-    world_height: f32,
-) -> OceanData {
-    tracing::info!("=== OCEAN DATA GENERATION START ===");
-    tracing::info!("World name: {}", name);
-    tracing::info!("Input binary_map: {}x{}", binary_map.width(), binary_map.height());
-    tracing::info!("Input heightmap: {}x{}", heightmap_image.width(), heightmap_image.height());
-    tracing::info!("Chunks: {}x{} (total: {})", n_chunk_x, n_chunk_y, n_chunk_x * n_chunk_y);
-    tracing::info!("World dimensions: {}x{}", world_width, world_height);
-
-    let sdf_resolution = 64usize;
-    let global_width = n_chunk_x as usize * sdf_resolution;
-    let global_height = n_chunk_y as usize * sdf_resolution;
-    let max_distance = 50.0f32;
-
-    tracing::info!("Target SDF resolution: {}x{}", global_width, global_height);
-
-    let expected_bytes_sdf = global_width * global_height;
-    let expected_bytes_heightmap = global_width * global_height;
-    let expected_mb = (expected_bytes_sdf + expected_bytes_heightmap) as f64 / 1_000_000.0;
-
-    tracing::info!("Expected memory allocation:");
-    tracing::info!("  - SDF: {} bytes ({:.2} MB)", expected_bytes_sdf, expected_bytes_sdf as f64 / 1_000_000.0);
-    tracing::info!("  - Heightmap: {} bytes ({:.2} MB)", expected_bytes_heightmap, expected_bytes_heightmap as f64 / 1_000_000.0);
-    tracing::info!("  - Total: {:.2} MB", expected_mb);
-
-    if expected_mb > 1000.0 {
-        tracing::error!("❌ ALLOCATION TOO LARGE! Expected {:.2} MB > 1000 MB", expected_mb);
-        tracing::error!("Parameters seem wrong:");
-        tracing::error!("  n_chunk_x = {}, n_chunk_y = {}", n_chunk_x, n_chunk_y);
-        tracing::error!("  sdf_resolution = {}", sdf_resolution);
-        tracing::error!("  global_width = {}, global_height = {}", global_width, global_height);
-        panic!("Ocean data generation would allocate too much memory");
-    }
-
-    // 1. Générer le SDF global
-    tracing::info!("Converting binary_map to luma8...");
-    let binary_luma = binary_map.to_luma8();
-    tracing::info!("✓ Binary luma ready: {}x{}", binary_luma.width(), binary_luma.height());
-
-    tracing::info!("Generating global SDF...");
-    let global_sdf = generate_global_sdf(
-        &binary_luma,
-        global_width,
-        global_height,
-        world_width,
-        world_height,
-        max_distance,
-    );
-    tracing::info!("✓ Global SDF generated: {} bytes", global_sdf.len());
-
-    // 2. Générer la heightmap globale
-    tracing::info!("Converting heightmap to luma8...");
-    let heightmap_luma = heightmap_image.to_luma8();
-    tracing::info!("✓ Heightmap luma ready: {}x{}", heightmap_luma.width(), heightmap_luma.height());
-
-    tracing::info!("Generating global heightmap...");
-    let global_heightmap = generate_global_heightmap(
-        &heightmap_luma,
-        global_width,
-        global_height,
-    );
-    tracing::info!("✓ Global heightmap generated: {} bytes", global_heightmap.len());
-
-    // 3. Créer OceanData
-    tracing::info!("Creating OceanData structure...");
-    let ocean_data = OceanData::new(
-        name,
-        global_width,
-        global_height,
-        max_distance,
-        global_sdf,
-        global_heightmap,
-    );
-    tracing::info!("✓ OceanData created successfully");
-    tracing::info!("=== OCEAN DATA GENERATION END ===");
-
-    ocean_data
-}
-
-/// Génère une heightmap globale à partir d'une image
-/// Échantillonne l'image source à la résolution souhaitée
-pub fn generate_global_heightmap(
-    heightmap_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
-    target_width: usize,
-    target_height: usize,
-) -> Vec<u8> {
-    let img_width = heightmap_image.width() as f32;
-    let img_height = heightmap_image.height() as f32;
-
-    // Ratio heightmap -> image
-    let scale_x = img_width / target_width as f32;
-    let scale_y = img_height / target_height as f32;
-
-    let total_pixels = target_width * target_height;
-    tracing::info!(
-        "    Heightmap generation: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
-        heightmap_image.width(),
-        heightmap_image.height(),
-        target_width,
-        target_height,
-        scale_x,
-        scale_y
-    );
-    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
-
-    (0..total_pixels)
-        .into_par_iter()
-        .map(|idx| {
-            let tx = idx % target_width;
-            let ty = idx / target_width;
-
-            // Position dans l'image source avec échantillonnage bilinéaire
-            let img_x = (tx as f32 + 0.5) * scale_x;
-            let img_y = (ty as f32 + 0.5) * scale_y;
-
-            // Sample bilinéaire
-            sample_heightmap_bilinear(heightmap_image, img_x, img_y)
-        })
-        .collect()
-}
-
-/// Échantillonne une heightmap avec interpolation bilinéaire
-fn sample_heightmap_bilinear(
-    image: &ImageBuffer<Luma<u8>, Vec<u8>>,
-    x: f32,
-    y: f32,
-) -> u8 {
-    let x0 = (x.floor() as i32).clamp(0, image.width() as i32 - 1) as u32;
-    let y0 = (y.floor() as i32).clamp(0, image.height() as i32 - 1) as u32;
-    let x1 = (x0 + 1).min(image.width() - 1);
-    let y1 = (y0 + 1).min(image.height() - 1);
-
-    let fx = (x - x.floor()).clamp(0.0, 1.0);
-    let fy = (y - y.floor()).clamp(0.0, 1.0);
-
-    let v00 = image.get_pixel(x0, y0)[0] as f32;
-    let v10 = image.get_pixel(x1, y0)[0] as f32;
-    let v01 = image.get_pixel(x0, y1)[0] as f32;
-    let v11 = image.get_pixel(x1, y1)[0] as f32;
-
-    let v0 = v00 * (1.0 - fx) + v10 * fx;
-    let v1 = v01 * (1.0 - fx) + v11 * fx;
-    let v = v0 * (1.0 - fy) + v1 * fy;
-
-    v.round().clamp(0.0, 255.0) as u8
-}
-
-/// Découpe la SDF globale en chunks avec overlap correct
-fn split_sdf_into_chunks(
-    global_sdf: &[u8],
-    global_width: usize,
-    global_height: usize,
-    chunk_resolution: usize,
-    n_chunk_x: i32,
-    n_chunk_y: i32,
-) -> HashMap<TerrainChunkId, Vec<u8>> {
-    let mut result = HashMap::new();
-
-    // Overlap en texels (0.5 de chaque côté = 1 texel total d'extension)
-    let overlap = 0.5f32;
-
-    for cy in 0..n_chunk_y {
-        for cx in 0..n_chunk_x {
-            let chunk_id = TerrainChunkId { x: cx, y: cy };
-
-            let mut sdf_values = Vec::with_capacity(chunk_resolution * chunk_resolution);
-
-            let base_x = cx as f32 * chunk_resolution as f32;
-            let base_y = cy as f32 * chunk_resolution as f32;
-
-            for sy in 0..chunk_resolution {
-                for sx in 0..chunk_resolution {
-                    // Mapper [0, 63] → [-0.5, 63.5] dans la SDF globale
-                    let t_x = sx as f32 / (chunk_resolution - 1) as f32; // 0 à 1
-                    let t_y = sy as f32 / (chunk_resolution - 1) as f32;
-
-                    // Position avec overlap symétrique
-                    let global_x =
-                        base_x - overlap + t_x * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
-                    let global_y =
-                        base_y - overlap + t_y * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
-
-                    let value = sample_sdf_bilinear(
-                        global_sdf,
-                        global_width,
-                        global_height,
-                        global_x,
-                        global_y,
-                    );
-
-                    sdf_values.push(value);
-                }
-            }
-
-            result.insert(chunk_id, sdf_values);
-        }
-    }
-
-    result
-}
-
-fn sample_sdf_bilinear(sdf: &[u8], width: usize, height: usize, x: f32, y: f32) -> u8 {
-    let x0 = (x.floor() as i32).clamp(0, width as i32 - 1) as usize;
-    let y0 = (y.floor() as i32).clamp(0, height as i32 - 1) as usize;
-    let x1 = (x0 + 1).min(width - 1);
-    let y1 = (y0 + 1).min(height - 1);
-
-    let fx = (x - x.floor()).clamp(0.0, 1.0);
-    let fy = (y - y.floor()).clamp(0.0, 1.0);
-
-    let v00 = sdf[y0 * width + x0] as f32;
-    let v10 = sdf[y0 * width + x1] as f32;
-    let v01 = sdf[y1 * width + x0] as f32;
-    let v11 = sdf[y1 * width + x1] as f32;
-
-    let v0 = v00 * (1.0 - fx) + v10 * fx;
-    let v1 = v01 * (1.0 - fx) + v11 * fx;
-    let v = v0 * (1.0 - fy) + v1 * fy;
-
-    v.round().clamp(0.0, 255.0) as u8
 }

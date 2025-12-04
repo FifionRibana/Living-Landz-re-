@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use super::NetworkClient;
 use crate::state::resources::{ActionTracker, ConnectionStatus, PlayerInfo, TrackedAction, WorldCache};
+use crate::rendering::terrain::components::Terrain;
 
 pub fn handle_server_message(
     mut connection: ResMut<ConnectionStatus>,
@@ -10,6 +11,8 @@ pub fn handle_server_message(
     mut action_tracker: ResMut<ActionTracker>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
+    mut commands: Commands,
+    terrain_query: Query<(Entity, &Terrain)>,
 ) {
     let Some(mut network_client) = network_client_opt else {
         return;
@@ -53,7 +56,23 @@ pub fn handle_server_message(
                 building_data,
             } => {
                 info!("✓ Received terrain: {}", terrain_chunk_data.clone().name);
-                cache.insert_terrain(&terrain_chunk_data);
+
+                let is_update = cache.insert_terrain(&terrain_chunk_data);
+
+                // If this is an update (chunk already existed), despawn the old terrain entity
+                // so it can be re-spawned with the new data (e.g., road textures)
+                if is_update {
+                    let terrain_name = &terrain_chunk_data.name;
+                    let terrain_id = terrain_chunk_data.id;
+
+                    for (entity, terrain) in terrain_query.iter() {
+                        if &terrain.name == terrain_name && terrain.id == terrain_id {
+                            info!("Despawning terrain entity for chunk ({},{}) to trigger re-render with updated data", terrain_id.x, terrain_id.y);
+                            commands.entity(entity).despawn();
+                            break;
+                        }
+                    }
+                }
 
                 for chunk_data in biome_chunk_data.iter() {
                     cache.insert_biome(chunk_data);
@@ -65,6 +84,37 @@ pub fn handle_server_message(
             shared::protocol::ServerMessage::OceanData { ocean_data } => {
                 info!("✓ Received ocean data for world: {}", ocean_data.name);
                 cache.insert_ocean(ocean_data);
+            }
+            shared::protocol::ServerMessage::RoadChunkSdfUpdate {
+                terrain_name,
+                chunk_id,
+                road_sdf_data,
+            } => {
+                info!("✓ Received road SDF update for chunk ({},{}) in terrain {}", chunk_id.x, chunk_id.y, terrain_name);
+
+                // Find the terrain chunk in cache and clone it (ends immutable borrow)
+                let storage_key = format!("{}_{}_{}",  terrain_name, chunk_id.x, chunk_id.y);
+                let terrain_chunk_opt = cache.loaded_terrains().find(|t| t.get_storage_key() == storage_key).cloned();
+
+                if let Some(mut updated_terrain) = terrain_chunk_opt {
+                    updated_terrain.road_sdf_data = Some(road_sdf_data);
+
+                    // Update in cache (will trigger despawn and re-render)
+                    let is_update = cache.insert_terrain(&updated_terrain);
+
+                    if is_update {
+                        let terrain_id = updated_terrain.id;
+                        for (entity, terrain) in terrain_query.iter() {
+                            if &terrain.name == &terrain_name && terrain.id == terrain_id {
+                                info!("Despawning terrain entity for chunk ({},{}) to render with roads", terrain_id.x, terrain_id.y);
+                                commands.entity(entity).despawn();
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    warn!("Received road SDF for non-loaded chunk ({},{}) in terrain {}", chunk_id.x, chunk_id.y, terrain_name);
+                }
             }
             shared::protocol::ServerMessage::ActionStatusUpdate {
                 action_id,
@@ -108,7 +158,7 @@ pub fn handle_server_message(
                 info!("Requesting chunk data refresh for ({}, {})", chunk_id.x, chunk_id.y);
 
                 network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
-                    terrain_name: "main".to_string(), // TODO: utiliser le vrai nom du terrain
+                    terrain_name: "Gaulyia".to_string(), // TODO: utiliser le vrai nom du terrain
                     terrain_chunk_ids: vec![chunk_id],
                 });
             }

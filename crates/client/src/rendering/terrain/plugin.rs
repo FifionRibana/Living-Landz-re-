@@ -22,7 +22,7 @@ impl Plugin for TerrainPlugin {
                     systems::initialize_terrain,
                     systems::spawn_terrain,
                     systems::spawn_building,
-                    systems::update_terrain_wave_time,
+                    // systems::update_terrain_wave_time, // Disabled: wave_params removed
                     debug::toggle_chunk_debug,
                     debug::draw_chunk_gizmos,
                     debug::draw_outline_points,
