@@ -6,6 +6,20 @@ use tokio::sync::RwLock;
 use crate::database::client::DatabaseTables;
 use crate::networking::Sessions;
 
+/// Convertit une cellule hexagonale en position monde (en pixels)
+fn cell_to_world_pos(cell: &GridCell) -> Vec2 {
+    use shared::constants::{HEX_SIZE, HEX_RATIO};
+    use hexx::{Hex, HexLayout};
+
+    // Utiliser le même HexLayout que le terrain pour garantir la cohérence
+    let layout = HexLayout::flat()
+        .with_hex_size(HEX_SIZE)
+        .with_scale(Vec2::new(HEX_RATIO.x * HEX_SIZE, HEX_RATIO.y * HEX_SIZE));
+
+    let hex = Hex::new(cell.q, cell.r);
+    layout.hex_to_world_pos(hex)
+}
+
 #[derive(Debug, Clone)]
 pub struct ActionInfo {
     pub action_id: u64,
@@ -116,6 +130,14 @@ impl ActionProcessor {
                     }
                 }
 
+                // Si c'est une action BuildRoad, créer le segment de route
+                if action_info.action_type == ActionTypeEnum::BuildRoad {
+                    if let Err(e) = self.create_road_for_action(action_id, action_info).await {
+                        tracing::error!("Failed to create road for action {}: {}", action_id, e);
+                        // Continue quand même
+                    }
+                }
+
                 // Envoyer notification au joueur
                 let message = ServerMessage::ActionStatusUpdate {
                     action_id,
@@ -177,6 +199,17 @@ impl ActionProcessor {
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
                     }
+                }
+
+                // Si c'est une action BuildRoad, la route est déjà créée, rien à faire de plus
+                if action_info.action_type == ActionTypeEnum::BuildRoad {
+                    tracing::info!("Road segment {} completed at chunk ({}, {}) cell ({}, {})",
+                        action_id,
+                        action_info.chunk_id.x,
+                        action_info.chunk_id.y,
+                        action_info.cell.q,
+                        action_info.cell.r
+                    );
                 }
 
                 // Envoyer notification au joueur qui a lancé l'action
@@ -348,6 +381,54 @@ impl ActionProcessor {
             action_info.chunk_id.y,
             action_info.cell.q,
             action_info.cell.r
+        );
+
+        Ok(())
+    }
+
+    /// Crée un segment de route pour une action BuildRoad
+    async fn create_road_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+        use shared::grid::GridCell;
+        use crate::road::RoadSegment;
+
+        // Pour l'instant, créer une route simple vers une cellule voisine
+        // TODO: Implémenter la sélection intelligente de la cellule de destination
+        let start_cell = action_info.cell.clone();
+
+        // Prendre la première cellule voisine comme destination (simplification)
+        let neighbors = start_cell.neighbors();
+        let end_cell = neighbors.first()
+            .ok_or_else(|| "No neighbor cells found".to_string())?
+            .clone();
+
+        // Calculer les positions monde des cellules
+        let start_pos = cell_to_world_pos(&start_cell);
+        let end_pos = cell_to_world_pos(&end_cell);
+
+        // Créer le segment de route
+        let segment = RoadSegment {
+            id: 0, // Sera assigné par la DB
+            start_cell,
+            end_cell,
+            points: vec![start_pos, end_pos],
+            importance: 1, // Route basique par défaut
+        };
+
+        // Sauvegarder dans la DB en utilisant le chunk_id de l'action
+        let chunk_id = action_info.chunk_id;
+        let segment_id = self.db_tables.road_segments.save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y).await
+            .map_err(|e| format!("Failed to save road segment: {}", e))?;
+
+        tracing::info!(
+            "Created road segment {} from ({},{}) to ({},{}) in chunk ({},{}) for action {}",
+            segment_id,
+            segment.start_cell.q,
+            segment.start_cell.r,
+            segment.end_cell.q,
+            segment.end_cell.r,
+            chunk_id.x,
+            chunk_id.y,
+            action_id
         );
 
         Ok(())

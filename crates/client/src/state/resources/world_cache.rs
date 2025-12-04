@@ -21,20 +21,29 @@ pub struct TerrainCache {
 }
 
 impl TerrainCache {
-    pub fn insert_terrain(&mut self, terrain_data: &TerrainChunkData) {
-        info!(
-            "Inserting chunk ({},{}) in terrain {}",
-            terrain_data.id.x, terrain_data.id.y, terrain_data.name
-        );
+    /// Inserts or updates a terrain chunk.
+    /// Returns true if the chunk was updated (already existed), false if newly inserted.
+    pub fn insert_terrain(&mut self, terrain_data: &TerrainChunkData) -> bool {
         let key = &terrain_data.get_storage_key();
+        let is_update = self.loaded.contains_key(key);
 
-        if self.loaded.contains_key(key) {
-            warn!("Chunk '{}' already inserted. Ignoring.", key);
-            return;
+        if is_update {
+            info!(
+                "Updating chunk ({},{}) in terrain {} (has roads: {})",
+                terrain_data.id.x, terrain_data.id.y, terrain_data.name,
+                terrain_data.road_sdf_data.is_some()
+            );
+        } else {
+            info!(
+                "Inserting chunk ({},{}) in terrain {}",
+                terrain_data.id.x, terrain_data.id.y, terrain_data.name
+            );
         }
 
         self.loaded.insert(key.clone(), terrain_data.clone());
         self.requested.remove(key);
+
+        is_update
     }
 
     pub fn is_loaded(&self, name: &str, id: &TerrainChunkId) -> bool {
@@ -258,8 +267,10 @@ impl OceanCache {
 
 impl WorldCache {
     // TERRAIN
-    pub fn insert_terrain(&mut self, terrain_data: &TerrainChunkData) {
-        self.terrains.insert_terrain(terrain_data);
+    /// Inserts or updates a terrain chunk.
+    /// Returns true if the chunk was updated (already existed), false if newly inserted.
+    pub fn insert_terrain(&mut self, terrain_data: &TerrainChunkData) -> bool {
+        self.terrains.insert_terrain(terrain_data)
     }
 
     pub fn loaded_terrains(&self) -> impl Iterator<Item = &TerrainChunkData> {

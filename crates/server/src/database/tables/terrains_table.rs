@@ -52,13 +52,19 @@ impl TerrainsTable {
             .fetch_optional(&self.pool)
             .await?;
 
-        let terrain_row = row.map(|r| {
+        let terrain_row = row.and_then(|r| {
             let terrain_bytes: Vec<u8> = r.get("data");
-            let (terrain_data, _) =
-                bincode::decode_from_slice(&terrain_bytes[..], bincode::config::standard())
-                    .expect("Failed to deserialize terrain data");
-
-            terrain_data
+            match bincode::decode_from_slice(&terrain_bytes[..], bincode::config::standard()) {
+                Ok((terrain_data, _)) => Some(terrain_data),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize terrain chunk ({},{}) for '{}': {}. \
+                        This is likely due to a schema change. Consider clearing and regenerating the terrain.",
+                        terrain_chunk_id.x, terrain_chunk_id.y, name, e
+                    );
+                    None
+                }
+            }
         });
 
         let biome_rows = sqlx::query(
@@ -70,16 +76,27 @@ impl TerrainsTable {
             .fetch_all(&self.pool)
             .await?;
 
-        let biomes = biome_rows.iter().map(|r| {
+        let biomes: Vec<BiomeChunkData> = biome_rows.iter().filter_map(|r| {
             let biome_bytes: Vec<u8> = r.get("data");
-            let (biome_data, _) =
-                bincode::decode_from_slice(&biome_bytes[..], bincode::config::standard())
-                    .expect("Failed to deserialize terrain data");
-
-            Some(biome_data)
+            match bincode::decode_from_slice(&biome_bytes[..], bincode::config::standard()) {
+                Ok((biome_data, _)) => Some(biome_data),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize biome chunk ({},{}) for '{}': {}. Skipping.",
+                        terrain_chunk_id.x, terrain_chunk_id.y, name, e
+                    );
+                    None
+                }
+            }
         }).collect();
 
-        Ok((terrain_row, biomes))
+        let biomes_option = if biomes.is_empty() {
+            None
+        } else {
+            Some(biomes)
+        };
+
+        Ok((terrain_row, biomes_option))
     }
 
     pub async fn clear_terrain(&self, name: &str) -> Result<(), sqlx::Error> {

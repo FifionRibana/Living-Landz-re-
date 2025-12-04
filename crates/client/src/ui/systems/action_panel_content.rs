@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, TerrainChunkId, grid::GridCell};
+use shared::{BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, TerrainChunkId, constants, grid::{GridCell, GridConfig}};
 
 use crate::{
     networking::client::NetworkClient,
@@ -498,6 +498,7 @@ pub fn handle_building_button_interactions(
 pub fn handle_action_run_button(
     mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<ActionRunButton>)>,
     action_state: Res<ActionState>,
+    grid_config: Res<GridConfig>,
     mut network_client_opt: Option<ResMut<NetworkClient>>,
     connection: Res<ConnectionStatus>,
     selected_hexes: Res<SelectedHexes>,
@@ -510,6 +511,7 @@ pub fn handle_action_run_button(
                 execute_action(
                     &action_state,
                     &mut network_client_opt,
+                    &grid_config,
                     &connection,
                     &selected_hexes,
                 );
@@ -527,6 +529,7 @@ pub fn handle_action_run_button(
 fn execute_action(
     action_state: &ActionState,
     network_client_opt: &mut Option<ResMut<NetworkClient>>,
+    grid_config: &Res<GridConfig>,
     connection: &ConnectionStatus,
     selected_hexes: &SelectedHexes,
 ) {
@@ -558,11 +561,13 @@ fn execute_action(
         r: selected_hex.y,
     };
 
-    // For now, we'll use a default chunk ID - this should be determined from the selected cell
+    let world_pos = grid_config.layout.hex_to_world_pos(selected_hex);
+    
     let chunk_id = TerrainChunkId {
-        x: 0,
-        y: 0,
+        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
+        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
     };
+
 
     match action_state.selected_category {
         Some(ActionCategory::Buildings) => {

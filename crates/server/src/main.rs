@@ -6,6 +6,7 @@ use shared::GameState;
 mod action_processor;
 mod database;
 mod networking;
+mod road;
 mod utils;
 mod world;
 

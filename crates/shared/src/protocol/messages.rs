@@ -3,7 +3,7 @@ use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
     BiomeChunkData, BuildingData, BuildingSpecificTypeEnum, BuildingTypeEnum,
-    ResourceSpecificTypeEnum, TerrainChunkId, OceanData,
+    ResourceSpecificTypeEnum, TerrainChunkId, OceanData, RoadChunkSdfData,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
 };
@@ -116,6 +116,13 @@ pub enum ServerMessage {
 
     OceanData {
         ocean_data: OceanData,
+    },
+
+    /// Road SDF data update for a specific chunk (sent separately to avoid message size limits)
+    RoadChunkSdfUpdate {
+        terrain_name: String,
+        chunk_id: TerrainChunkId,
+        road_sdf_data: RoadChunkSdfData,
     },
 
     ActionSuccess {

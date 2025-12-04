@@ -16,7 +16,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{SdfParams, WaveParams};
+use crate::rendering::terrain::materials::{SdfParams, RoadParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -64,6 +64,11 @@ pub fn spawn_terrain(
     for terrain in world_cache.loaded_terrains() {
         let terrain_name = terrain.clone().name;
         if spawned_terrains.contains(&terrain.get_storage_key()) {
+            continue;
+        }
+
+        // Skip chunks with no triangles (e.g., ocean-only chunks)
+        if terrain.mesh_data.triangles.is_empty() {
             continue;
         }
 
@@ -135,6 +140,40 @@ pub fn spawn_terrain(
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
+            // Create road texture (real or dummy)
+            let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {
+                info!("Creating road texture for chunk {:?}", terrain.id);
+                let road_tex = create_road_sdf_texture(road_sdf, &mut images);
+                (
+                    road_tex,
+                    RoadParams {
+                        has_roads: 1.0,
+                        edge_softness: 2.0,
+                        noise_frequency: 0.15,
+                        noise_amplitude: 3.0,
+                    }
+                )
+            } else {
+                // Create dummy 1x1 RG16 texture (no roads)
+                let dummy_road = images.add(Image::new(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    vec![128u8, 128u8, 0u8, 0u8], // Distance=0.5, metadata=0
+                    TextureFormat::Rg16Unorm,
+                    default(),
+                ));
+                (dummy_road, RoadParams {
+                    has_roads: 0.0,
+                    edge_softness: 2.0,
+                    noise_frequency: 0.15,
+                    noise_amplitude: 3.0,
+                })
+            };
+
             info!("Creating material WITH SDF for chunk {:?}", terrain.id);
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture,
@@ -143,16 +182,14 @@ pub fn spawn_terrain(
                 sdf_params: SdfParams {
                     beach_start: -0.15,
                     beach_end: 0.6,
-                    opacity_start: -0.15,
-                    opacity_end: 0.0,
-                }, // has_coast = 1.0
-                wave_params: WaveParams {
-                    time: 0.0,
-                    wave_speed: 2.0,
-                    wave_amplitude: 0.08,
-                    foam_width: 0.15,
+                    has_coast: 1.0,  // Terrain has coast SDF
+                    _padding: 0.0,
                 },
-                ..default()
+                road_sdf_texture: road_texture,
+                road_params,
+                road_color_light: LinearRgba::new(0.76, 0.70, 0.55, 1.0),
+                road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
+                road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
             }))
         } else {
             info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
@@ -168,6 +205,40 @@ pub fn spawn_terrain(
                 default(),
             ));
 
+            // Check for roads even without terrain SDF
+            let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {
+                info!("Creating road texture for chunk {:?} (no terrain SDF)", terrain.id);
+                let road_tex = create_road_sdf_texture(road_sdf, &mut images);
+                (
+                    road_tex,
+                    RoadParams {
+                        has_roads: 1.0,
+                        edge_softness: 2.0,
+                        noise_frequency: 0.15,
+                        noise_amplitude: 3.0,
+                    }
+                )
+            } else {
+                // Create dummy 1x1 RG16 texture (no roads)
+                let dummy_road = images.add(Image::new(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    vec![128u8, 128u8, 0u8, 0u8], // Distance=0.5, metadata=0
+                    TextureFormat::Rg16Unorm,
+                    default(),
+                ));
+                (dummy_road, RoadParams {
+                    has_roads: 0.0,
+                    edge_softness: 2.0,
+                    noise_frequency: 0.15,
+                    noise_amplitude: 3.0,
+                })
+            };
+
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture: dummy_sdf,
                 sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
@@ -175,10 +246,14 @@ pub fn spawn_terrain(
                 sdf_params: SdfParams {
                     beach_start: 0.0,
                     beach_end: 0.0,
-                    opacity_start: -1.0,
-                    opacity_end: -1.0,
+                    has_coast: 0.0,  // No coast SDF
+                    _padding: 0.0,
                 },
-                ..default()
+                road_sdf_texture: road_texture,
+                road_params,
+                road_color_light: LinearRgba::new(0.76, 0.70, 0.55, 1.0),
+                road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
+                road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
             }))
         };
 
@@ -595,6 +670,62 @@ pub fn create_sdf_texture_from_data(
     images.add(image)
 }
 
+/// Creates an RG16 texture from road SDF data
+/// R channel: distance field (0-65535)
+/// G channel: metadata (importance, tracks, intersection flags)
+pub fn create_road_sdf_texture(
+    road_sdf_data: &shared::RoadChunkSdfData,
+    images: &mut Assets<Image>,
+) -> Handle<Image> {
+    let width = road_sdf_data.resolution_x as u32;
+    let height = road_sdf_data.resolution_y as u32;
+
+    // Debug: Analyze road SDF data
+    if road_sdf_data.data.len() >= 4 {
+        let total_pixels = (width as usize) * (height as usize);
+        let mut min_dist = u16::MAX;
+        let mut max_dist = u16::MIN;
+        let mut non_max_count = 0;
+
+        // Sample every 4 bytes (RG16 = 2 bytes R + 2 bytes G)
+        for i in 0..total_pixels {
+            let offset = i * 4;
+            if offset + 1 < road_sdf_data.data.len() {
+                // Read R channel (distance) as little-endian u16
+                let dist = u16::from_le_bytes([
+                    road_sdf_data.data[offset],
+                    road_sdf_data.data[offset + 1]
+                ]);
+                min_dist = min_dist.min(dist);
+                max_dist = max_dist.max(dist);
+                if dist < u16::MAX {
+                    non_max_count += 1;
+                }
+            }
+        }
+
+        info!(
+            "Road SDF texture: {}x{}, min_dist: {}, max_dist: {}, non_max_pixels: {}/{}, data_len: {}",
+            width, height, min_dist, max_dist, non_max_count, total_pixels, road_sdf_data.data.len()
+        );
+    }
+
+    // Data is already in RG16 format (4 bytes per pixel)
+    let image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        road_sdf_data.data.clone(),
+        TextureFormat::Rg16Unorm,
+        default(),
+    );
+
+    images.add(image)
+}
+
 // Setup du material par défaut au démarrage
 pub fn setup_default_terrain_material(
     mut commands: Commands,
@@ -619,9 +750,9 @@ pub fn setup_default_terrain_material(
         sdf_params: SdfParams {
             beach_start: 0.,
             beach_end: 0.2,
-            opacity_start: 0.,
-            opacity_end: 0.,
-        }, // has_coast = 0.0
+            has_coast: 0.0,
+            _padding: 0.0,
+        },
         ..default()
     });
 
@@ -721,10 +852,11 @@ fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y:
     on_left || on_right || on_bottom || on_top
 }
 
-pub fn update_terrain_wave_time(time: Res<Time>, mut materials: ResMut<Assets<TerrainMaterial>>) {
-    let elapsed = time.elapsed_secs();
-
-    for (_, material) in materials.iter_mut() {
-        material.wave_params.time = elapsed;
-    }
-}
+// Wave animation disabled for terrain_signed_sdf.wgsl shader
+// pub fn update_terrain_wave_time(time: Res<Time>, mut materials: ResMut<Assets<TerrainMaterial>>) {
+//     let elapsed = time.elapsed_secs();
+//
+//     for (_, material) in materials.iter_mut() {
+//         material.wave_params.time = elapsed;
+//     }
+// }
