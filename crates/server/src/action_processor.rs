@@ -388,48 +388,204 @@ impl ActionProcessor {
 
     /// Crée un segment de route pour une action BuildRoad
     async fn create_road_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
-        use shared::grid::GridCell;
         use crate::road::RoadSegment;
 
-        // Pour l'instant, créer une route simple vers une cellule voisine
-        // TODO: Implémenter la sélection intelligente de la cellule de destination
-        let start_cell = action_info.cell.clone();
+        let cell = action_info.cell.clone();
+        let chunk_id = action_info.chunk_id;
 
-        // Prendre la première cellule voisine comme destination (simplification)
-        let neighbors = start_cell.neighbors();
-        let end_cell = neighbors.first()
-            .ok_or_else(|| "No neighbor cells found".to_string())?
-            .clone();
+        // Charger les routes existantes dans le chunk pour détecter les connexions
+        let existing_segments = self.db_tables.road_segments
+            .load_road_segments_by_chunk(chunk_id.x, chunk_id.y)
+            .await
+            .unwrap_or_default();
 
-        // Calculer les positions monde des cellules
-        let start_pos = cell_to_world_pos(&start_cell);
-        let end_pos = cell_to_world_pos(&end_cell);
+        // Vérifier si la cellule est adjacente à une EXTRÉMITÉ de route
+        let neighbors = cell.neighbors();
 
-        // Créer le segment de route
-        let segment = RoadSegment {
-            id: 0, // Sera assigné par la DB
-            start_cell,
-            end_cell,
-            points: vec![start_pos, end_pos],
-            importance: 1, // Route basique par défaut
+        // Chercher toutes les routes adjacentes dont la cellule voisine est une extrémité
+        let mut adjacent_endpoints: Vec<(&RoadSegment, bool)> = Vec::new(); // (segment, is_start)
+        let mut adjacent_to_middle = false;
+
+        for neighbor in &neighbors {
+            for segment in &existing_segments {
+                // Vérifier que cell_path n'est pas vide
+                if segment.cell_path.is_empty() {
+                    continue;
+                }
+
+                // La cellule voisine est-elle le premier élément du chemin ?
+                if segment.cell_path.first() == Some(neighbor) {
+                    tracing::debug!(
+                        "Found road endpoint at start: segment {} has first cell ({},{}) adjacent to new cell ({},{})",
+                        segment.id, neighbor.q, neighbor.r, cell.q, cell.r
+                    );
+                    adjacent_endpoints.push((segment, true));
+                }
+                // Ou le dernier élément ?
+                else if segment.cell_path.last() == Some(neighbor) {
+                    tracing::debug!(
+                        "Found road endpoint at end: segment {} has last cell ({},{}) adjacent to new cell ({},{})",
+                        segment.id, neighbor.q, neighbor.r, cell.q, cell.r
+                    );
+                    adjacent_endpoints.push((segment, false));
+                }
+                // Si le voisin est au milieu du chemin, on ne fait rien (intersection manuelle requise)
+                else if segment.cell_path.contains(neighbor) {
+                    tracing::info!(
+                        "Cell ({},{}) is adjacent to middle of road segment {} - intersection requires manual action",
+                        cell.q, cell.r, segment.id
+                    );
+                    adjacent_to_middle = true;
+                }
+            }
+        }
+
+        // Si adjacent au milieu d'une route, retourner une erreur
+        if adjacent_to_middle && adjacent_endpoints.is_empty() {
+            return Err(format!(
+                "Cannot build road here: cell ({},{}) is adjacent to middle of existing road. Use intersection action instead.",
+                cell.q, cell.r
+            ));
+        }
+
+        // Sélectionner la route la plus longue si plusieurs extrémités adjacentes
+        let selected_segment = if adjacent_endpoints.is_empty() {
+            None
+        } else if adjacent_endpoints.len() == 1 {
+            Some(adjacent_endpoints[0])
+        } else {
+            // Plusieurs extrémités adjacentes : choisir la route la plus longue
+            tracing::info!(
+                "Cell ({},{}) is adjacent to {} road endpoints - selecting longest",
+                cell.q, cell.r, adjacent_endpoints.len()
+            );
+            adjacent_endpoints.iter()
+                .max_by_key(|(seg, _)| seg.cell_path.len())
+                .copied()
         };
 
-        // Sauvegarder dans la DB en utilisant le chunk_id de l'action
-        let chunk_id = action_info.chunk_id;
-        let segment_id = self.db_tables.road_segments.save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y).await
-            .map_err(|e| format!("Failed to save road segment: {}", e))?;
+        let (adjacent_segment, is_start_connection) = match selected_segment {
+            Some((seg, is_start)) => {
+                tracing::info!(
+                    "Selected road segment {} with {} cells (connecting to {})",
+                    seg.id, seg.cell_path.len(),
+                    if is_start { "start" } else { "end" }
+                );
+                (Some(seg), is_start)
+            }
+            None => (None, false),
+        };
 
-        tracing::info!(
-            "Created road segment {} from ({},{}) to ({},{}) in chunk ({},{}) for action {}",
-            segment_id,
-            segment.start_cell.q,
-            segment.start_cell.r,
-            segment.end_cell.q,
-            segment.end_cell.r,
-            chunk_id.x,
-            chunk_id.y,
-            action_id
-        );
+        let is_end_connection = !is_start_connection;
+
+        // Position monde de la cellule
+        let cell_pos = cell_to_world_pos(&cell);
+
+        if let Some(existing) = adjacent_segment {
+            // Étendre le chemin de la route existante
+            tracing::info!(
+                "Extending road path {} by adding cell ({},{}) - connecting to {} (start={}, end={})",
+                existing.id,
+                cell.q, cell.r,
+                if is_start_connection { "start" } else { "end" },
+                is_start_connection,
+                is_end_connection
+            );
+
+            // Créer un nouveau chemin étendu en ajoutant la cellule
+            let mut new_cell_path = existing.cell_path.clone();
+
+            if new_cell_path.is_empty() {
+                // Reconstruire le path à partir de start_cell et end_cell si vide
+                new_cell_path.push(existing.start_cell.clone());
+                if existing.start_cell != existing.end_cell {
+                    new_cell_path.push(existing.end_cell.clone());
+                }
+            }
+
+            let (new_start, new_end) = if is_start_connection {
+                // Ajouter au début du chemin
+                new_cell_path.insert(0, cell.clone());
+                (cell.clone(), new_cell_path.last().unwrap().clone())
+            } else {
+                // Ajouter à la fin du chemin
+                new_cell_path.push(cell.clone());
+                (new_cell_path.first().unwrap().clone(), cell.clone())
+            };
+
+            // Convertir les cellules en positions monde
+            let cell_positions: Vec<bevy::prelude::Vec2> = new_cell_path.iter()
+                .map(|c| cell_to_world_pos(c))
+                .collect();
+
+            // Générer une spline continue sur tout le chemin
+            use crate::road::generate_path_spline;
+
+            let samples_per_segment = 8; // 8 points entre chaque paire de cellules
+            let new_points = generate_path_spline(&cell_positions, samples_per_segment);
+
+            tracing::info!(
+                "Generated continuous spline with {} points for {} cells",
+                new_points.len(),
+                new_cell_path.len()
+            );
+
+            // Créer le segment mis à jour
+            let updated_segment = RoadSegment {
+                id: 0, // Nouveau ID sera assigné
+                start_cell: new_start.clone(),
+                end_cell: new_end.clone(),
+                cell_path: new_cell_path.clone(),
+                points: new_points,
+                importance: 1,
+            };
+
+            // Supprimer l'ancien segment et sauvegarder le nouveau
+            // (On pourrait aussi faire une mise à jour, mais c'est plus simple de recréer)
+            let segment_id = self.db_tables.road_segments
+                .save_road_segment_with_chunk(&updated_segment, chunk_id.x, chunk_id.y)
+                .await
+                .map_err(|e| format!("Failed to save updated road segment: {}", e))?;
+
+            tracing::info!(
+                "Updated road segment {} with {} cells from ({},{}) to ({},{}) in chunk ({},{}) for action {}",
+                segment_id,
+                new_cell_path.len(),
+                new_start.q, new_start.r,
+                new_end.q, new_end.r,
+                chunk_id.x, chunk_id.y,
+                action_id
+            );
+        } else {
+            // Créer une nouvelle route d'un seul point (comme dans Godot)
+            // La route sera juste un point sur cette cellule
+            tracing::info!(
+                "Creating new single-point road on cell ({},{})",
+                cell.q, cell.r
+            );
+
+            let segment = RoadSegment {
+                id: 0,
+                start_cell: cell.clone(),
+                end_cell: cell.clone(),  // Même cellule pour indiquer un point unique
+                cell_path: vec![cell.clone()],  // Une seule cellule dans le chemin
+                points: vec![cell_pos],  // Un seul point
+                importance: 1,
+            };
+
+            let segment_id = self.db_tables.road_segments
+                .save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y)
+                .await
+                .map_err(|e| format!("Failed to save road segment: {}", e))?;
+
+            tracing::info!(
+                "Created single-point road segment {} at cell ({},{}) in chunk ({},{}) for action {}",
+                segment_id,
+                cell.q, cell.r,
+                chunk_id.x, chunk_id.y,
+                action_id
+            );
+        }
 
         Ok(())
     }

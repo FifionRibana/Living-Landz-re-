@@ -374,10 +374,13 @@ mod tests {
         let config = RoadConfig::default();
 
         // Créer un segment simple
+        let start_cell = GridCell { q: 0, r: 0 };
+        let end_cell = GridCell { q: 1, r: 0 };
         let segment = RoadSegment {
             id: 1,
-            start_cell: GridCell { q: 0, r: 0 },
-            end_cell: GridCell { q: 1, r: 0 },
+            start_cell: start_cell.clone(),
+            end_cell: end_cell.clone(),
+            cell_path: vec![start_cell, end_cell],
             points: vec![
                 Vec2::new(100.0, 250.0),
                 Vec2::new(500.0, 250.0),
