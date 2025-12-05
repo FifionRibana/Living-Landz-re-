@@ -166,10 +166,22 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
+                let start_cell = GridCell { q: start_q, r: start_r };
+                let end_cell = GridCell { q: end_q, r: end_r };
+
+                // Reconstruire cell_path (pour l'instant simple: start + end)
+                // TODO: Stocker le chemin complet dans la DB
+                let cell_path = if start_cell == end_cell {
+                    vec![start_cell.clone()]
+                } else {
+                    vec![start_cell.clone(), end_cell.clone()]
+                };
+
                 Some(RoadSegment {
                     id,
-                    start_cell: GridCell { q: start_q, r: start_r },
-                    end_cell: GridCell { q: end_q, r: end_r },
+                    start_cell,
+                    end_cell,
+                    cell_path,
                     points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                     importance: importance as u8,
                 })
@@ -206,10 +218,22 @@ impl RoadSegmentsTable {
                     .ok()?
                     .0;
 
+            let start_cell = GridCell { q: start_q, r: start_r };
+            let end_cell = GridCell { q: end_q, r: end_r };
+
+            // Reconstruire cell_path (pour l'instant simple: start + end)
+            // TODO: Stocker le chemin complet dans la DB
+            let cell_path = if start_cell == end_cell {
+                vec![start_cell.clone()]
+            } else {
+                vec![start_cell.clone(), end_cell.clone()]
+            };
+
             Some(RoadSegment {
                 id,
-                start_cell: GridCell { q: start_q, r: start_r },
-                end_cell: GridCell { q: end_q, r: end_r },
+                start_cell,
+                end_cell,
+                cell_path,
                 points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                 importance: importance as u8,
             })
@@ -261,10 +285,22 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
+                let start_cell = GridCell { q: start_q, r: start_r };
+                let end_cell = GridCell { q: end_q, r: end_r };
+
+                // Reconstruire cell_path (pour l'instant simple: start + end)
+                // TODO: Stocker le chemin complet dans la DB
+                let cell_path = if start_cell == end_cell {
+                    vec![start_cell.clone()]
+                } else {
+                    vec![start_cell.clone(), end_cell.clone()]
+                };
+
                 Some(RoadSegment {
                     id,
-                    start_cell: GridCell { q: start_q, r: start_r },
-                    end_cell: GridCell { q: end_q, r: end_r },
+                    start_cell,
+                    end_cell,
+                    cell_path,
                     points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                     importance: importance as u8,
                 })

@@ -63,16 +63,16 @@ impl Default for RoadConfig {
             sdf_resolution: UVec2::new(1024, 1024),
             chunk_size: constants::CHUNK_SIZE,
 
-            base_width: 12.0,  // Largeur de base plus visible
-            width_per_importance: 4.0,  // Augmentation par niveau d'importance
+            base_width: 4.0,  // Réduit pour ne pas prendre toute la case
+            width_per_importance: 1.5,  // Réduit proportionnellement
 
-            track_offset_left: 3.0,
-            track_offset_right: 3.75,  // Asymétrie subtile
-            track_width: 1.5,
+            track_offset_left: 1.0,  // Réduit proportionnellement
+            track_offset_right: 1.25,  // Réduit proportionnellement
+            track_width: 0.5,  // Réduit proportionnellement
             double_track_threshold: 2,
 
-            intersection_base_radius: 18.0,  // Proportionnel à la largeur de base
-            intersection_radius_per_connection: 6.0,  // Proportionnel aussi
+            intersection_base_radius: 6.0,  // Réduit proportionnellement
+            intersection_radius_per_connection: 2.0,  // Réduit proportionnellement
             fork_angle_threshold: 0.4,  // ~23 degrés
             intersection_smoothness: 3.0,
 
@@ -102,7 +102,11 @@ pub struct RoadSegment {
     /// Cellule d'arrivée
     pub end_cell: GridCell,
 
+    /// Chemin complet de cellules traversées (du début à la fin)
+    pub cell_path: Vec<GridCell>,
+
     /// Points de passage formant une polyline (coordonnées monde)
+    /// Généré à partir de cell_path avec une spline continue
     pub points: Vec<Vec2>,
 
     /// Importance du segment (0-3)
@@ -123,10 +127,18 @@ impl RoadSegment {
 
     /// Crée depuis le format réseau
     pub fn from_network_data(data: &RoadSegmentData) -> Self {
+        // Reconstruire cell_path à partir de start et end
+        let cell_path = if data.start_cell == data.end_cell {
+            vec![data.start_cell]
+        } else {
+            vec![data.start_cell, data.end_cell]
+        };
+
         Self {
             id: data.id,
             start_cell: data.start_cell,
             end_cell: data.end_cell,
+            cell_path,
             points: data.points.iter().map(|&p| Vec2::from(p)).collect(),
             importance: data.importance,
         }
