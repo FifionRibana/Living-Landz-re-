@@ -189,68 +189,19 @@ pub fn extend_spline(
         }
     }
 
-    // Avec smoothing_influence > 0 : régénérer les N dernières/premières cellules + nouvelle cellule
-    // en utilisant Catmull-Rom pour une courbe plus lisse
+    // SIMPLIFICATION: Régénérer toujours toute la spline pour éviter les artefacts
+    // La fusion partielle de splines Catmull-Rom est trop complexe et causait:
+    // - Duplication de points (82 au lieu de 49)
+    // - Persistance visuelle de l'ancien tracé
+    // - Bugs difficiles à déboguer
+    //
+    // Pour les routes courantes (< 50 cellules), la régénération complète est très rapide
+    // Le paramètre smoothing_influence est conservé pour compatibilité mais n'a plus d'effet
+    let _ = smoothing_influence;  // Silencer warning unused
+    let _ = at_start;  // Silencer warning unused
+    let _ = existing_points;  // Silencer warning unused
 
-    if at_start {
-        // Déterminer combien de cellules régénérer au début
-        let num_cells_to_regenerate = (smoothing_influence + 1).min(new_cell_positions.len());
-
-        // Extraire les cellules à régénérer
-        let cells_to_regenerate = &new_cell_positions[0..num_cells_to_regenerate];
-
-        // Calculer combien de points garder de l'ancienne spline
-        // On garde tous les points sauf ceux des (num_cells_to_regenerate - 1) premières cellules
-        let num_cells_to_keep = existing_cell_positions.len().saturating_sub(num_cells_to_regenerate - 1);
-        let num_points_to_keep = num_cells_to_keep * samples_per_segment;
-        let points_to_keep = if num_points_to_keep < existing_points.len() {
-            &existing_points[num_points_to_keep..]
-        } else {
-            &[]
-        };
-
-        // Régénérer la portion avec Catmull-Rom
-        let regenerated_points = generate_path_spline(cells_to_regenerate, samples_per_segment);
-
-        // Fusionner : points régénérés + points conservés
-        let mut result = regenerated_points;
-        if !points_to_keep.is_empty() {
-            // Enlever le dernier point des points régénérés s'il chevauche
-            if !result.is_empty() {
-                result.pop();
-            }
-            result.extend_from_slice(points_to_keep);
-        }
-        result
-    } else {
-        // Déterminer combien de cellules régénérer à la fin
-        let num_cells_to_regenerate = (smoothing_influence + 1).min(new_cell_positions.len());
-
-        // Extraire les cellules à régénérer
-        let start_idx = new_cell_positions.len() - num_cells_to_regenerate;
-        let cells_to_regenerate = &new_cell_positions[start_idx..];
-
-        // Calculer combien de points garder de l'ancienne spline
-        let num_cells_to_keep = existing_cell_positions.len().saturating_sub(num_cells_to_regenerate - 1);
-        let num_points_to_keep = num_cells_to_keep * samples_per_segment;
-        let points_to_keep = if num_points_to_keep <= existing_points.len() {
-            &existing_points[0..num_points_to_keep]
-        } else {
-            existing_points
-        };
-
-        // Régénérer la portion avec Catmull-Rom
-        let mut regenerated_points = generate_path_spline(cells_to_regenerate, samples_per_segment);
-
-        // Fusionner : points conservés + points régénérés
-        let mut result = points_to_keep.to_vec();
-        if !regenerated_points.is_empty() {
-            // Enlever le premier point des points régénérés s'il chevauche
-            regenerated_points.remove(0);
-            result.extend(regenerated_points);
-        }
-        result
-    }
+    generate_path_spline(&new_cell_positions, samples_per_segment)
 }
 
 /// Génère une courbe organique entre deux points en ajoutant un point de contrôle décalé
