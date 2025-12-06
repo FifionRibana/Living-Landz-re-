@@ -404,7 +404,8 @@ impl ActionProcessor {
             .unwrap_or_default();
 
         // Vérifier si la cellule est adjacente à une EXTRÉMITÉ de route
-        let neighbors = cell.neighbors();
+        // Utilise les voisins directs ET indirects pour permettre des routes plus flexibles
+        let neighbors = cell.all_extended_neighbors();
 
         // Chercher toutes les routes adjacentes dont la cellule voisine est une extrémité
         let mut adjacent_endpoints: Vec<(&RoadSegment, bool)> = Vec::new(); // (segment, is_start)

@@ -27,4 +27,25 @@ impl GridCell {
             .map(Self::from_hex)
             .collect::<Vec<_>>()
     }
+
+    /// Retourne les voisins indirects (distance 2) de la cellule
+    /// Pour une cellule (q:0, r:0), les voisins indirects sont:
+    /// (2,-1), (1,-2), (-1,-1), (-2,1), (-1,2), (1,1)
+    pub fn indirect_neighbors(&self) -> Vec<GridCell> {
+        vec![
+            GridCell { q: self.q + 2, r: self.r - 1 },
+            GridCell { q: self.q + 1, r: self.r - 2 },
+            GridCell { q: self.q - 1, r: self.r - 1 },
+            GridCell { q: self.q - 2, r: self.r + 1 },
+            GridCell { q: self.q - 1, r: self.r + 2 },
+            GridCell { q: self.q + 1, r: self.r + 1 },
+        ]
+    }
+
+    /// Retourne tous les voisins (directs + indirects)
+    pub fn all_extended_neighbors(&self) -> Vec<GridCell> {
+        let mut all = self.neighbors();
+        all.extend(self.indirect_neighbors());
+        all
+    }
 }
