@@ -201,7 +201,7 @@ impl ActionProcessor {
                     }
                 }
 
-                // Si c'est une action BuildRoad, la route est déjà créée, rien à faire de plus
+                // Si c'est une action BuildRoad, régénérer et envoyer la SDF de route
                 if action_info.action_type == ActionTypeEnum::BuildRoad {
                     tracing::info!("Road segment {} completed at chunk ({}, {}) cell ({}, {})",
                         action_id,
@@ -210,6 +210,10 @@ impl ActionProcessor {
                         action_info.cell.q,
                         action_info.cell.r
                     );
+
+                    // Note: La SDF a déjà été envoyée lors de la création du segment,
+                    // mais on la régénère à nouveau pour garantir la cohérence
+                    self.regenerate_and_send_road_sdf(&action_info.chunk_id).await;
                 }
 
                 // Envoyer notification au joueur qui a lancé l'action
@@ -503,31 +507,57 @@ impl ActionProcessor {
                 }
             }
 
-            let (new_start, new_end) = if is_start_connection {
-                // Ajouter au début du chemin
-                new_cell_path.insert(0, cell.clone());
-                (cell.clone(), new_cell_path.last().unwrap().clone())
-            } else {
-                // Ajouter à la fin du chemin
-                new_cell_path.push(cell.clone());
-                (new_cell_path.first().unwrap().clone(), cell.clone())
-            };
+            // Étendre la spline en conservant les points existants et en régénérant N cellules pour le lissage
+            use crate::road::{extend_spline, RoadConfig};
 
-            // Convertir les cellules en positions monde
-            let cell_positions: Vec<bevy::prelude::Vec2> = new_cell_path.iter()
+            let config = RoadConfig::default();
+            let samples_per_segment = config.samples_per_segment;
+            let smoothing_influence = config.smoothing_influence;
+
+            // Convertir les cellules existantes en positions monde
+            let existing_cell_positions: Vec<bevy::prelude::Vec2> = existing.cell_path.iter()
                 .map(|c| cell_to_world_pos(c))
                 .collect();
 
-            // Générer une spline continue sur tout le chemin
-            use crate::road::generate_path_spline;
+            let (new_start, new_end, new_points) = if is_start_connection {
+                // Ajouter au début du chemin
+                new_cell_path.insert(0, cell.clone());
 
-            let samples_per_segment = 8; // 8 points entre chaque paire de cellules
-            let new_points = generate_path_spline(&cell_positions, samples_per_segment);
+                // Étendre la spline au début avec lissage
+                let extended_points = extend_spline(
+                    &existing_cell_positions,
+                    &existing.points,
+                    cell_pos,
+                    true, // at_start = true
+                    samples_per_segment,
+                    smoothing_influence
+                );
+
+                (cell.clone(), new_cell_path.last().unwrap().clone(), extended_points)
+            } else {
+                // Ajouter à la fin du chemin
+                new_cell_path.push(cell.clone());
+
+                // Étendre la spline à la fin avec lissage
+                let extended_points = extend_spline(
+                    &existing_cell_positions,
+                    &existing.points,
+                    cell_pos,
+                    false, // at_start = false
+                    samples_per_segment,
+                    smoothing_influence
+                );
+
+                (new_cell_path.first().unwrap().clone(), cell.clone(), extended_points)
+            };
 
             tracing::info!(
-                "Generated continuous spline with {} points for {} cells",
+                "Extended spline from {} to {} points for {} cells (added at {}, smoothing_influence={})",
+                existing.points.len(),
                 new_points.len(),
-                new_cell_path.len()
+                new_cell_path.len(),
+                if is_start_connection { "start" } else { "end" },
+                smoothing_influence
             );
 
             // Créer le segment mis à jour
@@ -542,6 +572,12 @@ impl ActionProcessor {
 
             // Supprimer l'ancien segment et sauvegarder le nouveau
             // (On pourrait aussi faire une mise à jour, mais c'est plus simple de recréer)
+            tracing::info!("Deleting old road segment with id {}", existing.id);
+            self.db_tables.road_segments
+                .delete_road_segment(existing.id)
+                .await
+                .map_err(|e| format!("Failed to delete old road segment: {}", e))?;
+
             let segment_id = self.db_tables.road_segments
                 .save_road_segment_with_chunk(&updated_segment, chunk_id.x, chunk_id.y)
                 .await
@@ -556,6 +592,9 @@ impl ActionProcessor {
                 chunk_id.x, chunk_id.y,
                 action_id
             );
+
+            // Régénérer et envoyer immédiatement la SDF de route pour ce chunk
+            self.regenerate_and_send_road_sdf(&chunk_id).await;
         } else {
             // Créer une nouvelle route d'un seul point (comme dans Godot)
             // La route sera juste un point sur cette cellule
@@ -585,9 +624,78 @@ impl ActionProcessor {
                 chunk_id.x, chunk_id.y,
                 action_id
             );
+
+            // Régénérer et envoyer immédiatement la SDF de route pour ce chunk
+            self.regenerate_and_send_road_sdf(&chunk_id).await;
         }
 
         Ok(())
+    }
+
+    /// Régénère la SDF de route pour un chunk et l'envoie à tous les joueurs
+    async fn regenerate_and_send_road_sdf(&self, chunk_id: &shared::TerrainChunkId) {
+        match self.db_tables.road_segments
+            .load_road_segments_by_chunk(chunk_id.x, chunk_id.y)
+            .await
+        {
+            Ok(road_segments) if !road_segments.is_empty() => {
+                tracing::info!(
+                    "Regenerating road SDF for chunk ({},{}) with {} segments",
+                    chunk_id.x,
+                    chunk_id.y,
+                    road_segments.len()
+                );
+
+                // Log détaillé de tous les segments
+                for (i, seg) in road_segments.iter().enumerate() {
+                    tracing::info!(
+                        "  Segment {}: id={}, cells={}, points={}, start=({},{}), end=({},{})",
+                        i, seg.id, seg.cell_path.len(), seg.points.len(),
+                        seg.start_cell.q, seg.start_cell.r,
+                        seg.end_cell.q, seg.end_cell.r
+                    );
+                }
+
+                use crate::road::{RoadConfig, compute_intersections, generate_road_sdf};
+
+                let config = RoadConfig::default();
+                let intersections = compute_intersections(&road_segments, &config);
+                let road_sdf = generate_road_sdf(
+                    &road_segments,
+                    &intersections,
+                    &config,
+                    chunk_id.x,
+                    chunk_id.y
+                );
+
+                tracing::info!(
+                    "✓ Road SDF regenerated: {}x{} with {} intersections",
+                    config.sdf_resolution.x,
+                    config.sdf_resolution.y,
+                    intersections.len()
+                );
+
+                // Envoyer la mise à jour de la SDF à tous les joueurs du chunk
+                let road_update = shared::protocol::ServerMessage::RoadChunkSdfUpdate {
+                    terrain_name: "Gaulyia".to_string(),
+                    chunk_id: chunk_id.clone(),
+                    road_sdf_data: road_sdf,
+                };
+
+                self.broadcast_to_chunk(chunk_id, road_update).await;
+            }
+            Ok(_) => {
+                tracing::debug!("No road segments found for chunk ({},{})", chunk_id.x, chunk_id.y);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load road segments for chunk ({},{}): {}",
+                    chunk_id.x,
+                    chunk_id.y,
+                    e
+                );
+            }
+        }
     }
 
     /// Gère l'échec d'une action (supprime le bâtiment si nécessaire)
@@ -631,9 +739,28 @@ impl ActionProcessor {
 
     /// Envoie un message à un joueur spécifique
     async fn send_message_to_player(&self, player_id: u64, message: ServerMessage) {
-        tracing::info!("Sending message to player {}: {:?}", player_id, message);
+        let message_type = match &message {
+            ServerMessage::LoginSuccess { .. } => "LoginSuccess",
+            ServerMessage::LoginError { .. } => "LoginError",
+            ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
+            ServerMessage::OceanData { .. } => "OceanData",
+            ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
+                tracing::info!("Sending RoadChunkSdfUpdate to player {} for chunk ({},{})", player_id, chunk_id.x, chunk_id.y);
+                "RoadChunkSdfUpdate"
+            },
+            ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
+            ServerMessage::ActionCompleted { .. } => "ActionCompleted",
+            ServerMessage::ActionSuccess { .. } => "ActionSuccess",
+            ServerMessage::ActionError { .. } => "ActionError",
+            ServerMessage::Pong => "Pong",
+        };
+
+        if !matches!(message, ServerMessage::RoadChunkSdfUpdate { .. }) {
+            tracing::debug!("Sending {} to player {}", message_type, player_id);
+        }
+
         if let Err(e) = self.sessions.send_to_player(player_id, message).await {
-            tracing::warn!("Failed to send message to player {}: {}", player_id, e);
+            tracing::warn!("Failed to send {} to player {}: {}", message_type, player_id, e);
         }
     }
 
@@ -641,6 +768,7 @@ impl ActionProcessor {
     async fn broadcast_to_chunk(&self, _chunk_id: &TerrainChunkId, message: ServerMessage) {
         // TODO: Implémenter le broadcast aux joueurs d'un chunk spécifique
         // Pour l'instant on broadcast à tous les joueurs
+        tracing::debug!("Broadcasting message to all players (chunk-specific broadcast not yet implemented)");
         self.sessions.broadcast(message).await;
     }
 }

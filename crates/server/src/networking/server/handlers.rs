@@ -106,7 +106,27 @@ pub async fn handle_connection(
             }
             // Messages asynchrones depuis action_processor
             Some(async_message) = rx.recv() => {
-                tracing::info!("Sending async message to session {}: {:?}", session_id, async_message);
+                // Log le type de message sans afficher les données complètes (évite de logger des MB de SDF)
+                let message_type = match &async_message {
+                    ServerMessage::LoginSuccess { .. } => "LoginSuccess",
+                    ServerMessage::LoginError { .. } => "LoginError",
+                    ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
+                    ServerMessage::OceanData { .. } => "OceanData",
+                    ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
+                        tracing::info!("Sending RoadChunkSdfUpdate to session {} for chunk ({},{})", session_id, chunk_id.x, chunk_id.y);
+                        "RoadChunkSdfUpdate"
+                    },
+                    ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
+                    ServerMessage::ActionCompleted { .. } => "ActionCompleted",
+                    ServerMessage::ActionSuccess { .. } => "ActionSuccess",
+                    ServerMessage::ActionError { .. } => "ActionError",
+                    ServerMessage::Pong => "Pong",
+                };
+
+                if !matches!(async_message, ServerMessage::RoadChunkSdfUpdate { .. }) {
+                    tracing::debug!("Sending async {} to session {}", message_type, session_id);
+                }
+
                 let data = bincode::encode_to_vec(&async_message, bincode::config::standard()).unwrap();
                 if let Err(e) = write.send(Message::Binary(data.into())).await {
                     tracing::error!("Failed to send async message: {}", e);

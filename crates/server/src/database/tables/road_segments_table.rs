@@ -20,6 +20,11 @@ impl RoadSegmentsTable {
         let points_bytes = bincode::encode_to_vec(&points_vec, bincode::config::standard())
             .expect("Failed to encode road points");
 
+        // Encoder le cell_path en bincode
+        let cell_path_vec: Vec<(i32, i32)> = segment.cell_path.iter().map(|c| (c.q, c.r)).collect();
+        let cell_path_bytes = bincode::encode_to_vec(&cell_path_vec, bincode::config::standard())
+            .expect("Failed to encode cell path");
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -33,12 +38,13 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 UPDATE terrain.road_segments
-                SET points = $1, importance = $2, updated_at = $3
-                WHERE id = $4
+                SET points = $1, cell_path = $2, importance = $3, updated_at = $4
+                WHERE id = $5
                 RETURNING id
                 "#,
             )
             .bind(&points_bytes)
+            .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
             .bind(now)
             .bind(segment.id)
@@ -49,10 +55,10 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 INSERT INTO terrain.road_segments
-                (start_q, start_r, end_q, end_r, points, importance, chunk_x, chunk_y, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (start_q, start_r, end_q, end_r, points, cell_path, importance, chunk_x, chunk_y, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (start_q, start_r, end_q, end_r)
-                DO UPDATE SET points = $5, importance = $6, updated_at = $10
+                DO UPDATE SET points = $5, cell_path = $6, importance = $7, updated_at = $11
                 RETURNING id
                 "#,
             )
@@ -61,6 +67,7 @@ impl RoadSegmentsTable {
             .bind(segment.end_cell.q)
             .bind(segment.end_cell.r)
             .bind(&points_bytes)
+            .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
             .bind(chunk_x)
             .bind(chunk_y)
@@ -81,6 +88,11 @@ impl RoadSegmentsTable {
         let points_bytes = bincode::encode_to_vec(&points_vec, bincode::config::standard())
             .expect("Failed to encode road points");
 
+        // Encoder le cell_path en bincode
+        let cell_path_vec: Vec<(i32, i32)> = segment.cell_path.iter().map(|c| (c.q, c.r)).collect();
+        let cell_path_bytes = bincode::encode_to_vec(&cell_path_vec, bincode::config::standard())
+            .expect("Failed to encode cell path");
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -91,12 +103,13 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 UPDATE terrain.road_segments
-                SET points = $1, importance = $2, updated_at = $3
-                WHERE id = $4
+                SET points = $1, cell_path = $2, importance = $3, updated_at = $4
+                WHERE id = $5
                 RETURNING id
                 "#,
             )
             .bind(&points_bytes)
+            .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
             .bind(now)
             .bind(segment.id)
@@ -107,10 +120,10 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 INSERT INTO terrain.road_segments
-                (start_q, start_r, end_q, end_r, points, importance, chunk_x, chunk_y, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (start_q, start_r, end_q, end_r, points, cell_path, importance, chunk_x, chunk_y, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (start_q, start_r, end_q, end_r)
-                DO UPDATE SET points = $5, importance = $6, updated_at = $10
+                DO UPDATE SET points = $5, cell_path = $6, importance = $7, updated_at = $11
                 RETURNING id
                 "#,
             )
@@ -119,6 +132,7 @@ impl RoadSegmentsTable {
             .bind(segment.end_cell.q)
             .bind(segment.end_cell.r)
             .bind(&points_bytes)
+            .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
             .bind(chunk_x)
             .bind(chunk_y)
@@ -139,7 +153,7 @@ impl RoadSegmentsTable {
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
             FROM terrain.road_segments
             WHERE chunk_x = $1 AND chunk_y = $2
             "#,
@@ -169,12 +183,21 @@ impl RoadSegmentsTable {
                 let start_cell = GridCell { q: start_q, r: start_r };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
-                // Reconstruire cell_path (pour l'instant simple: start + end)
-                // TODO: Stocker le chemin complet dans la DB
-                let cell_path = if start_cell == end_cell {
-                    vec![start_cell.clone()]
+                // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
+                    // Décoder le cell_path depuis la DB
+                    let cell_path_tuples: Vec<(i32, i32)> =
+                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
+                            .ok()?
+                            .0;
+                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
                 } else {
-                    vec![start_cell.clone(), end_cell.clone()]
+                    // Fallback pour les anciens segments sans cell_path
+                    if start_cell == end_cell {
+                        vec![start_cell]
+                    } else {
+                        vec![start_cell, end_cell]
+                    }
                 };
 
                 Some(RoadSegment {
@@ -195,7 +218,7 @@ impl RoadSegmentsTable {
     pub async fn load_road_segment(&self, id: i64) -> Result<Option<RoadSegment>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
             FROM terrain.road_segments
             WHERE id = $1
             "#,
@@ -221,12 +244,21 @@ impl RoadSegmentsTable {
             let start_cell = GridCell { q: start_q, r: start_r };
             let end_cell = GridCell { q: end_q, r: end_r };
 
-            // Reconstruire cell_path (pour l'instant simple: start + end)
-            // TODO: Stocker le chemin complet dans la DB
-            let cell_path = if start_cell == end_cell {
-                vec![start_cell.clone()]
+            // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
+            let cell_path = if let Ok(cell_path_bytes) = r.try_get::<Vec<u8>, _>("cell_path") {
+                // Décoder le cell_path depuis la DB
+                let cell_path_tuples: Vec<(i32, i32)> =
+                    bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
+                        .ok()?
+                        .0;
+                cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
             } else {
-                vec![start_cell.clone(), end_cell.clone()]
+                // Fallback pour les anciens segments sans cell_path
+                if start_cell == end_cell {
+                    vec![start_cell]
+                } else {
+                    vec![start_cell, end_cell]
+                }
             };
 
             Some(RoadSegment {
@@ -259,7 +291,7 @@ impl RoadSegmentsTable {
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
             FROM terrain.road_segments
             WHERE (start_q = $1 AND start_r = $2) OR (end_q = $1 AND end_r = $2)
             "#,
@@ -288,12 +320,21 @@ impl RoadSegmentsTable {
                 let start_cell = GridCell { q: start_q, r: start_r };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
-                // Reconstruire cell_path (pour l'instant simple: start + end)
-                // TODO: Stocker le chemin complet dans la DB
-                let cell_path = if start_cell == end_cell {
-                    vec![start_cell.clone()]
+                // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
+                    // Décoder le cell_path depuis la DB
+                    let cell_path_tuples: Vec<(i32, i32)> =
+                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
+                            .ok()?
+                            .0;
+                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
                 } else {
-                    vec![start_cell.clone(), end_cell.clone()]
+                    // Fallback pour les anciens segments sans cell_path
+                    if start_cell == end_cell {
+                        vec![start_cell]
+                    } else {
+                        vec![start_cell, end_cell]
+                    }
                 };
 
                 Some(RoadSegment {

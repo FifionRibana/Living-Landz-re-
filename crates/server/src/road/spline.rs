@@ -121,6 +121,138 @@ pub fn generate_path_spline(cell_positions: &[Vec2], samples_per_segment: usize)
     generate_catmull_rom_spline(cell_positions, samples_per_segment)
 }
 
+/// Étend une spline existante en ajoutant un nouveau point au début ou à la fin
+/// Permet de régénérer N cellules avant/après pour un lissage optimal avec Catmull-Rom
+pub fn extend_spline(
+    existing_cell_positions: &[Vec2],  // Positions monde des cellules existantes
+    existing_points: &[Vec2],          // Points de spline existants
+    new_cell_position: Vec2,           // Position monde de la nouvelle cellule
+    at_start: bool,                    // Ajouter au début (true) ou à la fin (false)
+    samples_per_segment: usize,        // Nombre de points par segment de cellule
+    smoothing_influence: usize,        // Nombre de cellules à régénérer avant/après (0 = juste nouveau segment)
+) -> Vec<Vec2> {
+    // Cas de base : première cellule
+    if existing_cell_positions.is_empty() {
+        return vec![new_cell_position];
+    }
+
+    // Créer le nouveau cell_path complet
+    let mut new_cell_positions = existing_cell_positions.to_vec();
+    if at_start {
+        new_cell_positions.insert(0, new_cell_position);
+    } else {
+        new_cell_positions.push(new_cell_position);
+    }
+
+    // Si smoothing_influence = 0, on utilise juste une connexion Bézier sans régénération
+    if smoothing_influence == 0 {
+        if at_start {
+            let connection_point = existing_points[0];
+            let tangent_point = if existing_points.len() > samples_per_segment {
+                existing_points[samples_per_segment]
+            } else {
+                existing_points[existing_points.len() - 1]
+            };
+            let tangent = (connection_point - tangent_point).normalize_or_zero();
+            let control_point = connection_point + tangent * new_cell_position.distance(connection_point) * 0.3;
+
+            let mut new_segment = generate_bezier_quadratic(
+                new_cell_position,
+                control_point,
+                connection_point,
+                samples_per_segment
+            );
+            new_segment.pop();
+            new_segment.extend_from_slice(existing_points);
+            return new_segment;
+        } else {
+            let connection_point = existing_points[existing_points.len() - 1];
+            let start_idx = if existing_points.len() > samples_per_segment {
+                existing_points.len() - samples_per_segment - 1
+            } else {
+                0
+            };
+            let tangent_point = existing_points[start_idx];
+            let tangent = (connection_point - tangent_point).normalize_or_zero();
+            let control_point = connection_point + tangent * new_cell_position.distance(connection_point) * 0.3;
+
+            let mut new_segment = generate_bezier_quadratic(
+                connection_point,
+                control_point,
+                new_cell_position,
+                samples_per_segment
+            );
+            new_segment.remove(0);
+            let mut result = existing_points.to_vec();
+            result.extend(new_segment);
+            return result;
+        }
+    }
+
+    // Avec smoothing_influence > 0 : régénérer les N dernières/premières cellules + nouvelle cellule
+    // en utilisant Catmull-Rom pour une courbe plus lisse
+
+    if at_start {
+        // Déterminer combien de cellules régénérer au début
+        let num_cells_to_regenerate = (smoothing_influence + 1).min(new_cell_positions.len());
+
+        // Extraire les cellules à régénérer
+        let cells_to_regenerate = &new_cell_positions[0..num_cells_to_regenerate];
+
+        // Calculer combien de points garder de l'ancienne spline
+        // On garde tous les points sauf ceux des (num_cells_to_regenerate - 1) premières cellules
+        let num_cells_to_keep = existing_cell_positions.len().saturating_sub(num_cells_to_regenerate - 1);
+        let num_points_to_keep = num_cells_to_keep * samples_per_segment;
+        let points_to_keep = if num_points_to_keep < existing_points.len() {
+            &existing_points[num_points_to_keep..]
+        } else {
+            &[]
+        };
+
+        // Régénérer la portion avec Catmull-Rom
+        let regenerated_points = generate_path_spline(cells_to_regenerate, samples_per_segment);
+
+        // Fusionner : points régénérés + points conservés
+        let mut result = regenerated_points;
+        if !points_to_keep.is_empty() {
+            // Enlever le dernier point des points régénérés s'il chevauche
+            if !result.is_empty() {
+                result.pop();
+            }
+            result.extend_from_slice(points_to_keep);
+        }
+        result
+    } else {
+        // Déterminer combien de cellules régénérer à la fin
+        let num_cells_to_regenerate = (smoothing_influence + 1).min(new_cell_positions.len());
+
+        // Extraire les cellules à régénérer
+        let start_idx = new_cell_positions.len() - num_cells_to_regenerate;
+        let cells_to_regenerate = &new_cell_positions[start_idx..];
+
+        // Calculer combien de points garder de l'ancienne spline
+        let num_cells_to_keep = existing_cell_positions.len().saturating_sub(num_cells_to_regenerate - 1);
+        let num_points_to_keep = num_cells_to_keep * samples_per_segment;
+        let points_to_keep = if num_points_to_keep <= existing_points.len() {
+            &existing_points[0..num_points_to_keep]
+        } else {
+            existing_points
+        };
+
+        // Régénérer la portion avec Catmull-Rom
+        let mut regenerated_points = generate_path_spline(cells_to_regenerate, samples_per_segment);
+
+        // Fusionner : points conservés + points régénérés
+        let mut result = points_to_keep.to_vec();
+        if !regenerated_points.is_empty() {
+            // Enlever le premier point des points régénérés s'il chevauche
+            regenerated_points.remove(0);
+            result.extend(regenerated_points);
+        }
+        result
+    }
+}
+
 /// Génère une courbe organique entre deux points en ajoutant un point de contrôle décalé
 pub fn generate_organic_curve(start: Vec2, end: Vec2, samples: usize, seed: u64) -> Vec<Vec2> {
     if samples < 2 {
