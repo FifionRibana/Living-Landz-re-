@@ -54,6 +54,14 @@ pub struct RoadConfig {
     pub noise_frequency: f32,
     /// Amplitude du bruit
     pub noise_amplitude: f32,
+
+    // --- Spline / Lissage ---
+    /// Nombre de cellules avant/après à régénérer lors de l'ajout d'un segment
+    /// 0 = juste le nouveau segment, 1 = 1 cellule avant + nouveau segment, etc.
+    /// Permet d'obtenir des courbes plus lisses avec Catmull-Rom
+    pub smoothing_influence: usize,
+    /// Nombre d'échantillons par segment de cellule
+    pub samples_per_segment: usize,
 }
 
 impl Default for RoadConfig {
@@ -82,6 +90,9 @@ impl Default for RoadConfig {
             edge_softness: 2.0,
             noise_frequency: 0.15,
             noise_amplitude: 3.0,
+
+            smoothing_influence: 2,  // Régénérer 2 cellules avant/après pour un lissage optimal
+            samples_per_segment: 8,  // 8 points entre chaque paire de cellules
         }
     }
 }

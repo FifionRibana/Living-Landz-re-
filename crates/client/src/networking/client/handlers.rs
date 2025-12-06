@@ -97,20 +97,27 @@ pub fn handle_server_message(
                 let terrain_chunk_opt = cache.loaded_terrains().find(|t| t.get_storage_key() == storage_key).cloned();
 
                 if let Some(mut updated_terrain) = terrain_chunk_opt {
+                    info!("Updating road SDF for terrain chunk ({},{}) in {}", chunk_id.x, chunk_id.y, terrain_name);
+
                     updated_terrain.road_sdf_data = Some(road_sdf_data);
 
-                    // Update in cache (will trigger despawn and re-render)
-                    let is_update = cache.insert_terrain(&updated_terrain);
+                    // Update in cache FIRST
+                    cache.insert_terrain(&updated_terrain);
 
-                    if is_update {
-                        let terrain_id = updated_terrain.id;
-                        for (entity, terrain) in terrain_query.iter() {
-                            if &terrain.name == &terrain_name && terrain.id == terrain_id {
-                                info!("Despawning terrain entity for chunk ({},{}) to render with roads", terrain_id.x, terrain_id.y);
-                                commands.entity(entity).despawn();
-                                break;
-                            }
+                    // ALWAYS despawn the existing terrain entity to force re-render with updated SDF
+                    let terrain_id = updated_terrain.id;
+                    let mut despawned = false;
+                    for (entity, terrain) in terrain_query.iter() {
+                        if &terrain.name == &terrain_name && terrain.id == terrain_id {
+                            info!("Despawning terrain entity for chunk ({},{}) to re-render with updated roads", terrain_id.x, terrain_id.y);
+                            commands.entity(entity).despawn();
+                            despawned = true;
+                            break;
                         }
+                    }
+
+                    if !despawned {
+                        warn!("Could not find terrain entity to despawn for chunk ({},{})", chunk_id.x, chunk_id.y);
                     }
                 } else {
                     warn!("Received road SDF for non-loaded chunk ({},{}) in terrain {}", chunk_id.x, chunk_id.y, terrain_name);
