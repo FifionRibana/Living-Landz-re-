@@ -38,14 +38,15 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 UPDATE terrain.road_segments
-                SET points = $1, cell_path = $2, importance = $3, updated_at = $4
-                WHERE id = $5
+                SET points = $1, cell_path = $2, importance = $3, road_type_id = $4, updated_at = $5
+                WHERE id = $6
                 RETURNING id
                 "#,
             )
             .bind(&points_bytes)
             .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
+            .bind(segment.road_type.id)
             .bind(now)
             .bind(segment.id)
             .fetch_one(&self.pool)
@@ -55,10 +56,10 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 INSERT INTO terrain.road_segments
-                (start_q, start_r, end_q, end_r, points, cell_path, importance, chunk_x, chunk_y, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                (start_q, start_r, end_q, end_r, points, cell_path, importance, road_type_id, chunk_x, chunk_y, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 ON CONFLICT (start_q, start_r, end_q, end_r)
-                DO UPDATE SET points = $5, cell_path = $6, importance = $7, updated_at = $11
+                DO UPDATE SET points = $5, cell_path = $6, importance = $7, road_type_id = $8, updated_at = $12
                 RETURNING id
                 "#,
             )
@@ -69,6 +70,7 @@ impl RoadSegmentsTable {
             .bind(&points_bytes)
             .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
+            .bind(segment.road_type.id)
             .bind(chunk_x)
             .bind(chunk_y)
             .bind(now)
@@ -103,14 +105,15 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 UPDATE terrain.road_segments
-                SET points = $1, cell_path = $2, importance = $3, updated_at = $4
-                WHERE id = $5
+                SET points = $1, cell_path = $2, importance = $3, road_type_id = $4, updated_at = $5
+                WHERE id = $6
                 RETURNING id
                 "#,
             )
             .bind(&points_bytes)
             .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
+            .bind(segment.road_type.id)
             .bind(now)
             .bind(segment.id)
             .fetch_one(&self.pool)
@@ -120,10 +123,10 @@ impl RoadSegmentsTable {
             sqlx::query(
                 r#"
                 INSERT INTO terrain.road_segments
-                (start_q, start_r, end_q, end_r, points, cell_path, importance, chunk_x, chunk_y, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                (start_q, start_r, end_q, end_r, points, cell_path, importance, road_type_id, chunk_x, chunk_y, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 ON CONFLICT (start_q, start_r, end_q, end_r)
-                DO UPDATE SET points = $5, cell_path = $6, importance = $7, updated_at = $11
+                DO UPDATE SET points = $5, cell_path = $6, importance = $7, road_type_id = $8, updated_at = $12
                 RETURNING id
                 "#,
             )
@@ -134,6 +137,7 @@ impl RoadSegmentsTable {
             .bind(&points_bytes)
             .bind(&cell_path_bytes)
             .bind(segment.importance as i16)
+            .bind(segment.road_type.id)
             .bind(chunk_x)
             .bind(chunk_y)
             .bind(now)
@@ -153,7 +157,7 @@ impl RoadSegmentsTable {
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance, road_type_id
             FROM terrain.road_segments
             WHERE chunk_x = $1 AND chunk_y = $2
             "#,
@@ -172,6 +176,7 @@ impl RoadSegmentsTable {
                 let end_q: i32 = row.get("end_q");
                 let end_r: i32 = row.get("end_r");
                 let importance: i16 = row.get("importance");
+                let road_type_id: i32 = row.get("road_type_id");
                 let points_bytes: Vec<u8> = row.get("points");
 
                 // Décoder les points
@@ -200,6 +205,14 @@ impl RoadSegmentsTable {
                     }
                 };
 
+                // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+                let road_type = match road_type_id {
+                    1 => shared::RoadType::dirt_path(1),
+                    2 => shared::RoadType::paved_road(2),
+                    3 => shared::RoadType::highway(3),
+                    _ => shared::RoadType::default(),
+                };
+
                 Some(RoadSegment {
                     id,
                     start_cell,
@@ -207,6 +220,7 @@ impl RoadSegmentsTable {
                     cell_path,
                     points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                     importance: importance as u8,
+                    road_type,
                 })
             })
             .collect();
@@ -218,7 +232,7 @@ impl RoadSegmentsTable {
     pub async fn load_road_segment(&self, id: i64) -> Result<Option<RoadSegment>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance, road_type_id
             FROM terrain.road_segments
             WHERE id = $1
             "#,
@@ -234,6 +248,7 @@ impl RoadSegmentsTable {
             let end_q: i32 = r.get("end_q");
             let end_r: i32 = r.get("end_r");
             let importance: i16 = r.get("importance");
+            let road_type_id: i32 = r.get("road_type_id");
             let points_bytes: Vec<u8> = r.get("points");
 
             let points_vec: Vec<[f32; 2]> =
@@ -261,6 +276,14 @@ impl RoadSegmentsTable {
                 }
             };
 
+            // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+            let road_type = match road_type_id {
+                1 => shared::RoadType::dirt_path(1),
+                2 => shared::RoadType::paved_road(2),
+                3 => shared::RoadType::highway(3),
+                _ => shared::RoadType::default(),
+            };
+
             Some(RoadSegment {
                 id,
                 start_cell,
@@ -268,6 +291,7 @@ impl RoadSegmentsTable {
                 cell_path,
                 points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                 importance: importance as u8,
+                road_type,
             })
         });
 
@@ -291,7 +315,7 @@ impl RoadSegmentsTable {
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance
+            SELECT id, start_q, start_r, end_q, end_r, points, cell_path, importance, road_type_id
             FROM terrain.road_segments
             WHERE (start_q = $1 AND start_r = $2) OR (end_q = $1 AND end_r = $2)
             "#,
@@ -310,6 +334,7 @@ impl RoadSegmentsTable {
                 let end_q: i32 = row.get("end_q");
                 let end_r: i32 = row.get("end_r");
                 let importance: i16 = row.get("importance");
+                let road_type_id: i32 = row.get("road_type_id");
                 let points_bytes: Vec<u8> = row.get("points");
 
                 let points_vec: Vec<[f32; 2]> =
@@ -337,6 +362,14 @@ impl RoadSegmentsTable {
                     }
                 };
 
+                // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+                let road_type = match road_type_id {
+                    1 => shared::RoadType::dirt_path(1),
+                    2 => shared::RoadType::paved_road(2),
+                    3 => shared::RoadType::highway(3),
+                    _ => shared::RoadType::default(),
+                };
+
                 Some(RoadSegment {
                     id,
                     start_cell,
@@ -344,6 +377,7 @@ impl RoadSegmentsTable {
                     cell_path,
                     points: points_vec.iter().map(|&p| Vec2::from(p)).collect(),
                     importance: importance as u8,
+                    road_type,
                 })
             })
             .collect();

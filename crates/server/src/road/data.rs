@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{constants, RoadSegmentData, grid::GridCell};
+use shared::{constants, RoadSegmentData, RoadType, grid::GridCell};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -122,6 +122,9 @@ pub struct RoadSegment {
 
     /// Importance du segment (0-3)
     pub importance: u8,
+
+    /// Type de route (catégorie + variante)
+    pub road_type: RoadType,
 }
 
 impl RoadSegment {
@@ -133,6 +136,7 @@ impl RoadSegment {
             end_cell: self.end_cell,
             points: self.points.iter().map(|p| p.to_array()).collect(),
             importance: self.importance,
+            road_type: self.road_type.clone(),
         }
     }
 
@@ -152,6 +156,7 @@ impl RoadSegment {
             cell_path,
             points: data.points.iter().map(|&p| Vec2::from(p)).collect(),
             importance: data.importance,
+            road_type: data.road_type.clone(),
         }
     }
 
