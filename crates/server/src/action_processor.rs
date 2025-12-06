@@ -569,6 +569,7 @@ impl ActionProcessor {
                 cell_path: new_cell_path.clone(),
                 points: new_points,
                 importance: 1,
+                road_type: shared::RoadType::default(), // Chemin de terre par défaut
             };
 
             // Supprimer l'ancien segment et sauvegarder le nouveau
@@ -611,6 +612,7 @@ impl ActionProcessor {
                 cell_path: vec![cell.clone()],  // Une seule cellule dans le chemin
                 points: vec![cell_pos],  // Un seul point
                 importance: 1,
+                road_type: shared::RoadType::default(), // Chemin de terre par défaut
             };
 
             let segment_id = self.db_tables.road_segments

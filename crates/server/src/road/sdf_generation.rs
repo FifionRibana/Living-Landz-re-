@@ -386,6 +386,7 @@ mod tests {
                 Vec2::new(500.0, 250.0),
             ],
             importance: 1,
+            road_type: shared::RoadType::default(),
         };
 
         let segments = vec![segment];
