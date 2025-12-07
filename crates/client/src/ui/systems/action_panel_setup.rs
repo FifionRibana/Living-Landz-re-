@@ -26,6 +26,7 @@ pub fn setup_action_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_se
     // let tab_hovered: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_hovered.png");
     // let tab_selected: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_selected.png");
 
+    // TODO: Reorganize to set the run button on the right and the rest on the panel
     parent
         .spawn((
             ImageNode {

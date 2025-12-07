@@ -1,10 +1,14 @@
 use bevy::prelude::*;
-use shared::{BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, TerrainChunkId, constants, grid::{GridCell, GridConfig}};
+use shared::{
+    BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, RoadCategory, TerrainChunkId,
+    constants,
+    grid::{GridCell, GridConfig},
+};
 
 use crate::{
+    grid::resources::SelectedHexes,
     networking::client::NetworkClient,
     state::resources::ConnectionStatus,
-    grid::resources::SelectedHexes,
     ui::{
         components::{
             ActionCategory, ActionContentContainer, ActionRunButton, ActionTabButton,
@@ -60,7 +64,7 @@ pub fn update_action_panel_content(
         match category {
             ActionCategory::Roads => {
                 // Roads have no tabs, just content
-                populate_roads_content(&mut commands, &building_grid_query, &asset_server);
+                populate_roads_content(&mut commands, &building_grid_query, &asset_server, &action_state);
             }
             ActionCategory::Buildings => {
                 // Buildings have tabs for each building category
@@ -91,19 +95,69 @@ pub fn update_action_panel_content(
 fn populate_roads_content(
     commands: &mut Commands,
     grid_query: &Query<Entity, With<BuildingGridContainer>>,
-    _asset_server: &Res<AssetServer>,
+    asset_server: &Res<AssetServer>,
+    action_state: &ActionState,
 ) {
     // For now, just a placeholder
     for entity in grid_query.iter() {
         commands.entity(entity).with_children(|parent| {
-            parent.spawn((
-                Text::new("Routes: Sélectionnez un type de route"),
-                TextFont {
-                    font_size: 14.0,
-                    ..default()
-                },
-                TextColor(Color::srgb_u8(223, 210, 194)),
-            ));
+            let categories = [
+                (RoadCategory::DirtPath, "Chemin"),
+                (RoadCategory::PavedRoad, "Route"),
+                (RoadCategory::Highway, "Grande voie"),
+            ];
+
+            let tab_normal: Handle<Image> =
+                asset_server.load("ui/ui_wood_tab_bar_button_normal.png");
+
+            for (category, label) in categories.iter() {
+                info!("Adding category tab: {:?}", category);
+                let is_selected = action_state.selected_road_category == Some(*category);
+
+                parent
+                    .spawn((
+                        Button,
+                        Node {
+                            width: px(120.),
+                            height: px(40.),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            padding: UiRect::all(px(8.)),
+                            ..default()
+                        },
+                        ImageNode {
+                            image: tab_normal.clone(),
+                            image_mode: NodeImageMode::Stretch,
+                            ..default()
+                        },
+                        BackgroundColor(if is_selected {
+                            Color::srgb_u8(180, 160, 130)
+                        } else {
+                            Color::srgb_u8(140, 120, 90)
+                        }),
+                        ActionTabButton {
+                            tab_id: format!("building_{:?}", category),
+                        },
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: true,
+                        },
+                    ))
+                    .with_children(|tab_button| {
+                        tab_button.spawn((
+                            Text::new(*label),
+                            TextFont {
+                                font_size: 12.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgb_u8(223, 210, 194)),
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ));
+                    });
+            }
         });
     }
 }
@@ -347,36 +401,76 @@ fn update_run_button(
     }
 }
 
-fn get_buildings_for_category(category: BuildingCategoryEnum) -> Vec<(&'static str, &'static str, &'static str)> {
+fn get_buildings_for_category(
+    category: BuildingCategoryEnum,
+) -> Vec<(&'static str, &'static str, &'static str)> {
     match category {
         BuildingCategoryEnum::ManufacturingWorkshops => vec![
             ("blacksmith", "Forge", "sprites/buildings/blacksmith_01.png"),
-            ("blast_furnace", "Haut-Fourneau", "sprites/buildings/blast_furnace_01.png"),
-            ("bloomery", "Bas-Fourneau", "sprites/buildings/bloomery_01.png"),
-            ("carpenter_shop", "Menuiserie", "sprites/buildings/carpenter_shop_01.png"),
-            ("glass_factory", "Verrerie", "sprites/buildings/glass_factory_01.png"),
+            (
+                "blast_furnace",
+                "Haut-Fourneau",
+                "sprites/buildings/blast_furnace_01.png",
+            ),
+            (
+                "bloomery",
+                "Bas-Fourneau",
+                "sprites/buildings/bloomery_01.png",
+            ),
+            (
+                "carpenter_shop",
+                "Menuiserie",
+                "sprites/buildings/carpenter_shop_01.png",
+            ),
+            (
+                "glass_factory",
+                "Verrerie",
+                "sprites/buildings/glass_factory_01.png",
+            ),
         ],
-        BuildingCategoryEnum::Agriculture => vec![
-            ("farm", "Ferme", "sprites/buildings/farm_01.png"),
-        ],
+        BuildingCategoryEnum::Agriculture => {
+            vec![("farm", "Ferme", "sprites/buildings/farm_01.png")]
+        }
         BuildingCategoryEnum::AnimalBreeding => vec![
-            ("cowshed", "Étable à Vaches", "sprites/buildings/cowshed_01.png"),
+            (
+                "cowshed",
+                "Étable à Vaches",
+                "sprites/buildings/cowshed_01.png",
+            ),
             ("piggery", "Porcherie", "sprites/buildings/piggery_01.png"),
-            ("sheepfold", "Bergerie", "sprites/buildings/sheepfold_01.png"),
+            (
+                "sheepfold",
+                "Bergerie",
+                "sprites/buildings/sheepfold_01.png",
+            ),
             ("stable", "Écurie", "sprites/buildings/stable_01.png"),
         ],
-        BuildingCategoryEnum::Entertainment => vec![
-            ("theater", "Théâtre", "sprites/buildings/theater_01.png"),
-        ],
-        BuildingCategoryEnum::Cult => vec![
-            ("temple", "Temple", "sprites/buildings/temple_01.png"),
-        ],
+        BuildingCategoryEnum::Entertainment => {
+            vec![("theater", "Théâtre", "sprites/buildings/theater_01.png")]
+        }
+        BuildingCategoryEnum::Cult => vec![("temple", "Temple", "sprites/buildings/temple_01.png")],
         BuildingCategoryEnum::Commerce => vec![
-            ("bakehouse", "Boulangerie", "sprites/buildings/bakehouse_01.png"),
+            (
+                "bakehouse",
+                "Boulangerie",
+                "sprites/buildings/bakehouse_01.png",
+            ),
             ("brewery", "Brasserie", "sprites/buildings/brewery_01.png"),
-            ("distillery", "Distillerie", "sprites/buildings/distillery_01.png"),
-            ("slaughterhouse", "Abattoir", "sprites/buildings/slaughterhouse_01.png"),
-            ("ice_house", "Glacière", "sprites/buildings/ice_house_01.png"),
+            (
+                "distillery",
+                "Distillerie",
+                "sprites/buildings/distillery_01.png",
+            ),
+            (
+                "slaughterhouse",
+                "Abattoir",
+                "sprites/buildings/slaughterhouse_01.png",
+            ),
+            (
+                "ice_house",
+                "Glacière",
+                "sprites/buildings/ice_house_01.png",
+            ),
             ("market", "Marché", "sprites/buildings/market_01.png"),
         ],
         _ => vec![],
@@ -386,96 +480,29 @@ fn get_buildings_for_category(category: BuildingCategoryEnum) -> Vec<(&'static s
 fn get_building_recipe(building_id: &str) -> Vec<(&'static str, u32)> {
     match building_id {
         // ManufacturingWorkshops
-        "blacksmith" => vec![
-            ("Bois", 10),
-            ("Pierre", 15),
-            ("Fer", 5),
-        ],
-        "blast_furnace" => vec![
-            ("Pierre", 30),
-            ("Fer", 10),
-            ("Argile", 20),
-        ],
-        "bloomery" => vec![
-            ("Pierre", 20),
-            ("Argile", 15),
-        ],
-        "carpenter_shop" => vec![
-            ("Bois", 15),
-            ("Pierre", 5),
-        ],
-        "glass_factory" => vec![
-            ("Pierre", 25),
-            ("Sable", 20),
-            ("Bois", 10),
-        ],
+        "blacksmith" => vec![("Bois", 10), ("Pierre", 15), ("Fer", 5)],
+        "blast_furnace" => vec![("Pierre", 30), ("Fer", 10), ("Argile", 20)],
+        "bloomery" => vec![("Pierre", 20), ("Argile", 15)],
+        "carpenter_shop" => vec![("Bois", 15), ("Pierre", 5)],
+        "glass_factory" => vec![("Pierre", 25), ("Sable", 20), ("Bois", 10)],
         // Agriculture
-        "farm" => vec![
-            ("Bois", 18),
-            ("Pierre", 8),
-        ],
+        "farm" => vec![("Bois", 18), ("Pierre", 8)],
         // AnimalBreeding
-        "cowshed" => vec![
-            ("Bois", 20),
-            ("Pierre", 10),
-            ("Paille", 15),
-        ],
-        "piggery" => vec![
-            ("Bois", 15),
-            ("Pierre", 8),
-            ("Paille", 10),
-        ],
-        "sheepfold" => vec![
-            ("Bois", 18),
-            ("Pierre", 10),
-            ("Paille", 12),
-        ],
-        "stable" => vec![
-            ("Bois", 25),
-            ("Pierre", 15),
-            ("Paille", 20),
-        ],
+        "cowshed" => vec![("Bois", 20), ("Pierre", 10), ("Paille", 15)],
+        "piggery" => vec![("Bois", 15), ("Pierre", 8), ("Paille", 10)],
+        "sheepfold" => vec![("Bois", 18), ("Pierre", 10), ("Paille", 12)],
+        "stable" => vec![("Bois", 25), ("Pierre", 15), ("Paille", 20)],
         // Entertainment
-        "theater" => vec![
-            ("Bois", 40),
-            ("Pierre", 30),
-            ("Tissu", 20),
-        ],
+        "theater" => vec![("Bois", 40), ("Pierre", 30), ("Tissu", 20)],
         // Cult
-        "temple" => vec![
-            ("Pierre", 50),
-            ("Bois", 30),
-            ("Or", 10),
-        ],
+        "temple" => vec![("Pierre", 50), ("Bois", 30), ("Or", 10)],
         // Commerce
-        "bakehouse" => vec![
-            ("Bois", 15),
-            ("Pierre", 20),
-            ("Argile", 10),
-        ],
-        "brewery" => vec![
-            ("Bois", 20),
-            ("Pierre", 15),
-            ("Cuivre", 5),
-        ],
-        "distillery" => vec![
-            ("Bois", 18),
-            ("Pierre", 12),
-            ("Cuivre", 8),
-        ],
-        "slaughterhouse" => vec![
-            ("Bois", 20),
-            ("Pierre", 25),
-        ],
-        "ice_house" => vec![
-            ("Pierre", 30),
-            ("Bois", 15),
-        ],
-        "market" => vec![
-            ("Bois", 35),
-            ("Pierre", 20),
-            ("Tissu", 10),
-        ],
+        "bakehouse" => vec![("Bois", 15), ("Pierre", 20), ("Argile", 10)],
+        "brewery" => vec![("Bois", 20), ("Pierre", 15), ("Cuivre", 5)],
+        "distillery" => vec![("Bois", 18), ("Pierre", 12), ("Cuivre", 8)],
+        "slaughterhouse" => vec![("Bois", 20), ("Pierre", 25)],
+        "ice_house" => vec![("Pierre", 30), ("Bois", 15)],
+        "market" => vec![("Bois", 35), ("Pierre", 20), ("Tissu", 10)],
         _ => vec![],
     }
 }
@@ -496,7 +523,10 @@ pub fn handle_building_button_interactions(
 }
 
 pub fn handle_action_run_button(
-    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<ActionRunButton>)>,
+    mut query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<ActionRunButton>),
+    >,
     action_state: Res<ActionState>,
     grid_config: Res<GridConfig>,
     mut network_client_opt: Option<ResMut<NetworkClient>>,
@@ -562,17 +592,19 @@ fn execute_action(
     };
 
     let world_pos = grid_config.layout.hex_to_world_pos(selected_hex);
-    
+
     let chunk_id = TerrainChunkId {
         x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
         y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
     };
 
-
     match action_state.selected_category {
         Some(ActionCategory::Buildings) => {
             if let Some(building_id) = &action_state.selected_building_id {
-                info!("Executing building construction: {} at cell {:?}", building_id, cell);
+                info!(
+                    "Executing building construction: {} at cell {:?}",
+                    building_id, cell
+                );
 
                 // Map building_id to BuildingTypeEnum
                 let building_type = match building_id.as_str() {

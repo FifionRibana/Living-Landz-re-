@@ -1,5 +1,6 @@
 use bincode::{Decode, Encode};
 use crate::grid::GridCell;
+use crate::RoadType;
 
 /// Identifiant unique d'un segment de route
 pub type RoadSegmentId = i64;
@@ -24,6 +25,9 @@ pub struct RoadSegmentData {
     /// Importance du segment (0-3)
     /// 0 = sentier, 1 = chemin, 2 = route, 3 = route principale
     pub importance: u8,
+
+    /// Type de route (catégorie + variante)
+    pub road_type: RoadType,
 }
 
 impl RoadSegmentData {
@@ -35,6 +39,7 @@ impl RoadSegmentData {
         start_pos: [f32; 2],
         end_pos: [f32; 2],
         importance: u8,
+        road_type: RoadType,
     ) -> Self {
         Self {
             id,
@@ -42,6 +47,7 @@ impl RoadSegmentData {
             end_cell,
             points: vec![start_pos, end_pos],
             importance,
+            road_type,
         }
     }
 
@@ -52,6 +58,7 @@ impl RoadSegmentData {
         end_cell: GridCell,
         points: Vec<[f32; 2]>,
         importance: u8,
+        road_type: RoadType,
     ) -> Self {
         assert!(points.len() >= 2, "Un segment doit avoir au moins 2 points");
         Self {
@@ -60,6 +67,7 @@ impl RoadSegmentData {
             end_cell,
             points,
             importance,
+            road_type,
         }
     }
 }

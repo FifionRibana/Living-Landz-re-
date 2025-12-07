@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::ui::components::ActionCategory;
-use shared::BuildingCategoryEnum;
+use bevy::prelude::*;
+use shared::{BuildingCategoryEnum, RoadCategory};
 
 #[derive(Resource)]
 pub struct ActionState {
@@ -8,6 +8,7 @@ pub struct ActionState {
     pub selected_tab: Option<String>,
     pub selected_building_category: Option<BuildingCategoryEnum>,
     pub selected_building_id: Option<String>,
+    pub selected_road_category: Option<RoadCategory>,
 }
 
 impl Default for ActionState {
@@ -17,6 +18,7 @@ impl Default for ActionState {
             selected_tab: None,
             selected_building_category: None,
             selected_building_id: None,
+            selected_road_category: None,
         }
     }
 }
@@ -31,6 +33,7 @@ impl ActionState {
             self.selected_tab = None;
             self.selected_building_category = None;
             self.selected_building_id = None;
+            self.selected_road_category = None;
         }
     }
 
@@ -39,6 +42,7 @@ impl ActionState {
         self.selected_tab = None;
         self.selected_building_category = None;
         self.selected_building_id = None;
+        self.selected_road_category = None;
     }
 
     pub fn select_tab(&mut self, tab_id: String) {
@@ -57,5 +61,9 @@ impl ActionState {
 
     pub fn is_category_checked(&self, category: ActionCategory) -> bool {
         self.selected_category == Some(category)
+    }
+
+    pub fn select_road_category(&mut self, category: RoadCategory) {
+        self.selected_road_category = Some(category);
     }
 }

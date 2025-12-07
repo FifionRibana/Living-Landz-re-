@@ -98,6 +98,12 @@ pub struct CellDetailsBuildingImage;
 #[derive(Component)]
 pub struct CellDetailsQualityGaugeContainer;
 
+#[derive(Component)]
+pub struct CellDetailsActionStatusText;
+
+#[derive(Component)]
+pub struct CellDetailsActionTypeText;
+
 // Top bar components
 #[derive(Component)]
 pub struct TopBarMarker;

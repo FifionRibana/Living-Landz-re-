@@ -84,9 +84,18 @@ pub fn update_cell_details_content(
     )>,
     mut building_image_query: Query<
         (&mut ImageNode, &mut Visibility),
-        (With<CellDetailsBuildingImage>,  Without<CellDetailsQualityGaugeContainer>)
+        (
+            With<CellDetailsBuildingImage>,
+            Without<CellDetailsQualityGaugeContainer>,
+        ),
     >,
-    mut gauge_query: Query<&mut Visibility, (With<CellDetailsQualityGaugeContainer>, Without<CellDetailsBuildingImage>)>,
+    mut gauge_query: Query<
+        &mut Visibility,
+        (
+            With<CellDetailsQualityGaugeContainer>,
+            Without<CellDetailsBuildingImage>,
+        ),
+    >,
 ) {
     if !selected.is_changed() {
         return;
@@ -151,6 +160,7 @@ pub fn update_cell_details_content(
                 //     }
                 // }
                 // Hide building image and gauge for trees
+                // TODO: Hide if the panel is hidden
                 if let Ok((_, mut visibility)) = building_image_query.single_mut() {
                     *visibility = Visibility::Hidden;
                 }
