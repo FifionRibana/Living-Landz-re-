@@ -303,9 +303,10 @@ async fn handle_client_message(
                 });
 
                 // Charger et générer les routes pour ce chunk (envoyé séparément)
+                // Utilise la table de visibilité pour charger tous les segments qui traversent ce chunk
                 tracing::info!("Attempting to load road segments for chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
                 match db_tables.road_segments
-                    .load_road_segments_by_chunk(terrain_chunk_id.x, terrain_chunk_id.y)
+                    .load_road_segments_by_chunk_new(terrain_chunk_id.x, terrain_chunk_id.y)
                     .await
                 {
                     Ok(road_segments) if !road_segments.is_empty() => {

@@ -1,16 +1,22 @@
 use bevy::prelude::*;
-use shared::{ActionStatusEnum, TerrainChunkId};
+use shared::{ActionStatusEnum, TerrainChunkId, constants, grid::GridConfig};
 
 use crate::{
     grid::resources::SelectedHexes,
     state::resources::ActionTracker,
-    ui::components::CellDetailsPanelMarker,
+    ui::components::{CellDetailsActionStatusText, CellDetailsActionTypeText},
 };
 
 /// Système pour afficher l'état de l'action en cours dans le panneau de détails
 pub fn update_cell_action_display(
     action_tracker: Res<ActionTracker>,
     selected_hexes: Res<SelectedHexes>,
+    grid_config: Res<GridConfig>,
+    mut text_query: Query<(
+        &mut Text,
+        Option<&CellDetailsActionStatusText>,
+        Option<&CellDetailsActionTypeText>,
+    )>,
 ) {
     // Vérifier si une cellule est sélectionnée
     if selected_hexes.ids.is_empty() {
@@ -28,14 +34,20 @@ pub fn update_cell_action_display(
         r: selected_cell.y,
     };
 
-    // TODO: Obtenir le chunk_id de la cellule sélectionnée
+    // TODO: Make an utility function of this
+    let world_pos = grid_config.layout.hex_to_world_pos(*selected_cell);
+
     // Pour l'instant, on utilise un chunk par défaut
-    let chunk_id = TerrainChunkId { x: 0, y: 0 };
+    let chunk_id = TerrainChunkId {
+        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
+        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
+    };
+
 
     // Vérifier s'il y a une action sur cette cellule
     if let Some(action) = action_tracker.get_action_on_cell(&chunk_id, &grid_cell) {
         // Il y a une action sur cette cellule
-        let action_status_text = match action.status {
+        let action_status_text = &match action.status {
             ActionStatusEnum::Pending => "⏸ En attente".to_string(),
             ActionStatusEnum::InProgress => {
                 // Calculer le temps restant
@@ -59,7 +71,7 @@ pub fn update_cell_action_display(
             ActionStatusEnum::Failed => "✗ Échouée".to_string(),
         };
 
-        let action_type_text = format!("{:?}", action.action_type);
+        let action_type_text = &format!("{:?}", action.action_type);
 
         // Mettre à jour les textes du panneau
         // TODO: Identifier et mettre à jour les bons composants de texte
@@ -68,6 +80,15 @@ pub fn update_cell_action_display(
         //     "Action sur la cellule: {} - {}",
         //     action_type_text, action_status_text
         // );
+        for (mut text, status_query, type_query) in &mut text_query {
+                    if status_query.is_some() {
+                        **text = action_status_text.clone();
+                    }
+
+                    if type_query.is_some() {
+                        **text = action_type_text.clone();
+                    }
+                }
     }
 }
 
@@ -75,6 +96,7 @@ pub fn update_cell_action_display(
 pub fn has_active_action_on_selected_cell(
     action_tracker: &ActionTracker,
     selected_hexes: &SelectedHexes,
+    grid_config: &GridConfig,
 ) -> bool {
     if selected_hexes.ids.is_empty() {
         return false;
@@ -91,7 +113,13 @@ pub fn has_active_action_on_selected_cell(
     };
 
     // TODO: Obtenir le chunk_id de la cellule sélectionnée
-    let chunk_id = TerrainChunkId { x: 0, y: 0 };
+    let world_pos = grid_config.layout.hex_to_world_pos(*selected_cell);
+
+    // Pour l'instant, on utilise un chunk par défaut
+    let chunk_id = TerrainChunkId {
+        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
+        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
+    };
 
     action_tracker.get_action_on_cell(&chunk_id, &grid_cell).is_some()
 }
@@ -100,6 +128,7 @@ pub fn has_active_action_on_selected_cell(
 pub fn hide_action_panel_during_action(
     action_tracker: Res<ActionTracker>,
     selected_hexes: Res<SelectedHexes>,
+    grid_config: Res<GridConfig>,
     mut action_panel_query: Query<&mut Visibility, With<crate::ui::components::ActionsPanelMarker>>,
 ) {
     // Ne vérifier que si la sélection a changé ou si une action a été mise à jour
@@ -107,7 +136,7 @@ pub fn hide_action_panel_during_action(
         return;
     }
 
-    let has_action = has_active_action_on_selected_cell(&action_tracker, &selected_hexes);
+    let has_action = has_active_action_on_selected_cell(&action_tracker, &selected_hexes, &grid_config);
 
     for mut visibility in action_panel_query.iter_mut() {
         if has_action {

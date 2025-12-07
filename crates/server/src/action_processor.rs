@@ -213,7 +213,8 @@ impl ActionProcessor {
 
                     // Note: La SDF a déjà été envoyée lors de la création du segment,
                     // mais on la régénère à nouveau pour garantir la cohérence
-                    self.regenerate_and_send_road_sdf(&action_info.chunk_id).await;
+                    // On régénère pour le chunk et ses voisins pour gérer les routes diagonales
+                    self.regenerate_road_sdf_for_chunk_and_neighbors(&action_info.chunk_id).await;
                 }
 
                 // Envoyer notification au joueur qui a lancé l'action
@@ -397,9 +398,10 @@ impl ActionProcessor {
         let cell = action_info.cell.clone();
         let chunk_id = action_info.chunk_id;
 
-        // Charger les routes existantes dans le chunk pour détecter les connexions
+        // Charger les routes existantes dans le chunk ET les chunks voisins pour détecter les connexions
+        // Ceci permet de connecter les routes qui traversent les frontières de chunks
         let existing_segments = self.db_tables.road_segments
-            .load_road_segments_by_chunk(chunk_id.x, chunk_id.y)
+            .load_road_segments_with_neighbors(chunk_id.x, chunk_id.y)
             .await
             .unwrap_or_default();
 
@@ -595,8 +597,9 @@ impl ActionProcessor {
                 action_id
             );
 
-            // Régénérer et envoyer immédiatement la SDF de route pour ce chunk
-            self.regenerate_and_send_road_sdf(&chunk_id).await;
+            // Régénérer et envoyer immédiatement la SDF de route pour TOUS les chunks où ce segment est visible
+            // Cela garantit que les routes qui traversent plusieurs chunks sont visibles partout
+            self.regenerate_road_sdf_for_segment(segment_id).await;
         } else {
             // Créer une nouvelle route d'un seul point (comme dans Godot)
             // La route sera juste un point sur cette cellule
@@ -628,17 +631,65 @@ impl ActionProcessor {
                 action_id
             );
 
-            // Régénérer et envoyer immédiatement la SDF de route pour ce chunk
-            self.regenerate_and_send_road_sdf(&chunk_id).await;
+            // Régénérer et envoyer immédiatement la SDF de route pour tous les chunks où ce segment est visible
+            // Même pour un point unique, il peut être proche d'une frontière et visible dans plusieurs chunks
+            self.regenerate_road_sdf_for_segment(segment_id).await;
         }
 
         Ok(())
     }
 
+    /// Régénère la SDF de route pour un chunk et ses 8 voisins
+    /// Utile pour garantir la cohérence visuelle des routes diagonales
+    async fn regenerate_road_sdf_for_chunk_and_neighbors(&self, chunk_id: &shared::TerrainChunkId) {
+        tracing::info!("Regenerating road SDF for chunk ({},{}) and its neighbors", chunk_id.x, chunk_id.y);
+
+        // Régénérer pour le chunk central et ses 8 voisins
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let neighbor_chunk = shared::TerrainChunkId {
+                    x: chunk_id.x + dx,
+                    y: chunk_id.y + dy,
+                };
+                self.regenerate_and_send_road_sdf(&neighbor_chunk).await;
+            }
+        }
+    }
+
+    /// Régénère la SDF de route pour tous les chunks où un segment est visible
+    /// Utilisé quand on modifie un segment qui peut traverser plusieurs chunks
+    async fn regenerate_road_sdf_for_segment(&self, segment_id: i64) {
+        // Récupérer tous les chunks où ce segment est visible
+        let chunks = match self.db_tables.road_segments
+            .get_chunks_for_segment(segment_id)
+            .await
+        {
+            Ok(chunks) => chunks,
+            Err(e) => {
+                tracing::error!("Failed to get chunks for segment {}: {}", segment_id, e);
+                return;
+            }
+        };
+
+        tracing::info!(
+            "Regenerating road SDF for segment {} across {} chunks: {:?}",
+            segment_id,
+            chunks.len(),
+            chunks
+        );
+
+        // Régénérer le SDF pour chaque chunk affecté
+        for (chunk_x, chunk_y) in chunks {
+            let chunk_id = shared::TerrainChunkId { x: chunk_x, y: chunk_y };
+            self.regenerate_and_send_road_sdf(&chunk_id).await;
+        }
+    }
+
     /// Régénère la SDF de route pour un chunk et l'envoie à tous les joueurs
     async fn regenerate_and_send_road_sdf(&self, chunk_id: &shared::TerrainChunkId) {
+        // Charger les segments visibles dans ce chunk via la table de visibilité
         match self.db_tables.road_segments
-            .load_road_segments_by_chunk(chunk_id.x, chunk_id.y)
+            .load_road_segments_by_chunk_new(chunk_id.x, chunk_id.y)
             .await
         {
             Ok(road_segments) if !road_segments.is_empty() => {

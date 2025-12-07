@@ -3,8 +3,7 @@ use shared::atlas::GaugeAtlas;
 
 use crate::ui::{
     components::{
-        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsPanelMarker,
-        CellDetailsQualityGaugeContainer, CellDetailsTitleText,
+        CellDetailsActionStatusText, CellDetailsActionTypeText, CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsPanelMarker, CellDetailsQualityGaugeContainer, CellDetailsTitleText
     },
     debug::HoveredCellInfoText,
 };
@@ -135,7 +134,7 @@ pub fn setup_cell_details_panel(
                             ..default()
                         },
                         CellDetailsBuildingImage,
-                        Visibility::Hidden,
+                        // Visibility::Inherited,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
@@ -150,7 +149,7 @@ pub fn setup_cell_details_panel(
                                 ..default()
                             },
                             CellDetailsQualityGaugeContainer,
-                            Visibility::Hidden,
+                            // Visibility::Inherited,
                             Pickable {
                                 should_block_lower: true,
                                 is_hoverable: false,
@@ -199,7 +198,7 @@ pub fn setup_cell_details_panel(
                         },
                         TextColor(Color::srgb_u8(67, 60, 37)),
                         Node { ..default() },
-                        HoveredCellInfoText,
+                        CellDetailsActionStatusText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
@@ -213,7 +212,7 @@ pub fn setup_cell_details_panel(
                         },
                         TextColor(Color::srgb_u8(67, 60, 37)),
                         Node { ..default() },
-                        HoveredCellInfoText,
+                        CellDetailsActionTypeText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,

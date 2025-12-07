@@ -100,8 +100,6 @@ pub fn spawn_terrain(
 
         info!("Mesh positions - min: {:?}, max: {:?}", pos_min, pos_max);
 
-        // TODO : vérifier les liaisons entre chunk
-        // TODO : étendre le sdf à l'extérieur du contour plutôt que s'arrêter net
         // TODO : sdf pour les biomes ou via shader pour blend avec terrain
 
         // Générer les UV avant d'étendre les bords
