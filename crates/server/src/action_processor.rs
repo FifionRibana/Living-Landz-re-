@@ -1,10 +1,11 @@
 use bevy::prelude::*;
 use shared::{ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::GridCell, protocol::ServerMessage};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::database::client::DatabaseTables;
 use crate::networking::Sessions;
+use crate::road::RoadSegment;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
 fn cell_to_world_pos(cell: &GridCell) -> Vec2 {
@@ -393,6 +394,413 @@ impl ActionProcessor {
 
     /// Crée un segment de route pour une action BuildRoad
     async fn create_road_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+        use crate::road::RoadSegment;
+        use shared::grid::pathfinding::{find_path, PathfindingOptions, NeighborType};
+
+        // Charger les cellules start et end depuis la DB
+        let (start_cell, end_cell) = self.db_tables.actions.get_build_road_cells(action_id).await?;
+
+        let chunk_id = action_info.chunk_id;
+
+        tracing::info!(
+            "Building road from ({},{}) to ({},{}) for action {}",
+            start_cell.q, start_cell.r, end_cell.q, end_cell.r, action_id
+        );
+
+        // Calculer le chemin entre start_cell et end_cell
+        let cell_path = if start_cell == end_cell {
+            // Cas spécial: un seul point
+            vec![start_cell.clone()]
+        } else {
+            // Vérifier si les cellules sont voisines (direct ou indirect)
+            let is_direct_neighbor = start_cell.neighbors().contains(&end_cell);
+            let is_indirect_neighbor = start_cell.indirect_neighbors().contains(&end_cell);
+
+            if is_direct_neighbor || is_indirect_neighbor {
+                // Voisins: créer une route directe
+                vec![start_cell.clone(), end_cell.clone()]
+            } else {
+                // Pas voisins: utiliser le pathfinding
+                tracing::info!(
+                    "Cells are not neighbors, using pathfinding from ({},{}) to ({},{})",
+                    start_cell.q, start_cell.r, end_cell.q, end_cell.r
+                );
+
+                match find_path(start_cell.clone(), end_cell.clone(), PathfindingOptions {
+                    neighbor_type: NeighborType::Both,
+                    ..Default::default()
+                }) {
+                    Some(path) => {
+                        tracing::info!("Found path with {} cells", path.len());
+                        path
+                    }
+                    None => {
+                        return Err(format!(
+                            "No path found from ({},{}) to ({},{})",
+                            start_cell.q, start_cell.r, end_cell.q, end_cell.r
+                        ));
+                    }
+                }
+            }
+        };
+
+        // Convertir le cell_path en positions monde
+        let cell_positions: Vec<Vec2> = cell_path.iter().map(cell_to_world_pos).collect();
+
+        // Générer une spline lisse passant par ces positions
+        use crate::road::{RoadConfig, generate_path_spline};
+        let config = RoadConfig::default();
+        let samples_per_segment = config.samples_per_segment;
+
+        let points = generate_path_spline(&cell_positions, samples_per_segment);
+
+        tracing::info!(
+            "Generated spline with {} points from {} cells (samples_per_segment={})",
+            points.len(),
+            cell_path.len(),
+            samples_per_segment
+        );
+
+        // Créer le nouveau segment de route
+        let segment = RoadSegment {
+            id: 0,
+            start_cell: cell_path.first().unwrap().clone(),
+            end_cell: cell_path.last().unwrap().clone(),
+            cell_path: cell_path.clone(),
+            points,
+            importance: 1,
+            road_type: shared::RoadType::default(),
+        };
+
+        // Sauvegarder le segment
+        let segment_id = self.db_tables.road_segments
+            .save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y)
+            .await
+            .map_err(|e| format!("Failed to save road segment: {}", e))?;
+
+        tracing::info!(
+            "Created road segment {} with {} cells from ({},{}) to ({},{}) for action {}",
+            segment_id,
+            cell_path.len(),
+            segment.start_cell.q, segment.start_cell.r,
+            segment.end_cell.q, segment.end_cell.r,
+            action_id
+        );
+
+        // Tenter de fusionner avec les segments connectés
+        let final_segment_id = self.merge_connected_segments_if_needed(segment_id).await?;
+
+        // Régénérer et envoyer immédiatement la SDF de route pour TOUS les chunks où ce segment est visible
+        self.regenerate_road_sdf_for_segment(final_segment_id).await;
+
+        Ok(())
+    }
+
+    /// Fusionne les segments de route connectés en une seule route avec spline globale
+    /// Retourne l'ID du segment final (fusionné ou original)
+    async fn merge_connected_segments_if_needed(&self, segment_id: i64) -> Result<i64, String> {
+        use crate::road::RoadSegment;
+        use std::collections::HashSet;
+
+        // Charger le segment nouvellement créé
+        let segment = self.db_tables.road_segments
+            .load_road_segment(segment_id)
+            .await
+            .map_err(|e| format!("Failed to load segment: {}", e))?
+            .ok_or_else(|| format!("Segment {} not found", segment_id))?;
+
+        // Charger tous les segments connectés aux extrémités (sauf le segment lui-même)
+        let start_connected = self.db_tables.road_segments
+            .load_connected_segments(&segment.start_cell)
+            .await
+            .unwrap_or_default();
+
+        let end_connected = self.db_tables.road_segments
+            .load_connected_segments(&segment.end_cell)
+            .await
+            .unwrap_or_default();
+
+        // Filtrer pour exclure le segment actuel
+        let start_connected: Vec<_> = start_connected.into_iter()
+            .filter(|s| s.id != segment_id)
+            .collect();
+        let end_connected: Vec<_> = end_connected.into_iter()
+            .filter(|s| s.id != segment_id)
+            .collect();
+
+        tracing::info!(
+            "Segment {}: {} segments connected to start ({},{}), {} to end ({},{})",
+            segment_id,
+            start_connected.len(), segment.start_cell.q, segment.start_cell.r,
+            end_connected.len(), segment.end_cell.q, segment.end_cell.r
+        );
+
+        // Si aucune connexion, pas de fusion nécessaire
+        if start_connected.is_empty() && end_connected.is_empty() {
+            return Ok(segment_id);
+        }
+
+        // Construire la chaîne de segments à fusionner
+        let mut segments_to_merge = Vec::new();
+        let mut visited = HashSet::new();
+        visited.insert(segment_id);
+
+        // Suivre la chaîne depuis le start_cell (en remontant)
+        if let Some(prev) = self.find_linear_chain_segment(&segment, &segment.start_cell, &start_connected, &visited) {
+            let chain = self.collect_chain_backwards(prev, &segment.start_cell, &mut visited).await;
+            segments_to_merge.extend(chain);
+        }
+
+        // Ajouter le segment actuel
+        segments_to_merge.push(segment.clone());
+
+        // Suivre la chaîne depuis le end_cell (en avançant)
+        if let Some(next) = self.find_linear_chain_segment(&segment, &segment.end_cell, &end_connected, &visited) {
+            let chain = self.collect_chain_forwards(next, &segment.end_cell, &mut visited).await;
+            segments_to_merge.extend(chain);
+        }
+
+        // Si on n'a que le segment actuel, pas de fusion nécessaire
+        if segments_to_merge.len() == 1 {
+            tracing::info!("No segments to merge with segment {}", segment_id);
+            return Ok(segment_id);
+        }
+
+        tracing::info!("Merging {} segments into one: {:?}", segments_to_merge.len(),
+            segments_to_merge.iter().map(|s| s.id).collect::<Vec<_>>());
+
+        // Fusionner les cell_path de tous les segments
+        let merged_path = self.merge_segment_paths(&segments_to_merge);
+
+        tracing::info!("Merged path has {} cells", merged_path.len());
+
+        // Générer une nouvelle spline sur le chemin fusionné
+        let cell_positions: Vec<Vec2> = merged_path.iter().map(cell_to_world_pos).collect();
+
+        use crate::road::{RoadConfig, generate_path_spline};
+        let config = RoadConfig::default();
+        let points = generate_path_spline(&cell_positions, config.samples_per_segment);
+
+        // Créer le segment fusionné
+        let merged_segment = RoadSegment {
+            id: 0, // Nouveau segment
+            start_cell: merged_path.first().unwrap().clone(),
+            end_cell: merged_path.last().unwrap().clone(),
+            cell_path: merged_path,
+            points,
+            importance: segments_to_merge.iter().map(|s| s.importance).max().unwrap_or(1),
+            road_type: segment.road_type.clone(),
+        };
+
+        // Calculer le chunk principal (basé sur le premier segment)
+        use crate::database::tables::RoadSegmentsTable;
+        let chunk_id = RoadSegmentsTable::cell_to_chunk_id(&merged_segment.start_cell);
+        let (chunk_x, chunk_y) = (chunk_id.x, chunk_id.y);
+
+        // Sauvegarder le segment fusionné
+        let merged_id = self.db_tables.road_segments
+            .save_road_segment_with_chunk(&merged_segment, chunk_x, chunk_y)
+            .await
+            .map_err(|e| format!("Failed to save merged segment: {}", e))?;
+
+        tracing::info!("Created merged segment {} from {} segments", merged_id, segments_to_merge.len());
+
+        // Supprimer tous les anciens segments
+        for old_segment in &segments_to_merge {
+            if let Err(e) = self.db_tables.road_segments.delete_road_segment(old_segment.id).await {
+                tracing::warn!("Failed to delete old segment {}: {}", old_segment.id, e);
+            }
+        }
+
+        // Régénérer les SDF pour tous les chunks affectés par les anciens segments
+        let mut affected_chunks = HashSet::new();
+        for old_segment in &segments_to_merge {
+            if let Ok(chunks) = self.db_tables.road_segments.get_chunks_for_segment(old_segment.id).await {
+                affected_chunks.extend(chunks);
+            }
+        }
+
+        for (chunk_x, chunk_y) in affected_chunks {
+            let chunk_id = shared::TerrainChunkId { x: chunk_x, y: chunk_y };
+            self.regenerate_and_send_road_sdf(&chunk_id).await;
+        }
+
+        Ok(merged_id)
+    }
+
+    /// Trouve un segment qui peut être fusionné dans une chaîne linéaire
+    /// Retourne Some(segment) si exactement un segment est connecté et forme une chaîne linéaire
+    fn find_linear_chain_segment<'a>(
+        &self,
+        _current: &RoadSegment,
+        connection_cell: &shared::grid::GridCell,
+        connected: &'a [RoadSegment],
+        visited: &HashSet<i64>
+    ) -> Option<RoadSegment> {
+        // Filtrer les segments déjà visités
+        let available: Vec<_> = connected.iter()
+            .filter(|s| !visited.contains(&s.id))
+            .collect();
+
+        // Si exactement un segment connecté, on peut fusionner
+        if available.len() == 1 {
+            let seg = available[0];
+
+            // Vérifier que le segment connecté n'a pas d'autres connexions (pas une jonction)
+            // Pour l'instant, on accepte la fusion simple
+            Some(seg.clone())
+        } else {
+            // Plusieurs segments connectés = jonction, ou aucun = extrémité
+            None
+        }
+    }
+
+    /// Collecte tous les segments formant une chaîne en remontant (vers le début)
+    async fn collect_chain_backwards(
+        &self,
+        mut current: RoadSegment,
+        connection_cell: &shared::grid::GridCell,
+        visited: &mut HashSet<i64>
+    ) -> Vec<RoadSegment> {
+        let mut chain = Vec::new();
+        let mut current_cell = connection_cell.clone();
+
+        loop {
+            visited.insert(current.id);
+
+            // Déterminer l'autre extrémité du segment actuel
+            let other_end = if current.start_cell == current_cell {
+                &current.clone().end_cell
+            } else {
+                &current.clone().start_cell
+            };
+
+            // Inverser le segment si nécessaire pour maintenir l'ordre
+            let ordered_segment = if current.end_cell == current_cell {
+                // Inverser le segment
+                RoadSegment {
+                    id: current.id,
+                    start_cell: current.end_cell.clone(),
+                    end_cell: current.start_cell.clone(),
+                    cell_path: current.cell_path.iter().rev().cloned().collect(),
+                    points: current.points.iter().rev().cloned().collect(),
+                    importance: current.importance,
+                    road_type: current.road_type.clone(),
+                }
+            } else {
+                current.clone()
+            };
+
+            chain.push(ordered_segment);
+
+            // Charger les segments connectés à l'autre extrémité
+            let next_connected = self.db_tables.road_segments
+                .load_connected_segments(other_end)
+                .await
+                .unwrap_or_default();
+
+            // Trouver le prochain segment dans la chaîne
+            match self.find_linear_chain_segment(&current, other_end, &next_connected, visited) {
+                Some(next) => {
+                    current = next;
+                    current_cell = other_end.clone();
+                }
+                None => break,
+            }
+        }
+
+        // Inverser pour avoir l'ordre correct (du début vers la connexion)
+        chain.reverse();
+        chain
+    }
+
+    /// Collecte tous les segments formant une chaîne en avançant (vers la fin)
+    async fn collect_chain_forwards(
+        &self,
+        mut current: RoadSegment,
+        connection_cell: &shared::grid::GridCell,
+        visited: &mut HashSet<i64>
+    ) -> Vec<RoadSegment> {
+        let mut chain = Vec::new();
+        let mut current_cell = connection_cell.clone();
+
+        loop {
+            visited.insert(current.id);
+
+            // Déterminer l'autre extrémité du segment actuel
+            let other_end = if current.start_cell == current_cell {
+                &current.clone().end_cell
+            } else {
+                &current.clone().start_cell
+            };
+
+            // Inverser le segment si nécessaire pour maintenir l'ordre
+            let ordered_segment = if current.start_cell == current_cell {
+                current.clone()
+            } else {
+                // Inverser le segment
+                RoadSegment {
+                    id: current.id,
+                    start_cell: current.end_cell.clone(),
+                    end_cell: current.start_cell.clone(),
+                    cell_path: current.cell_path.iter().rev().cloned().collect(),
+                    points: current.points.iter().rev().cloned().collect(),
+                    importance: current.importance,
+                    road_type: current.road_type.clone(),
+                }
+            };
+
+            chain.push(ordered_segment);
+
+            // Charger les segments connectés à l'autre extrémité
+            let next_connected = self.db_tables.road_segments
+                .load_connected_segments(other_end)
+                .await
+                .unwrap_or_default();
+
+            // Trouver le prochain segment dans la chaîne
+            match self.find_linear_chain_segment(&current, other_end, &next_connected, visited) {
+                Some(next) => {
+                    current = next;
+                    current_cell = other_end.clone();
+                }
+                None => break,
+            }
+        }
+
+        chain
+    }
+
+    /// Fusionne les cell_path de plusieurs segments en un seul chemin continu
+    fn merge_segment_paths(&self, segments: &[RoadSegment]) -> Vec<shared::grid::GridCell> {
+        if segments.is_empty() {
+            return Vec::new();
+        }
+
+        if segments.len() == 1 {
+            return segments[0].cell_path.clone();
+        }
+
+        let mut merged = Vec::new();
+
+        for (i, segment) in segments.iter().enumerate() {
+            if i == 0 {
+                // Premier segment : ajouter tous les points
+                merged.extend_from_slice(&segment.cell_path);
+            } else {
+                // Segments suivants : sauter le premier point (déjà présent comme dernier du segment précédent)
+                if !segment.cell_path.is_empty() {
+                    merged.extend_from_slice(&segment.cell_path[1..]);
+                }
+            }
+        }
+
+        merged
+    }
+
+    /// OBSOLETE - Ancienne logique de création de route point par point
+    /// Conservée pour référence, pourrait être supprimée
+    async fn _create_road_for_action_old(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
         use crate::road::RoadSegment;
 
         let cell = action_info.cell.clone();

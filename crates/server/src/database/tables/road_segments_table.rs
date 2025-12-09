@@ -505,6 +505,12 @@ impl RoadSegmentsTable {
         Ok(segments)
     }
 
+    /// Convertit une cellule hexagonale en TerrainChunkId (fonction publique)
+    pub fn cell_to_chunk_id(cell: &GridCell) -> shared::TerrainChunkId {
+        let (x, y) = Self::cell_to_chunk(cell);
+        shared::TerrainChunkId { x, y }
+    }
+
     /// Convertit une cellule hexagonale en coordonnées de chunk
     /// Utilise les constantes du projet pour calculer le chunk
     fn cell_to_chunk(cell: &GridCell) -> (i32, i32) {

@@ -431,24 +431,28 @@ async fn handle_client_message(
         }
         ClientMessage::ActionBuildRoad {
             player_id,
-            chunk_id,
-            cell,
+            start_cell,
+            end_cell,
         } => {
             tracing::info!(
-                "Player {} requested to build road at chunk ({},{}) cell ({},{})",
+                "Player {} requested to build road from ({},{}) to ({},{})",
                 player_id,
-                chunk_id.x,
-                chunk_id.y,
-                cell.q,
-                cell.r
+                start_cell.q,
+                start_cell.r,
+                end_cell.q,
+                end_cell.r
             );
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildRoad(BuildRoadAction {
                 player_id,
-                chunk_id: chunk_id.clone(),
-                cell: cell.clone(),
+                start_cell: start_cell.clone(),
+                end_cell: end_cell.clone(),
             });
+
+            // Calculer le chunk à partir de la cellule de départ
+            use crate::database::tables::RoadSegmentsTable;
+            let chunk_id = RoadSegmentsTable::cell_to_chunk_id(&start_cell);
 
             let start_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -456,14 +460,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: start_cell.clone(),
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
                     chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    cell: start_cell.clone(),
                     action_type: ActionTypeEnum::BuildRoad,
                     action_specific_type: ActionSpecificTypeEnum::BuildRoad,
                     start_time,
@@ -482,7 +486,7 @@ async fn handle_client_message(
                         action_id,
                         player_id,
                         chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        cell: start_cell.clone(),
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::BuildRoad,
                         completion_time: start_time + (duration_ms / 1000),

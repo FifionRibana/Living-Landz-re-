@@ -3,9 +3,17 @@ name = "server"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "server"
 path = "src/main.rs"
+
+[[bin]]
+name = "populate_road_visibility"
+path = "src/bin/populate_road_visibility.rs"
 
 [dependencies]
 shared = { path = "../shared" }

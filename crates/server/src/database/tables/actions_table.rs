@@ -78,8 +78,14 @@ impl ScheduledActionsTable {
                 .map_err(|e| format!("DB error: {}", e))?;
             }
             SpecificAction::BuildRoad(a) => {
-                sqlx::query("INSERT INTO actions.build_road_actions (action_id) VALUES ($1)")
+                sqlx::query(
+                    "INSERT INTO actions.build_road_actions (action_id, start_q, start_r, end_q, end_r) VALUES ($1, $2, $3, $4, $5)"
+                )
                     .bind(action_id as i64)
+                    .bind(a.start_cell.q)
+                    .bind(a.start_cell.r)
+                    .bind(a.end_cell.q)
+                    .bind(a.end_cell.r)
                     .execute(&self.pool)
                     .await
                     .map_err(|e| format!("DB error: {}", e))?;
@@ -218,20 +224,26 @@ impl ScheduledActionsTable {
                     })
                 }
                 ActionSpecificTypeEnum::BuildRoad => {
-                    // let build_road = sqlx::query(
-                    //     r#"
-                    //         SELECT *
-                    //         WHERE action_id = $1
-                    //     "#,
-                    // )
-                    // .bind(id as i64)
-                    // .fetch_one(&self.pool)
-                    // .await?;
+                    let build_road = sqlx::query(
+                        r#"
+                            SELECT start_q, start_r, end_q, end_r
+                            FROM actions.build_road_actions
+                            WHERE action_id = $1
+                        "#,
+                    )
+                    .bind(id as i64)
+                    .fetch_one(&self.pool)
+                    .await?;
+
+                    let start_q: i32 = build_road.get("start_q");
+                    let start_r: i32 = build_road.get("start_r");
+                    let end_q: i32 = build_road.get("end_q");
+                    let end_r: i32 = build_road.get("end_r");
 
                     SpecificAction::BuildRoad(BuildRoadAction {
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        start_cell: GridCell { q: start_q, r: start_r },
+                        end_cell: GridCell { q: end_q, r: end_r },
                     })
                 }
                 ActionSpecificTypeEnum::CraftResource => {
@@ -418,5 +430,31 @@ impl ScheduledActionsTable {
         .map_err(|e| format!("Failed to get building type: {}", e))?;
 
         Ok(result.map(|row| row.get::<i32, &str>("building_type_id") as i16))
+    }
+
+    /// Récupère les cellules start et end pour une action BuildRoad
+    pub async fn get_build_road_cells(&self, action_id: u64) -> Result<(GridCell, GridCell), String> {
+        let result = sqlx::query(
+            r#"
+            SELECT start_q, start_r, end_q, end_r
+            FROM actions.build_road_actions
+            WHERE action_id = $1
+            "#
+        )
+        .bind(action_id as i64)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get road cells: {}", e))?;
+
+        let start_cell = GridCell {
+            q: result.get("start_q"),
+            r: result.get("start_r"),
+        };
+        let end_cell = GridCell {
+            q: result.get("end_q"),
+            r: result.get("end_r"),
+        };
+
+        Ok((start_cell, end_cell))
     }
 }
