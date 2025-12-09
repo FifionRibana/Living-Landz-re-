@@ -60,8 +60,8 @@ pub enum ClientMessage {
     },
     ActionBuildRoad {
         player_id: u64,
-        chunk_id: TerrainChunkId,
-        cell: GridCell,
+        start_cell: GridCell,
+        end_cell: GridCell,
     },
     ActionMoveUnit {
         player_id: u64,

@@ -4,6 +4,7 @@ mod common;
 mod resource;
 mod road;
 mod terrain;
+mod unit;
 
 pub mod game;
 pub mod grid;
@@ -14,3 +15,4 @@ pub use common::*;
 pub use resource::*;
 pub use road::*;
 pub use terrain::*;
+pub use unit::*;

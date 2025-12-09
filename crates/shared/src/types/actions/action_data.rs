@@ -57,24 +57,28 @@ impl SpecificActionData for BuildBuildingAction {
     }
 }
 
-// BuildBuilding
+// BuildRoad
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct BuildRoadAction {
     pub player_id: u64,
-    pub chunk_id: TerrainChunkId,
-    pub cell: GridCell,
+    pub start_cell: GridCell,
+    pub end_cell: GridCell,
 }
 
 impl SpecificActionData for BuildRoadAction {
     fn action_type(&self) -> ActionTypeEnum {
-        ActionTypeEnum::BuildBuilding
+        ActionTypeEnum::BuildRoad
     }
 
     fn duration_ms(&self, context: &ActionContext) -> u64 {
-        1_000
+        // Durée basée sur la distance entre start et end
+        let distance = self.start_cell.to_hex().distance_to(self.end_cell.to_hex());
+        // 1 seconde par cellule + 1 seconde de base
+        1_000 + (distance as u64) * 1_000
     }
 
     fn validate(&self, context: &ValidationContext) -> Result<(), String> {
+        // Vérifier que les cellules sont différentes ou identiques (point unique autorisé)
         Ok(())
     }
 }

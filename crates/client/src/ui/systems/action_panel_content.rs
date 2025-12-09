@@ -531,7 +531,7 @@ pub fn handle_action_run_button(
     grid_config: Res<GridConfig>,
     mut network_client_opt: Option<ResMut<NetworkClient>>,
     connection: Res<ConnectionStatus>,
-    selected_hexes: Res<SelectedHexes>,
+    mut selected_hexes: ResMut<SelectedHexes>,
 ) {
     for (interaction, mut background_color) in &mut query {
         match *interaction {
@@ -543,7 +543,7 @@ pub fn handle_action_run_button(
                     &mut network_client_opt,
                     &grid_config,
                     &connection,
-                    &selected_hexes,
+                    &mut selected_hexes,
                 );
             }
             Interaction::Hovered => {
@@ -561,7 +561,7 @@ fn execute_action(
     network_client_opt: &mut Option<ResMut<NetworkClient>>,
     grid_config: &Res<GridConfig>,
     connection: &ConnectionStatus,
-    selected_hexes: &SelectedHexes,
+    selected_hexes: &mut SelectedHexes,
 ) {
     // Check if connected
     if !connection.logged_in {
@@ -644,13 +644,38 @@ fn execute_action(
             }
         }
         Some(ActionCategory::Roads) => {
-            info!("Executing road construction at cell {:?}", cell);
+            info!("Executing road construction with selected hexes");
+
+            // Récupérer toutes les cellules sélectionnées
+            let hexes_vec: Vec<_> = selected_hexes.ids.iter().copied().collect();
+
+            if hexes_vec.is_empty() {
+                warn!("No hexes selected for road construction");
+                return;
+            }
+
+            // Utiliser la première et la dernière cellule sélectionnée
+            let start_hex = hexes_vec.first().unwrap();
+            let end_hex = if hexes_vec.len() == 1 {
+                // Si une seule cellule, créer un point unique
+                start_hex
+            } else {
+                hexes_vec.last().unwrap()
+            };
+
+            let start_cell = shared::grid::GridCell::from_hex(start_hex);
+            let end_cell = shared::grid::GridCell::from_hex(end_hex);
+
+            info!("Building road from {:?} to {:?}", start_cell, end_cell);
 
             network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
                 player_id,
-                chunk_id,
-                cell,
+                start_cell,
+                end_cell,
             });
+
+            // Effacer la sélection après avoir envoyé la commande
+            selected_hexes.clear();
 
             info!("✓ Road construction request sent to server");
         }

@@ -328,7 +328,7 @@ fn compute_pixel_sdf(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::GridCell;
+    use shared::grid::GridCell;
 
     #[test]
     fn test_sdf_segment() {
