@@ -1214,6 +1214,11 @@ impl ActionProcessor {
             ServerMessage::ActionCompleted { .. } => "ActionCompleted",
             ServerMessage::ActionSuccess { .. } => "ActionSuccess",
             ServerMessage::ActionError { .. } => "ActionError",
+            ServerMessage::DebugOrganizationCreated { .. } => "DebugOrganizationCreated",
+            ServerMessage::DebugOrganizationDeleted { .. } => "DebugOrganizationDeleted",
+            ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
+            ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
+            ServerMessage::DebugError { .. } => "DebugError",
             ServerMessage::Pong => "Pong",
         };
 

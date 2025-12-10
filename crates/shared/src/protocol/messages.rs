@@ -6,6 +6,7 @@ use crate::{
     ResourceSpecificTypeEnum, TerrainChunkId, OceanData, RoadChunkSdfData,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
+    OrganizationType, OrganizationSummary,
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -89,6 +90,34 @@ pub enum ClientMessage {
         recipe_id: String,
         quantity: u32,
     },
+
+    // ========================================================================
+    // DEBUG COMMANDS
+    // ========================================================================
+
+    /// Debug: Create an organization at a specific cell
+    DebugCreateOrganization {
+        name: String,
+        organization_type: OrganizationType,
+        cell: GridCell,
+        parent_organization_id: Option<u64>,
+    },
+
+    /// Debug: Delete an organization
+    DebugDeleteOrganization {
+        organization_id: u64,
+    },
+
+    /// Debug: Spawn a random unit at a cell
+    DebugSpawnUnit {
+        cell: GridCell,
+    },
+
+    /// Request organization info for a cell
+    RequestOrganizationAtCell {
+        cell: GridCell,
+    },
+
     /// Ping (keep alive)
     Ping,
 }
@@ -150,6 +179,38 @@ pub enum ServerMessage {
         chunk_id: TerrainChunkId,
         cell: GridCell,
         action_type: crate::ActionTypeEnum,
+    },
+
+    // ========================================================================
+    // DEBUG RESPONSES
+    // ========================================================================
+
+    /// Debug: Organization created successfully
+    DebugOrganizationCreated {
+        organization_id: u64,
+        name: String,
+    },
+
+    /// Debug: Organization deleted successfully
+    DebugOrganizationDeleted {
+        organization_id: u64,
+    },
+
+    /// Debug: Unit spawned successfully
+    DebugUnitSpawned {
+        unit_id: u64,
+        cell: GridCell,
+    },
+
+    /// Response with organization info at a cell
+    OrganizationAtCell {
+        cell: GridCell,
+        organization: Option<OrganizationSummary>,
+    },
+
+    /// Debug error
+    DebugError {
+        reason: String,
     },
 
     /// Pong (ping answer)
