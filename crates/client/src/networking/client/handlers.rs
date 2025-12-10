@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ActionTracker, ConnectionStatus, PlayerInfo, TrackedAction, WorldCache};
+use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, WorldCache};
 use crate::rendering::terrain::components::Terrain;
 
 pub fn handle_server_message(
@@ -9,6 +9,7 @@ pub fn handle_server_message(
     mut player_info: ResMut<PlayerInfo>,
     mut cache: ResMut<WorldCache>,
     mut action_tracker: ResMut<ActionTracker>,
+    mut current_organization: ResMut<CurrentOrganization>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
     mut commands: Commands,
@@ -169,6 +170,26 @@ pub fn handle_server_message(
                     terrain_chunk_ids: vec![chunk_id],
                 });
             }
+            // Debug organization messages
+            shared::protocol::ServerMessage::DebugOrganizationCreated {
+                organization_id,
+                name,
+            } => {
+                info!("✓ Organization '{}' created with ID {}", name, organization_id);
+            }
+            shared::protocol::ServerMessage::DebugOrganizationDeleted { organization_id } => {
+                info!("✓ Organization {} deleted", organization_id);
+            }
+            shared::protocol::ServerMessage::DebugUnitSpawned { unit_id, cell } => {
+                info!("✓ Unit {} spawned at {:?}", unit_id, cell);
+            }
+            shared::protocol::ServerMessage::OrganizationAtCell { cell, organization } => {
+                current_organization.update(cell, organization);
+            }
+            shared::protocol::ServerMessage::DebugError { reason } => {
+                warn!("Debug error: {}", reason);
+            }
+
             shared::protocol::ServerMessage::Pong => {}
             _ => {
                 warn!("Unhandled server message: {:?}", message);

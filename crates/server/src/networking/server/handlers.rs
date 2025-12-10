@@ -120,6 +120,11 @@ pub async fn handle_connection(
                     ServerMessage::ActionCompleted { .. } => "ActionCompleted",
                     ServerMessage::ActionSuccess { .. } => "ActionSuccess",
                     ServerMessage::ActionError { .. } => "ActionError",
+                    ServerMessage::DebugOrganizationCreated { .. } => "DebugOrganizationCreated",
+                    ServerMessage::DebugOrganizationDeleted { .. } => "DebugOrganizationDeleted",
+                    ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
+                    ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
+                    ServerMessage::DebugError { .. } => "DebugError",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -779,6 +784,172 @@ async fn handle_client_message(
                 }
             }
         }
+
+        // ====================================================================
+        // DEBUG COMMANDS
+        // ====================================================================
+
+        ClientMessage::DebugCreateOrganization {
+            name,
+            organization_type,
+            cell,
+            parent_organization_id,
+        } => {
+            tracing::info!("DEBUG: Creating organization '{}' of type {:?} at {:?}", name, organization_type, cell);
+
+            // Create a dummy founder unit ID (0 for debug)
+            let founder_unit_id = 0u64;
+
+            let request = shared::CreateOrganizationRequest {
+                name: name.clone(),
+                organization_type,
+                headquarters_cell: Some(cell.clone()),
+                parent_organization_id,
+                founder_unit_id,
+            };
+
+            match db_tables.organizations.create_organization(request).await {
+                Ok(org_id) => {
+                    tracing::info!("✓ Organization created with ID {}", org_id);
+
+                    // Add some territory cells around headquarters
+                    for neighbor in cell.neighbors() {
+                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                    }
+                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+
+                    vec![ServerMessage::DebugOrganizationCreated {
+                        organization_id: org_id,
+                        name,
+                    }]
+                }
+                Err(e) => {
+                    tracing::error!("✗ Failed to create organization: {}", e);
+                    vec![ServerMessage::DebugError {
+                        reason: format!("Failed to create organization: {}", e),
+                    }]
+                }
+            }
+        }
+
+        ClientMessage::DebugDeleteOrganization { organization_id } => {
+            tracing::info!("DEBUG: Deleting organization ID {}", organization_id);
+
+            match sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
+                .bind(organization_id as i64)
+                .execute(&db_tables.pool)
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!("✓ Organization {} deleted", organization_id);
+                    vec![ServerMessage::DebugOrganizationDeleted { organization_id }]
+                }
+                Err(e) => {
+                    tracing::error!("✗ Failed to delete organization: {}", e);
+                    vec![ServerMessage::DebugError {
+                        reason: format!("Failed to delete organization: {}", e),
+                    }]
+                }
+            }
+        }
+
+        ClientMessage::DebugSpawnUnit { cell } => {
+            tracing::info!("DEBUG: Spawning random unit at {:?}", cell);
+
+            // Generate random unit data BEFORE any await
+            let first_names = vec!["John", "Jane", "Bob", "Alice", "Charlie", "Diana", "Edward", "Fiona"];
+            let last_names = vec!["Smith", "Jones", "Brown", "Wilson", "Taylor", "Anderson", "Thomas", "Jackson"];
+
+            let (first_name, last_name, profession) = {
+                use rand::Rng;
+                let mut rng = rand::rng();
+                let first_name = first_names[rng.gen_range(0..first_names.len())].to_string();
+                let last_name = last_names[rng.gen_range(0..last_names.len())].to_string();
+                let profession_id: i16 = rng.gen_range(1..=16);
+                let profession = shared::ProfessionEnum::from_id(profession_id)
+                    .unwrap_or(shared::ProfessionEnum::Farmer);
+                (first_name, last_name, profession)
+            };
+
+            match db_tables.units.create_unit(
+                None, // No player
+                first_name.clone(),
+                last_name.clone(),
+                cell.clone(),
+                shared::TerrainChunkId { x: 0, y: 0 }, // Default chunk
+                profession,
+            ).await {
+                Ok(unit_id) => {
+                    tracing::info!("✓ Unit spawned: {} {} (ID: {})", first_name, last_name, unit_id);
+                    vec![ServerMessage::DebugUnitSpawned {
+                        unit_id,
+                        cell,
+                    }]
+                }
+                Err(e) => {
+                    tracing::error!("✗ Failed to spawn unit: {}", e);
+                    vec![ServerMessage::DebugError {
+                        reason: format!("Failed to spawn unit: {}", e),
+                    }]
+                }
+            }
+        }
+
+        ClientMessage::RequestOrganizationAtCell { cell } => {
+            tracing::debug!("Checking organization at cell {:?}", cell);
+
+            // Query to find which organization owns this cell
+            match sqlx::query_as::<_, (i64,)>(
+                "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2"
+            )
+            .bind(cell.q)
+            .bind(cell.r)
+            .fetch_optional(&db_tables.pool)
+            .await
+            {
+                Ok(Some((org_id,))) => {
+                    // Load organization summary
+                    match db_tables.organizations.load_organization(org_id as u64).await {
+                        Ok(org_data) => {
+                            let summary = shared::OrganizationSummary {
+                                id: org_data.id,
+                                name: org_data.name,
+                                organization_type: org_data.organization_type,
+                                leader_unit_id: org_data.leader_unit_id,
+                                population: org_data.population,
+                                emblem_url: org_data.emblem_url,
+                            };
+                            vec![ServerMessage::OrganizationAtCell {
+                                cell,
+                                organization: Some(summary),
+                            }]
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load organization: {}", e);
+                            vec![ServerMessage::OrganizationAtCell {
+                                cell,
+                                organization: None,
+                            }]
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // No organization at this cell
+                    vec![ServerMessage::OrganizationAtCell {
+                        cell,
+                        organization: None,
+                    }]
+                }
+                Err(e) => {
+                    tracing::error!("Database error checking organization: {}", e);
+                    vec![ServerMessage::OrganizationAtCell {
+                        cell,
+                        organization: None,
+                    }]
+                }
+            }
+        }
+
         ClientMessage::Ping => vec![ServerMessage::Pong],
         _ => vec![ServerMessage::Pong],
     }

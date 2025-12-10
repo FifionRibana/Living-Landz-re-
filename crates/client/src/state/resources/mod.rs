@@ -8,6 +8,7 @@ mod tree_atlas;
 mod world_cache;
 mod player_info;
 mod action_tracker;
+mod current_organization;
 
 pub use game_time_config::GameTimeConfig;
 pub use connection_status::ConnectionStatus;
@@ -19,3 +20,4 @@ pub use tree_atlas::setup_tree_atlas;
 pub use world_cache::WorldCache;
 pub use player_info::PlayerInfo;
 pub use action_tracker::{ActionTracker, TrackedAction};
+pub use current_organization::CurrentOrganization;

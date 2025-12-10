@@ -21,6 +21,8 @@ pub struct DatabaseTables {
     pub terrains: tables::TerrainsTable,
     pub ocean_data: tables::OceanDataTable,
     pub road_segments: tables::RoadSegmentsTable,
+    pub units: tables::UnitsTable,
+    pub organizations: tables::OrganizationsTable,
 }
 
 impl DatabaseClient {
@@ -74,6 +76,8 @@ impl DatabaseClient {
                 terrains: tables::TerrainsTable::new(pool.clone()),
                 ocean_data: tables::OceanDataTable::new(pool.clone()),
                 road_segments: tables::RoadSegmentsTable::new(pool.clone()),
+                units: tables::UnitsTable::new(pool.clone()),
+                organizations: tables::OrganizationsTable::new(pool.clone()),
             },
             game_state,
         )
