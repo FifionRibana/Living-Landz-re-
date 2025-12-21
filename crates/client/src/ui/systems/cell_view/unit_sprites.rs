@@ -1,13 +1,14 @@
 use bevy::prelude::*;
 use crate::ui::components::{SlotIndicator, SlotUnitSprite};
 use crate::ui::resources::CellViewState;
-use crate::state::resources::UnitsCache;
+use crate::state::resources::{UnitsCache, UnitsDataCache};
 
 /// Update unit sprites displayed on slots
 pub fn update_unit_sprites(
     mut commands: Commands,
     cell_view_state: Res<CellViewState>,
     units_cache: Res<UnitsCache>,
+    units_data_cache: Res<UnitsDataCache>,
     asset_server: Res<AssetServer>,
     // Query existing unit sprites to remove them
     existing_sprites: Query<(Entity, &SlotUnitSprite)>,
@@ -107,13 +108,17 @@ pub fn update_unit_sprites(
         {
             // Only spawn if sprite doesn't already exist
             if !existing_sprites_map.contains_key(&(slot_indicator.position, *unit_id)) {
+                // Get unit data to load the correct portrait
+                let portrait_path = units_data_cache
+                    .get_unit(*unit_id)
+                    .and_then(|unit_data| unit_data.avatar_url.clone())
+                    .unwrap_or_else(|| "ui/icons/unit_placeholder.png".to_string());
+
                 // Spawn unit sprite as child of the slot button
                 commands.entity(slot_entity).with_children(|parent| {
                     parent.spawn((
                         ImageNode {
-                            // TODO: Load actual unit sprite based on unit_id
-                            // For now, use a placeholder
-                            image: asset_server.load("ui/icons/unit_placeholder.png"),
+                            image: asset_server.load(portrait_path),
                             ..default()
                         },
                         Node {

@@ -16,6 +16,7 @@ pub struct UnitData {
     pub gender: String, // "male" or "female"
     pub level: i32,
     pub avatar_url: Option<String>,
+    pub portrait_variant_id: Option<String>, // ID de la variante de portrait (ex: "02m", "01f")
 
     // Position
     pub current_cell: GridCell,
