@@ -13,6 +13,7 @@ pub struct UnitData {
     pub player_id: Option<u64>, // None si NPC
     pub first_name: String,
     pub last_name: String,
+    pub gender: String, // "male" or "female"
     pub level: i32,
     pub avatar_url: Option<String>,
 

@@ -8,6 +8,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::database::client::DatabaseTables;
+use crate::units::NameGenerator;
 use shared::protocol::{ClientMessage, ServerMessage};
 
 use super::super::Sessions;
@@ -45,6 +46,7 @@ pub async fn handle_connection(
     sessions: Sessions,
     db_tables: Arc<DatabaseTables>,
     action_processor: Arc<ActionProcessor>,
+    name_generator: Arc<NameGenerator>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -77,7 +79,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -152,6 +154,7 @@ async fn handle_client_message(
     sessions: &Sessions,
     db_tables: &DatabaseTables,
     action_processor: &ActionProcessor,
+    name_generator: &NameGenerator,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -911,15 +914,18 @@ async fn handle_client_message(
             tracing::info!("DEBUG: Creating organization '{}' of type {:?} at {:?}", name, organization_type, cell);
 
             // First, create a leader unit for the organization
-            let first_names = vec!["John", "Jane", "Robert", "Maria", "William", "Elizabeth"];
-            let last_names = vec!["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia"];
-
-            let (first_name, last_name) = {
+            let (first_name, last_name, gender) = {
                 use rand::Rng;
                 let mut rng = rand::rng();
-                let first_name = first_names[rng.gen_range(0..first_names.len())].to_string();
-                let last_name = last_names[rng.gen_range(0..last_names.len())].to_string();
-                (first_name, last_name)
+
+                // Generate random gender
+                let is_male = rng.gen_bool(0.5);
+                let gender_str = if is_male { "male" } else { "female" };
+
+                // Use NameGenerator to get realistic names based on gender
+                let (first_name, last_name) = name_generator.generate_random_name(Some(is_male));
+
+                (first_name, last_name, gender_str.to_string())
             };
 
             // Create the leader unit
@@ -927,6 +933,7 @@ async fn handle_client_message(
                 None,
                 first_name.clone(),
                 last_name.clone(),
+                gender.clone(),
                 cell.clone(),
                 shared::TerrainChunkId { x: 0, y: 0 },
                 shared::ProfessionEnum::Merchant,
@@ -998,31 +1005,37 @@ async fn handle_client_message(
         ClientMessage::DebugSpawnUnit { cell } => {
             tracing::info!("DEBUG: Spawning random unit at {:?}", cell);
 
-            // Generate random unit data BEFORE any await
-            let first_names = vec!["John", "Jane", "Bob", "Alice", "Charlie", "Diana", "Edward", "Fiona"];
-            let last_names = vec!["Smith", "Jones", "Brown", "Wilson", "Taylor", "Anderson", "Thomas", "Jackson"];
-
-            let (first_name, last_name, profession) = {
+            // Generate random unit data using NameGenerator
+            let (first_name, last_name, gender, profession) = {
                 use rand::Rng;
                 let mut rng = rand::rng();
-                let first_name = first_names[rng.gen_range(0..first_names.len())].to_string();
-                let last_name = last_names[rng.gen_range(0..last_names.len())].to_string();
+
+                // Generate random gender (true = male, false = female)
+                let is_male = rng.gen_bool(0.5);
+                let gender_str = if is_male { "male" } else { "female" };
+
+                // Use NameGenerator to get realistic names based on gender
+                let (first_name, last_name) = name_generator.generate_random_name(Some(is_male));
+
+                // Generate random profession
                 let profession_id: i16 = rng.gen_range(1..=16);
                 let profession = shared::ProfessionEnum::from_id(profession_id)
                     .unwrap_or(shared::ProfessionEnum::Farmer);
-                (first_name, last_name, profession)
+
+                (first_name, last_name, gender_str.to_string(), profession)
             };
 
             match db_tables.units.create_unit(
                 None, // No player
                 first_name.clone(),
                 last_name.clone(),
+                gender.clone(),
                 cell.clone(),
                 shared::TerrainChunkId { x: 0, y: 0 }, // Default chunk
                 profession,
             ).await {
                 Ok(unit_id) => {
-                    tracing::info!("✓ Unit spawned: {} {} (ID: {})", first_name, last_name, unit_id);
+                    tracing::info!("✓ Unit spawned: {} {} ({}, ID: {})", first_name, last_name, gender, unit_id);
                     vec![ServerMessage::DebugUnitSpawned {
                         unit_id,
                         cell,
