@@ -172,6 +172,9 @@ pub struct CellViewBackButton;
 pub struct UnitDetailsPanelMarker;
 
 #[derive(Component)]
+pub struct UnitDetailsAvatar;
+
+#[derive(Component)]
 pub struct UnitDetailsNameText;
 
 #[derive(Component)]

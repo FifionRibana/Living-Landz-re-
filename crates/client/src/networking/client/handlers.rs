@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache, WorldCache};
+use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache};
 use crate::rendering::terrain::components::Terrain;
 use shared::SlotPosition;
 use shared::SlotType;
@@ -31,6 +31,7 @@ pub fn handle_server_message(
     mut action_tracker: ResMut<ActionTracker>,
     mut current_organization: ResMut<CurrentOrganization>,
     mut units_cache: ResMut<UnitsCache>,
+    mut units_data_cache: ResMut<UnitsDataCache>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
     mut commands: Commands,
@@ -113,11 +114,14 @@ pub fn handle_server_message(
                     units_cache.add_unit(cell, unit_id);
 
                     // If unit has a slot position, add it to slot occupancy
-                    if let Some(slot_pos) = db_to_slot_position(unit.slot_type, unit.slot_index) {
+                    if let Some(slot_pos) = db_to_slot_position(unit.slot_type.clone(), unit.slot_index) {
                         info!("Loading unit {} at cell ({},{}) slot {:?}:{}",
                             unit_id, cell.q, cell.r, slot_pos.slot_type, slot_pos.index);
                         units_cache.set_unit_slot(cell, slot_pos, unit_id);
                     }
+
+                    // Store full unit data
+                    units_data_cache.insert_unit(unit);
                 }
             }
             shared::protocol::ServerMessage::OceanData { ocean_data } => {

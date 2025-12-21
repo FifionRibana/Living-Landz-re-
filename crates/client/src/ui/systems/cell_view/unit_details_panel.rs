@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use crate::ui::components::{UnitDetailsPanelMarker, UnitDetailsNameText, UnitDetailsLevelText, UnitDetailsProfessionText, UnitDetailsCloseButton};
+use crate::ui::components::{UnitDetailsPanelMarker, UnitDetailsAvatar, UnitDetailsNameText, UnitDetailsLevelText, UnitDetailsProfessionText, UnitDetailsCloseButton};
 use crate::ui::resources::CellViewState;
-use crate::state::resources::UnitsCache;
+use crate::state::resources::{UnitsCache, UnitsDataCache};
 
 /// Marker component for the unit details panel container
 #[derive(Component)]
@@ -93,6 +93,22 @@ pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetS
                 ));
             });
 
+            // Unit avatar
+            parent.spawn((
+                Node {
+                    width: Val::Px(96.0),
+                    height: Val::Px(96.0),
+                    align_self: AlignSelf::Center,
+                    margin: UiRect::bottom(Val::Px(10.0)),
+                    ..default()
+                },
+                ImageNode {
+                    image: asset_server.load("ui/icons/unit_placeholder.png"),
+                    ..default()
+                },
+                UnitDetailsAvatar,
+            ));
+
             // Unit name
             parent.spawn((
                 Node {
@@ -169,7 +185,9 @@ pub fn update_panel_visibility(
 /// Update the content of the unit details panel
 pub fn update_panel_content(
     cell_view_state: Res<CellViewState>,
-    units_cache: Res<UnitsCache>,
+    units_data_cache: Res<UnitsDataCache>,
+    asset_server: Res<AssetServer>,
+    mut avatar_query: Query<&mut ImageNode, With<UnitDetailsAvatar>>,
     mut name_text_query: Query<&mut Text, (With<UnitDetailsNameText>, Without<UnitDetailsLevelText>, Without<UnitDetailsProfessionText>)>,
     mut level_text_query: Query<&mut Text, (With<UnitDetailsLevelText>, Without<UnitDetailsNameText>, Without<UnitDetailsProfessionText>)>,
     mut profession_text_query: Query<&mut Text, (With<UnitDetailsProfessionText>, Without<UnitDetailsNameText>, Without<UnitDetailsLevelText>)>,
@@ -179,18 +197,35 @@ pub fn update_panel_content(
         return;
     };
 
-    // For now, display basic information
-    // TODO: Fetch actual unit data from a units resource/cache
+    // Get unit data from cache
+    let Some(unit_data) = units_data_cache.get_unit(selected_unit_id) else {
+        warn!("Unit {} not found in data cache", selected_unit_id);
+        return;
+    };
+
+    // Update avatar
+    for mut image_node in &mut avatar_query {
+        if let Some(ref avatar_url) = unit_data.avatar_url {
+            image_node.image = asset_server.load(avatar_url.clone());
+        } else {
+            // Use placeholder if no avatar
+            image_node.image = asset_server.load("ui/icons/unit_placeholder.png");
+        }
+    }
+
+    // Update name
     for mut text in &mut name_text_query {
-        **text = format!("Name: Unit #{}", selected_unit_id);
+        **text = format!("{} {}", unit_data.first_name, unit_data.last_name);
     }
 
+    // Update level
     for mut text in &mut level_text_query {
-        **text = format!("Level: {}", 1); // TODO: Get actual level
+        **text = format!("Level: {}", unit_data.level);
     }
 
+    // Update profession
     for mut text in &mut profession_text_query {
-        **text = format!("Profession: Worker"); // TODO: Get actual profession
+        **text = format!("Profession: {:?}", unit_data.profession);
     }
 }
 

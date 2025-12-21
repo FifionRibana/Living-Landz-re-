@@ -17,6 +17,7 @@ impl Plugin for ClientStatePlugin {
             .init_resource::<resources::ActionTracker>()
             .init_resource::<resources::CurrentOrganization>()
             .init_resource::<resources::UnitsCache>()
+            .init_resource::<resources::UnitsDataCache>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
             .add_systems(Startup, (resources::setup_tree_atlas, resources::setup_building_atlas))
