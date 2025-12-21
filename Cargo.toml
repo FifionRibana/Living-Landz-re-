@@ -37,6 +37,7 @@ bevy = { version = "0.17.3", default-features = false, features = [
     "multi_threaded",
     "default_font",
     "png",
+    "jpeg",
 
     "debug"
 ] }
