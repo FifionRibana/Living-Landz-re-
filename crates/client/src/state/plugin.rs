@@ -16,6 +16,7 @@ impl Plugin for ClientStatePlugin {
             .init_resource::<resources::PlayerInfo>()
             .init_resource::<resources::ActionTracker>()
             .init_resource::<resources::CurrentOrganization>()
+            .init_resource::<resources::UnitsCache>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
             .add_systems(Startup, (resources::setup_tree_atlas, resources::setup_building_atlas))
@@ -24,6 +25,7 @@ impl Plugin for ClientStatePlugin {
                 (
                     systems::unload_distant_chunks,
                     systems::request_chunks_around_camera,
+                    systems::track_hovered_cell_organization,
                 )
                     .chain(),
             );

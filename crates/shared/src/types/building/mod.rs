@@ -5,9 +5,11 @@ mod trees;
 
 mod enums;
 mod lookups;
+mod slot_config;
 
 pub use enums::*;
 pub use lookups::*;
+pub use slot_config::*;
 
 // pub use building_category::BuildingCategory;
 pub use building_data::*;

@@ -14,6 +14,7 @@ impl Plugin for GridInputPlugin {
                 Update,
                 (
                     input::handlers::handle_hexagon_selection,
+                    input::handlers::handle_cell_view_entry,
                     input::systems::update_hover_hexagon,
                     input::systems::update_selected_hexagons,
                     input::systems::animate_hexagons,

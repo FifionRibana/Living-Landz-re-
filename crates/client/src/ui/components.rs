@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use shared::SlotPosition;
 
 #[derive(Component)]
 pub struct ClockText;
@@ -104,6 +105,9 @@ pub struct CellDetailsActionStatusText;
 #[derive(Component)]
 pub struct CellDetailsActionTypeText;
 
+#[derive(Component)]
+pub struct CellDetailsOrganizationText;
+
 // Top bar components
 #[derive(Component)]
 pub struct TopBarMarker;
@@ -135,3 +139,46 @@ pub struct ChatNotificationBadge;
 
 #[derive(Component)]
 pub struct ChatNotificationBadgeText;
+
+// Cell view components (detailed cell view mode)
+#[derive(Component)]
+pub struct CellViewContainer;
+
+#[derive(Component)]
+pub struct CellViewBackgroundImage;
+
+#[derive(Component)]
+pub struct SlotGridContainer {
+    pub slot_type: shared::SlotType,
+}
+
+#[derive(Component)]
+pub struct SlotIndicator {
+    pub position: SlotPosition,
+    pub occupied_by: Option<u64>, // unit_id if occupied
+}
+
+#[derive(Component)]
+pub struct SlotUnitSprite {
+    pub unit_id: u64,
+    pub slot_position: SlotPosition,
+}
+
+#[derive(Component)]
+pub struct CellViewBackButton;
+
+// Unit details panel components
+#[derive(Component)]
+pub struct UnitDetailsPanelMarker;
+
+#[derive(Component)]
+pub struct UnitDetailsNameText;
+
+#[derive(Component)]
+pub struct UnitDetailsLevelText;
+
+#[derive(Component)]
+pub struct UnitDetailsProfessionText;
+
+#[derive(Component)]
+pub struct UnitDetailsCloseButton;

@@ -31,7 +31,7 @@ COMMENT ON COLUMN organizations.organization_types.can_have_parent IS 'Peut avoi
 -- Insert organization types
 INSERT INTO organizations.organization_types (id, name, category, requires_territory, can_have_vassals, can_have_parent, min_population, min_area_km2, description) VALUES
     -- Territorial organizations (1-20)
-    (1, 'Hamlet', 'territorial', true, false, true, 10, 0.5, 'Small rural settlement'),
+    (1, 'Hamlet', 'territorial', true, false, true, 1, 0.0, 'Small rural settlement'),
     (2, 'Village', 'territorial', true, false, true, 50, 2.0, 'Rural settlement with basic facilities'),
     (3, 'Town', 'territorial', true, true, true, 200, 5.0, 'Larger settlement with markets and workshops'),
     (4, 'City', 'territorial', true, true, true, 1000, 10.0, 'Major urban center with diverse economy'),

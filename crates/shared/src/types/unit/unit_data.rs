@@ -20,6 +20,10 @@ pub struct UnitData {
     pub current_cell: GridCell,
     pub current_chunk: TerrainChunkId,
 
+    // Slot position within cell (optional)
+    pub slot_type: Option<String>,
+    pub slot_index: Option<i32>,
+
     // Profession
     pub profession: ProfessionEnum,
 

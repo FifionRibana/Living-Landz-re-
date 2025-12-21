@@ -107,7 +107,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money
+                   profession_id, money, slot_type, slot_index
             FROM units.units
             WHERE id = $1
             "#,
@@ -132,6 +132,8 @@ impl UnitsTable {
                 x: row.get("current_chunk_x"),
                 y: row.get("current_chunk_y"),
             },
+            slot_type: row.get("slot_type"),
+            slot_index: row.get("slot_index"),
             profession: ProfessionEnum::from_id(row.get("profession_id"))
                 .unwrap_or(ProfessionEnum::Unknown),
             money: row.get("money"),
@@ -144,7 +146,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money
+                   profession_id, money, slot_type, slot_index
             FROM units.units
             WHERE player_id = $1
             "#,
@@ -171,6 +173,8 @@ impl UnitsTable {
                     x: row.get("current_chunk_x"),
                     y: row.get("current_chunk_y"),
                 },
+                slot_type: row.get("slot_type"),
+                slot_index: row.get("slot_index"),
                 profession: ProfessionEnum::from_id(row.get("profession_id"))
                     .unwrap_or(ProfessionEnum::Unknown),
                 money: row.get("money"),
@@ -184,7 +188,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money
+                   profession_id, money, slot_type, slot_index
             FROM units.units
             WHERE current_chunk_x = $1 AND current_chunk_y = $2
             "#,
@@ -212,6 +216,8 @@ impl UnitsTable {
                     x: row.get("current_chunk_x"),
                     y: row.get("current_chunk_y"),
                 },
+                slot_type: row.get("slot_type"),
+                slot_index: row.get("slot_index"),
                 profession: ProfessionEnum::from_id(row.get("profession_id"))
                     .unwrap_or(ProfessionEnum::Unknown),
                 money: row.get("money"),
@@ -587,5 +593,29 @@ impl UnitsTable {
             automated_actions: vec![],
             consumption_demands: vec![],
         })
+    }
+
+    /// Update unit slot position
+    pub async fn update_slot_position(
+        &self,
+        unit_id: u64,
+        slot_type: Option<String>,
+        slot_index: Option<i32>,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE units.units
+            SET slot_type = $2, slot_index = $3
+            WHERE id = $1
+            "#,
+        )
+        .bind(unit_id as i64)
+        .bind(slot_type)
+        .bind(slot_index)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update slot position: {}", e))?;
+
+        Ok(())
     }
 }

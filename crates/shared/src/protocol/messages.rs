@@ -7,6 +7,7 @@ use crate::{
     grid::{CellData, GridCell},
     types::TerrainChunkData,
     OrganizationType, OrganizationSummary,
+    SlotPosition, UnitData,
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -69,6 +70,19 @@ pub enum ClientMessage {
         unit_id: u64,
         chunk_id: TerrainChunkId,
         cell: GridCell,
+    },
+    /// Move a unit to a specific slot within a cell
+    MoveUnitToSlot {
+        unit_id: u64,
+        cell: GridCell,
+        from_slot: SlotPosition,
+        to_slot: SlotPosition,
+    },
+    /// Assign a unit to a slot (initial assignment, no previous slot)
+    AssignUnitToSlot {
+        unit_id: u64,
+        cell: GridCell,
+        slot: SlotPosition,
     },
     ActionSendMessage {
         player_id: u64,
@@ -141,6 +155,7 @@ pub enum ServerMessage {
         biome_chunk_data: Vec<BiomeChunkData>,
         cell_data: Vec<CellData>,
         building_data: Vec<BuildingData>,
+        unit_data: Vec<UnitData>,
     },
 
     OceanData {
@@ -179,6 +194,13 @@ pub enum ServerMessage {
         chunk_id: TerrainChunkId,
         cell: GridCell,
         action_type: crate::ActionTypeEnum,
+    },
+
+    /// Unit slot position updated (broadcast to all clients viewing the cell)
+    UnitSlotUpdated {
+        unit_id: u64,
+        cell: GridCell,
+        slot_position: Option<SlotPosition>,
     },
 
     // ========================================================================

@@ -125,6 +125,7 @@ pub async fn handle_connection(
                     ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
                     ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
                     ServerMessage::DebugError { .. } => "DebugError",
+                    ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -245,6 +246,20 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
+                let unit_data = match db_tables
+                    .units
+                    .load_chunk_units(*terrain_chunk_id)
+                    .await
+                {
+                    Ok(units) => {
+                        tracing::info!("Loaded {} units for chunk ({},{})", units.len(), terrain_chunk_id.x, terrain_chunk_id.y);
+                        units
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load units for chunk ({},{}): {}", terrain_chunk_id.x, terrain_chunk_id.y, e);
+                        vec![]
+                    }
+                };
                 let (mut terrain_chunk_data, biome_chunk_data) = match db_tables
                     .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
@@ -305,6 +320,7 @@ async fn handle_client_message(
                     biome_chunk_data,
                     cell_data,
                     building_data,
+                    unit_data,
                 });
 
                 // Charger et générer les routes pour ce chunk (envoyé séparément)
@@ -692,6 +708,103 @@ async fn handle_client_message(
 
             responses
         }
+        ClientMessage::MoveUnitToSlot {
+            unit_id,
+            cell,
+            from_slot,
+            to_slot,
+        } => {
+            let mut responses = Vec::new();
+
+            tracing::info!(
+                "Moving unit {} from slot {:?} to {:?} at cell {:?}",
+                unit_id,
+                from_slot,
+                to_slot,
+                cell
+            );
+
+            // Convert SlotPosition to DB format
+            let slot_type_str = match to_slot.slot_type {
+                shared::SlotType::Interior => "interior",
+                shared::SlotType::Exterior => "exterior",
+            };
+            let slot_index = to_slot.index as i32;
+
+            // Update database
+            match db_tables.units.update_slot_position(
+                unit_id,
+                Some(slot_type_str.to_string()),
+                Some(slot_index),
+            ).await {
+                Ok(_) => {
+                    tracing::info!("Unit {} slot updated in database", unit_id);
+
+                    // Broadcast success to all clients
+                    responses.push(ServerMessage::UnitSlotUpdated {
+                        unit_id,
+                        cell: cell.clone(),
+                        slot_position: Some(to_slot),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to update unit slot in database: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to update slot position: {}", e),
+                    });
+                }
+            }
+
+            responses
+        }
+        ClientMessage::AssignUnitToSlot {
+            unit_id,
+            cell,
+            slot,
+        } => {
+            let mut responses = Vec::new();
+
+            tracing::info!(
+                "Assigning unit {} to slot {:?}:{} at cell {:?}",
+                unit_id,
+                slot.slot_type,
+                slot.index,
+                cell
+            );
+
+            // Convert SlotPosition to DB format
+            let slot_type_str = match slot.slot_type {
+                shared::SlotType::Interior => "interior",
+                shared::SlotType::Exterior => "exterior",
+            };
+            let slot_index = slot.index as i32;
+
+            // Update database
+            match db_tables.units.update_slot_position(
+                unit_id,
+                Some(slot_type_str.to_string()),
+                Some(slot_index),
+            ).await {
+                Ok(_) => {
+                    tracing::info!("Unit {} slot assigned in database", unit_id);
+
+                    // Broadcast success to all clients
+                    responses.push(ServerMessage::UnitSlotUpdated {
+                        unit_id,
+                        cell: cell.clone(),
+                        slot_position: Some(slot),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to assign unit slot in database: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to assign slot position: {}", e),
+                    });
+                }
+            }
+
+            responses
+        }
         ClientMessage::ActionSendMessage {
             player_id,
             chunk_id,
@@ -797,36 +910,65 @@ async fn handle_client_message(
         } => {
             tracing::info!("DEBUG: Creating organization '{}' of type {:?} at {:?}", name, organization_type, cell);
 
-            // Create a dummy founder unit ID (0 for debug)
-            let founder_unit_id = 0u64;
+            // First, create a leader unit for the organization
+            let first_names = vec!["John", "Jane", "Robert", "Maria", "William", "Elizabeth"];
+            let last_names = vec!["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia"];
 
-            let request = shared::CreateOrganizationRequest {
-                name: name.clone(),
-                organization_type,
-                headquarters_cell: Some(cell.clone()),
-                parent_organization_id,
-                founder_unit_id,
+            let (first_name, last_name) = {
+                use rand::Rng;
+                let mut rng = rand::rng();
+                let first_name = first_names[rng.gen_range(0..first_names.len())].to_string();
+                let last_name = last_names[rng.gen_range(0..last_names.len())].to_string();
+                (first_name, last_name)
             };
 
-            match db_tables.organizations.create_organization(request).await {
-                Ok(org_id) => {
-                    tracing::info!("✓ Organization created with ID {}", org_id);
+            // Create the leader unit
+            let founder_unit_result = db_tables.units.create_unit(
+                None,
+                first_name.clone(),
+                last_name.clone(),
+                cell.clone(),
+                shared::TerrainChunkId { x: 0, y: 0 },
+                shared::ProfessionEnum::Merchant,
+            ).await;
 
-                    // Add some territory cells around headquarters
-                    for neighbor in cell.neighbors() {
-                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+            match founder_unit_result {
+                Ok(founder_unit_id) => {
+                    let request = shared::CreateOrganizationRequest {
+                        name: name.clone(),
+                        organization_type,
+                        headquarters_cell: Some(cell.clone()),
+                        parent_organization_id,
+                        founder_unit_id,
+                    };
+
+                    match db_tables.organizations.create_organization(request).await {
+                        Ok(org_id) => {
+                            tracing::info!("✓ Organization created with ID {}", org_id);
+
+                            // Add some territory cells around headquarters
+                            for neighbor in cell.neighbors() {
+                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                            }
+                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+
+                            vec![ServerMessage::DebugOrganizationCreated {
+                                organization_id: org_id,
+                                name,
+                            }]
+                        }
+                        Err(e) => {
+                            tracing::error!("✗ Failed to create organization: {}", e);
+                            vec![ServerMessage::DebugError {
+                                reason: format!("Failed to create organization: {}", e),
+                            }]
+                        }
                     }
-                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
-
-                    vec![ServerMessage::DebugOrganizationCreated {
-                        organization_id: org_id,
-                        name,
-                    }]
                 }
                 Err(e) => {
-                    tracing::error!("✗ Failed to create organization: {}", e);
+                    tracing::error!("✗ Failed to create leader unit: {}", e);
                     vec![ServerMessage::DebugError {
-                        reason: format!("Failed to create organization: {}", e),
+                        reason: format!("Failed to create leader unit: {}", e),
                     }]
                 }
             }

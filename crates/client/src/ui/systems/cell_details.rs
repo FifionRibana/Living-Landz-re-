@@ -6,9 +6,9 @@ use shared::{
 
 use crate::{
     grid::resources::SelectedHexes,
-    state::resources::WorldCache,
+    state::resources::{WorldCache, CurrentOrganization},
     ui::components::{
-        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsPanelMarker,
+        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsOrganizationText, CellDetailsPanelMarker,
         CellDetailsQualityGaugeContainer, CellDetailsTitleText,
     },
 };
@@ -249,6 +249,28 @@ pub fn update_cell_details_content(
 
         if let Ok(mut visibility) = gauge_query.single_mut() {
             *visibility = Visibility::Hidden;
+        }
+    }
+}
+
+pub fn update_organization_info(
+    current_organization: Res<CurrentOrganization>,
+    mut text_query: Query<&mut Text, With<CellDetailsOrganizationText>>,
+) {
+    if !current_organization.is_changed() {
+        return;
+    }
+
+    for mut text in &mut text_query {
+        if let Some(org) = &current_organization.organization {
+            **text = format!(
+                "{} ({})\nPopulation: {}",
+                org.name,
+                format!("{:?}", org.organization_type),
+                org.population
+            );
+        } else {
+            **text = "No organization".to_string();
         }
     }
 }

@@ -163,6 +163,35 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     is_hoverable: false,
                 },
             ));
+
+            // Spacer
+            parent.spawn((
+                Node {
+                    height: px(20.0),
+                    ..default()
+                },
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: false,
+                },
+            ));
+
+            // Debug commands help
+            parent.spawn((
+                Text::new("=== DEBUG COMMANDS ===\nShift+M: Hamlet\nShift+V: Village\nShift+T: Town\nShift+C: City\nShift+U: Spawn Unit\nShift+D: Delete Org\nShift+H: Help"),
+                TextFont {
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 1.0, 0.0)),
+                Node {
+                    ..default()
+                },
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: false,
+                },
+            ));
         });
 }
 
