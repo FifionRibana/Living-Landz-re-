@@ -26,6 +26,8 @@ impl UnitsTable {
         first_name: String,
         last_name: String,
         gender: String,
+        portrait_variant_id: String,
+        avatar_url: String,
         cell: GridCell,
         chunk: TerrainChunkId,
         profession: ProfessionEnum,
@@ -36,9 +38,9 @@ impl UnitsTable {
         let unit_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO units.units
-            (player_id, first_name, last_name, gender, level, current_cell_q, current_cell_r,
-             current_chunk_x, current_chunk_y, profession_id, money)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
+             current_cell_q, current_cell_r, current_chunk_x, current_chunk_y, profession_id, money)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
             "#,
         )
@@ -47,6 +49,8 @@ impl UnitsTable {
         .bind(&last_name)
         .bind(&gender)
         .bind(1) // level = 1
+        .bind(&avatar_url)
+        .bind(&portrait_variant_id)
         .bind(cell.q)
         .bind(cell.r)
         .bind(chunk.x)
@@ -107,7 +111,7 @@ impl UnitsTable {
     pub async fn load_unit(&self, unit_id: u64) -> Result<UnitData, String> {
         let row = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -127,6 +131,7 @@ impl UnitsTable {
             gender: row.get("gender"),
             level: row.get("level"),
             avatar_url: row.get("avatar_url"),
+            portrait_variant_id: row.get("portrait_variant_id"),
             current_cell: GridCell {
                 q: row.get("current_cell_q"),
                 r: row.get("current_cell_r"),
@@ -147,7 +152,7 @@ impl UnitsTable {
     pub async fn load_player_units(&self, player_id: u64) -> Result<Vec<UnitData>, String> {
         let rows = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -169,6 +174,7 @@ impl UnitsTable {
                 gender: row.get("gender"),
                 level: row.get("level"),
                 avatar_url: row.get("avatar_url"),
+                portrait_variant_id: row.get("portrait_variant_id"),
                 current_cell: GridCell {
                     q: row.get("current_cell_q"),
                     r: row.get("current_cell_r"),
@@ -190,7 +196,7 @@ impl UnitsTable {
     pub async fn load_chunk_units(&self, chunk: TerrainChunkId) -> Result<Vec<UnitData>, String> {
         let rows = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -213,6 +219,7 @@ impl UnitsTable {
                 gender: row.get("gender"),
                 level: row.get("level"),
                 avatar_url: row.get("avatar_url"),
+                portrait_variant_id: row.get("portrait_variant_id"),
                 current_cell: GridCell {
                     q: row.get("current_cell_q"),
                     r: row.get("current_cell_r"),
