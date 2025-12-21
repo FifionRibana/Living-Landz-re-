@@ -4,6 +4,7 @@ use tokio::net::TcpListener;
 
 use crate::action_processor::ActionProcessor;
 use crate::database::client::DatabaseTables;
+use crate::units::NameGenerator;
 
 use super::super::Sessions;
 use super::handlers;
@@ -18,7 +19,7 @@ impl NetworkServer {
         Self { address, port }
     }
 
-    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>) {
+    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>, name_generator: Arc<NameGenerator>) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -31,16 +32,17 @@ impl NetworkServer {
             let sessions_clone = sessions.clone();
             let db_tables_clone = db_tables.clone();
             let action_processor_clone = action_processor.clone();
+            let name_generator_clone = name_generator.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
-                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone, action_processor_clone).await;
+                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone, action_processor_clone, name_generator_clone).await;
             });
         }
     }
 }
 
-pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>) {
+pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>, name_generator: Arc<NameGenerator>) {
     tracing::info!("Starting network server...");
 
     // Normal server startup
@@ -54,10 +56,11 @@ pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, act
     let sessions_clone = sessions.clone();
     let db_tables_clone = db_tables.clone();
     let action_processor_clone = action_processor.clone();
+    let name_generator_clone = name_generator.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
-        server.start(sessions_clone, db_tables_clone, action_processor_clone).await;
+        server.start(sessions_clone, db_tables_clone, action_processor_clone, name_generator_clone).await;
     });
 
     tracing::info!("✓ Network server spawned");

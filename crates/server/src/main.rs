@@ -7,6 +7,7 @@ mod action_processor;
 mod database;
 mod networking;
 mod road;
+mod units;
 mod utils;
 mod world;
 
@@ -67,6 +68,16 @@ async fn main() {
     let sessions = networking::Sessions::default();
     let db_tables_arc = Arc::new(db_tables);
 
+    // Charger le générateur de noms
+    let name_generator = match units::NameGenerator::load_from_files() {
+        Ok(generator) => Arc::new(generator),
+        Err(e) => {
+            tracing::error!("Failed to load name generator: {}", e);
+            tracing::warn!("Using fallback name generation");
+            return;
+        }
+    };
+
     // Créer le processeur d'actions AVANT d'initialiser le serveur
     let action_processor = Arc::new(action_processor::ActionProcessor::new(
         db_tables_arc.clone(),
@@ -78,11 +89,12 @@ async fn main() {
         tracing::error!("Failed to load active actions: {}", e);
     }
 
-    // Initialiser le serveur réseau avec l'action_processor
+    // Initialiser le serveur réseau avec l'action_processor et name_generator
     networking::server::initialize_server(
         sessions.clone(),
         db_tables_arc.clone(),
-        action_processor.clone()
+        action_processor.clone(),
+        name_generator.clone()
     );
 
     // Démarrer le processeur d'actions en arrière-plan

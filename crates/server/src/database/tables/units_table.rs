@@ -25,6 +25,7 @@ impl UnitsTable {
         player_id: Option<u64>,
         first_name: String,
         last_name: String,
+        gender: String,
         cell: GridCell,
         chunk: TerrainChunkId,
         profession: ProfessionEnum,
@@ -35,15 +36,16 @@ impl UnitsTable {
         let unit_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO units.units
-            (player_id, first_name, last_name, level, current_cell_q, current_cell_r,
+            (player_id, first_name, last_name, gender, level, current_cell_q, current_cell_r,
              current_chunk_x, current_chunk_y, profession_id, money)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             "#,
         )
         .bind(player_id.map(|id| id as i64))
         .bind(&first_name)
         .bind(&last_name)
+        .bind(&gender)
         .bind(1) // level = 1
         .bind(cell.q)
         .bind(cell.r)
@@ -105,7 +107,7 @@ impl UnitsTable {
     pub async fn load_unit(&self, unit_id: u64) -> Result<UnitData, String> {
         let row = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -122,6 +124,7 @@ impl UnitsTable {
             player_id: row.get::<Option<i64>, _>("player_id").map(|id| id as u64),
             first_name: row.get("first_name"),
             last_name: row.get("last_name"),
+            gender: row.get("gender"),
             level: row.get("level"),
             avatar_url: row.get("avatar_url"),
             current_cell: GridCell {
@@ -144,7 +147,7 @@ impl UnitsTable {
     pub async fn load_player_units(&self, player_id: u64) -> Result<Vec<UnitData>, String> {
         let rows = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -163,6 +166,7 @@ impl UnitsTable {
                 player_id: row.get::<Option<i64>, _>("player_id").map(|id| id as u64),
                 first_name: row.get("first_name"),
                 last_name: row.get("last_name"),
+                gender: row.get("gender"),
                 level: row.get("level"),
                 avatar_url: row.get("avatar_url"),
                 current_cell: GridCell {
@@ -186,7 +190,7 @@ impl UnitsTable {
     pub async fn load_chunk_units(&self, chunk: TerrainChunkId) -> Result<Vec<UnitData>, String> {
         let rows = sqlx::query(
             r#"
-            SELECT id, player_id, first_name, last_name, level, avatar_url,
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
                    profession_id, money, slot_type, slot_index
             FROM units.units
@@ -206,6 +210,7 @@ impl UnitsTable {
                 player_id: row.get::<Option<i64>, _>("player_id").map(|id| id as u64),
                 first_name: row.get("first_name"),
                 last_name: row.get("last_name"),
+                gender: row.get("gender"),
                 level: row.get("level"),
                 avatar_url: row.get("avatar_url"),
                 current_cell: GridCell {
