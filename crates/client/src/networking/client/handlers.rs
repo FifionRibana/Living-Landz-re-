@@ -1,8 +1,28 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, WorldCache};
+use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache, WorldCache};
 use crate::rendering::terrain::components::Terrain;
+use shared::SlotPosition;
+use shared::SlotType;
+
+/// Helper function to convert database slot data to SlotPosition
+fn db_to_slot_position(slot_type: Option<String>, slot_index: Option<i32>) -> Option<SlotPosition> {
+    match (slot_type, slot_index) {
+        (Some(type_str), Some(index)) if index >= 0 => {
+            let slot_type_enum = match type_str.as_str() {
+                "interior" => SlotType::Interior,
+                "exterior" => SlotType::Exterior,
+                _ => return None,
+            };
+            Some(SlotPosition {
+                slot_type: slot_type_enum,
+                index: index as usize,
+            })
+        }
+        _ => None,
+    }
+}
 
 pub fn handle_server_message(
     mut connection: ResMut<ConnectionStatus>,
@@ -10,6 +30,7 @@ pub fn handle_server_message(
     mut cache: ResMut<WorldCache>,
     mut action_tracker: ResMut<ActionTracker>,
     mut current_organization: ResMut<CurrentOrganization>,
+    mut units_cache: ResMut<UnitsCache>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     time: Res<Time>,
     mut commands: Commands,
@@ -55,8 +76,9 @@ pub fn handle_server_message(
                 biome_chunk_data,
                 cell_data,
                 building_data,
+                unit_data,
             } => {
-                info!("✓ Received terrain: {}", terrain_chunk_data.clone().name);
+                info!("✓ Received terrain: {} with {} units", terrain_chunk_data.clone().name, unit_data.len());
 
                 let is_update = cache.insert_terrain(&terrain_chunk_data);
 
@@ -81,6 +103,22 @@ pub fn handle_server_message(
 
                 cache.insert_cells(&cell_data);
                 cache.insert_buildings(&building_data);
+
+                // Load units and their slot positions into cache
+                for unit in unit_data {
+                    let cell = unit.current_cell;
+                    let unit_id = unit.id;
+
+                    // Add unit to the cache
+                    units_cache.add_unit(cell, unit_id);
+
+                    // If unit has a slot position, add it to slot occupancy
+                    if let Some(slot_pos) = db_to_slot_position(unit.slot_type, unit.slot_index) {
+                        info!("Loading unit {} at cell ({},{}) slot {:?}:{}",
+                            unit_id, cell.q, cell.r, slot_pos.slot_type, slot_pos.index);
+                        units_cache.set_unit_slot(cell, slot_pos, unit_id);
+                    }
+                }
             }
             shared::protocol::ServerMessage::OceanData { ocean_data } => {
                 info!("✓ Received ocean data for world: {}", ocean_data.name);
@@ -182,12 +220,37 @@ pub fn handle_server_message(
             }
             shared::protocol::ServerMessage::DebugUnitSpawned { unit_id, cell } => {
                 info!("✓ Unit {} spawned at {:?}", unit_id, cell);
+                units_cache.add_unit(cell, unit_id);
+
+                // Request chunk data refresh to get full unit data including slot positions
+                // Assuming cell is at chunk (0, 0) - TODO: get actual chunk from cell position
+                let chunk_id = shared::TerrainChunkId { x: 0, y: 0 };
+                info!("Requesting chunk data refresh for unit spawn at ({}, {})", chunk_id.x, chunk_id.y);
+
+                network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
+                    terrain_name: "Gaulyia".to_string(),
+                    terrain_chunk_ids: vec![chunk_id],
+                });
             }
             shared::protocol::ServerMessage::OrganizationAtCell { cell, organization } => {
                 current_organization.update(cell, organization);
             }
             shared::protocol::ServerMessage::DebugError { reason } => {
                 warn!("Debug error: {}", reason);
+            }
+
+            shared::protocol::ServerMessage::UnitSlotUpdated { unit_id, cell, slot_position } => {
+                info!("Unit {} slot updated at cell {:?}: {:?}", unit_id, cell, slot_position);
+
+                // Clear old slot for this unit if it exists
+                if let Some(old_slot) = units_cache.get_unit_slot(&cell, unit_id) {
+                    units_cache.remove_unit_from_slot(cell, old_slot);
+                }
+
+                // Set new slot position if provided
+                if let Some(new_slot) = slot_position {
+                    units_cache.set_unit_slot(cell, new_slot, unit_id);
+                }
             }
 
             shared::protocol::ServerMessage::Pong => {}

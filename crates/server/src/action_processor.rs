@@ -1219,6 +1219,7 @@ impl ActionProcessor {
             ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
             ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
             ServerMessage::DebugError { .. } => "DebugError",
+            ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
             ServerMessage::Pong => "Pong",
         };
 

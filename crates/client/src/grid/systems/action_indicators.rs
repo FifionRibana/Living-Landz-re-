@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use shared::{ActionStatusEnum, TerrainChunkId, grid::GridCell};
+use hexx::Hex;
+use shared::{ActionStatusEnum, TerrainChunkId, grid::{GridCell, GridConfig}};
 
 use crate::{
     grid::components::{ActionIndicator, CompletedIndicator, InProgressIndicator, PendingIndicator},
@@ -10,8 +11,9 @@ use crate::{
 pub fn update_action_indicators(
     mut commands: Commands,
     action_tracker: Res<ActionTracker>,
+    grid_config: Res<GridConfig>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     existing_indicators: Query<(Entity, &ActionIndicator)>,
 ) {
     // Collecter les indicateurs existants
@@ -30,6 +32,7 @@ pub fn update_action_indicators(
                     commands.entity(*entity).despawn();
                     spawn_action_indicator(
                         &mut commands,
+                        &grid_config,
                         &mut meshes,
                         &mut materials,
                         action.action_id,
@@ -43,6 +46,7 @@ pub fn update_action_indicators(
                 // Nouvel indicateur à créer
                 spawn_action_indicator(
                     &mut commands,
+                    &grid_config,
                     &mut meshes,
                     &mut materials,
                     action.action_id,
@@ -64,24 +68,23 @@ pub fn update_action_indicators(
 
 fn spawn_action_indicator(
     commands: &mut Commands,
+    grid_config: &GridConfig,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<ColorMaterial>,
     action_id: u64,
     chunk_id: &TerrainChunkId,
     cell: &GridCell,
     status: ActionStatusEnum,
 ) {
-    // Calculer la position 3D de la cellule
-    let hex_radius = 1.0;
-    let hex_height = (3.0_f32).sqrt() * hex_radius;
-    let x = hex_radius * 1.5 * cell.q as f32;
-    let z = hex_height * (cell.r as f32 + cell.q as f32 * 0.5);
-    let y = 0.5; // Au-dessus de la cellule
+    // Calculer la position 2D de la cellule en utilisant le layout de la grille
+    let hex = Hex::new(cell.q, cell.r);
+    let world_pos = grid_config.layout.hex_to_world_pos(hex);
 
-    let position = Vec3::new(x, y, z);
+    // Position avec Z pour le layering (au-dessus des hexagones)
+    let position = world_pos.extend(0.5);
 
-    // Créer un petit mesh pour l'indicateur (un petit cercle ou icône)
-    let indicator_mesh = meshes.add(Circle::new(0.2));
+    // Créer un petit mesh pour l'indicateur (un petit cercle)
+    let indicator_mesh = meshes.add(Circle::new(0.3));
 
     // Couleur selon le statut
     let color = match status {
@@ -91,18 +94,13 @@ fn spawn_action_indicator(
         ActionStatusEnum::Failed => Color::srgb(1.0, 0.0, 0.0), // Rouge
     };
 
-    let material = materials.add(StandardMaterial {
-        base_color: color,
-        unlit: true,
-        ..default()
-    });
+    let material = materials.add(ColorMaterial::from_color(color));
 
-    // Spawn l'entité indicateur avec les bons composants Bevy
+    // Spawn l'entité indicateur avec les bons composants Bevy 2D
     let mut entity = commands.spawn((
-        Mesh3d(indicator_mesh),
-        MeshMaterial3d(material),
-        Transform::from_translation(position)
-            .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        Mesh2d(indicator_mesh),
+        MeshMaterial2d(material),
+        Transform::from_translation(position),
         ActionIndicator {
             action_id,
             chunk_id: chunk_id.clone(),
@@ -118,6 +116,20 @@ fn spawn_action_indicator(
         }
         ActionStatusEnum::InProgress => {
             entity.insert(InProgressIndicator);
+
+            // Ajouter un texte pour afficher le timer sur la cellule
+            entity.with_children(|parent| {
+                parent.spawn((
+                    Text2d::new(""),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_translation(Vec3::new(0.0, 0.6, 0.1)),
+                    ActionTimerText,
+                ));
+            });
         }
         ActionStatusEnum::Completed => {
             entity.insert(CompletedIndicator);
@@ -125,13 +137,20 @@ fn spawn_action_indicator(
     }
 }
 
-/// Système pour animer les indicateurs InProgress (rotation)
+/// Marker component pour le texte du timer d'action
+#[derive(Component)]
+pub struct ActionTimerText;
+
+/// Système pour animer les indicateurs InProgress (pulse d'échelle)
 pub fn animate_in_progress_indicators(
     time: Res<Time>,
     mut query: Query<&mut Transform, With<InProgressIndicator>>,
 ) {
+    let time_secs = time.elapsed_secs();
     for mut transform in query.iter_mut() {
-        transform.rotate_z(time.delta_secs() * 2.0);
+        // Animation de pulsation avec un cycle de 2 secondes
+        let scale = 1.0 + (time_secs * 3.14159).sin() * 0.15;
+        transform.scale = Vec3::splat(scale);
     }
 }
 
@@ -149,6 +168,39 @@ pub fn cleanup_completed_indicators(
             // Retirer l'indicateur 3 secondes après la complétion
             if current_time > action.completion_time + 3 {
                 commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
+/// Système pour mettre à jour le texte du timer sur les indicateurs en cours
+pub fn update_action_timer_text(
+    action_tracker: Res<ActionTracker>,
+    indicator_query: Query<(&ActionIndicator, &Children), With<InProgressIndicator>>,
+    mut text_query: Query<&mut Text2d, With<ActionTimerText>>,
+) {
+    for (indicator, children) in indicator_query.iter() {
+        if let Some(action) = action_tracker.get_action(indicator.action_id) {
+            // Calculer le temps restant
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let remaining_seconds = if current_time < action.completion_time {
+                action.completion_time - current_time
+            } else {
+                0
+            };
+
+            let minutes = remaining_seconds / 60;
+            let seconds = remaining_seconds % 60;
+
+            // Mettre à jour le texte dans les enfants
+            for child in children.iter() {
+                if let Ok(mut text) = text_query.get_mut(child) {
+                    **text = format!("{}:{:02}", minutes, seconds);
+                }
             }
         }
     }

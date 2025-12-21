@@ -3,7 +3,7 @@ use shared::atlas::GaugeAtlas;
 
 use crate::ui::{
     components::{
-        CellDetailsActionStatusText, CellDetailsActionTypeText, CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsPanelMarker, CellDetailsQualityGaugeContainer, CellDetailsTitleText
+        CellDetailsActionStatusText, CellDetailsActionTypeText, CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsOrganizationText, CellDetailsPanelMarker, CellDetailsQualityGaugeContainer, CellDetailsTitleText
     },
     debug::HoveredCellInfoText,
 };
@@ -241,6 +241,23 @@ pub fn setup_cell_details_panel(
                         TextColor(Color::srgb_u8(67, 60, 37)),
                         Node { ..default() },
                         HoveredCellInfoText,
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: false,
+                        },
+                    ));
+                    frame_parent.spawn((
+                        Text::new(""),
+                        TextFont {
+                            font_size: 12.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb_u8(140, 110, 70)),
+                        Node {
+                            margin: UiRect::top(px(8.)),
+                            ..default()
+                        },
+                        CellDetailsOrganizationText,
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
