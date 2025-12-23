@@ -263,7 +263,7 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
-                let (mut terrain_chunk_data, biome_chunk_data) = match db_tables
+                let (terrain_chunk_data, biome_chunk_data) = match db_tables
                     .terrains
                     .load_terrain(terrain_name_ref, terrain_chunk_id)
                     .await
@@ -275,7 +275,7 @@ async fn handle_client_message(
                     Ok((None, Some(biome_chunk_data))) => (
                         TerrainChunkData {
                             name: terrain_name.clone(),
-                            id: terrain_chunk_id.clone(),
+                            id: *terrain_chunk_id,
                             ..TerrainChunkData::default()
                         },
                         biome_chunk_data,
@@ -291,7 +291,7 @@ async fn handle_client_message(
                         (
                             TerrainChunkData {
                                 name: terrain_name.clone(),
-                                id: terrain_chunk_id.clone(),
+                                id: *terrain_chunk_id,
                                 ..TerrainChunkData::default()
                             },
                             vec![],
@@ -309,7 +309,7 @@ async fn handle_client_message(
                         (
                             TerrainChunkData {
                                 name: terrain_name.clone(),
-                                id: terrain_chunk_id.clone(),
+                                id: *terrain_chunk_id,
                                 ..TerrainChunkData::default()
                             },
                             vec![],
@@ -357,7 +357,7 @@ async fn handle_client_message(
                         // Send road data separately to avoid message size limits
                         responses.push(ServerMessage::RoadChunkSdfUpdate {
                             terrain_name: terrain_name.clone(),
-                            chunk_id: terrain_chunk_id.clone(),
+                            chunk_id: *terrain_chunk_id,
                             road_sdf_data: road_sdf,
                         });
                     }
@@ -399,8 +399,8 @@ async fn handle_client_message(
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildBuilding(BuildBuildingAction {
                 player_id,
-                chunk_id: chunk_id.clone(),
-                cell: cell.clone(),
+                chunk_id,
+                cell,
                 building_type,
                 building_specific_type,
             });
@@ -411,14 +411,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    chunk: chunk_id,
+                    cell,
                     action_type: ActionTypeEnum::BuildBuilding,
                     action_specific_type: ActionSpecificTypeEnum::BuildBuilding,
                     start_time,
@@ -436,8 +436,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id,
+                        cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::BuildBuilding,
                         completion_time: start_time + (duration_ms / 1000),
@@ -470,8 +470,8 @@ async fn handle_client_message(
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildRoad(BuildRoadAction {
                 player_id,
-                start_cell: start_cell.clone(),
-                end_cell: end_cell.clone(),
+                start_cell,
+                end_cell,
             });
 
             // Calculer le chunk à partir de la cellule de départ
@@ -484,14 +484,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: start_cell.clone(),
+                grid_cell: start_cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: start_cell.clone(),
+                    chunk: chunk_id,
+                    cell: start_cell,
                     action_type: ActionTypeEnum::BuildRoad,
                     action_specific_type: ActionSpecificTypeEnum::BuildRoad,
                     start_time,
@@ -509,8 +509,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: start_cell.clone(),
+                        chunk_id,
+                        cell: start_cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::BuildRoad,
                         completion_time: start_time + (duration_ms / 1000),
@@ -538,8 +538,8 @@ async fn handle_client_message(
             let specific_data = SpecificAction::CraftResource(CraftResourceAction {
                 player_id,
                 recipe_id,
-                chunk_id: chunk_id.clone(),
-                cell: cell.clone(),
+                chunk_id,
+                cell,
                 quantity,
             });
 
@@ -549,14 +549,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    chunk: chunk_id,
+                    cell,
                     action_type: ActionTypeEnum::CraftResource,
                     action_specific_type: ActionSpecificTypeEnum::CraftResource,
                     start_time,
@@ -572,8 +572,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id,
+                        cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::CraftResource,
                         completion_time: start_time + (duration_ms / 1000),
@@ -599,8 +599,8 @@ async fn handle_client_message(
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::HarvestResource(HarvestResourceAction {
                 player_id,
-                chunk_id: chunk_id.clone(),
-                cell: cell.clone(),
+                chunk_id,
+                cell,
                 resource_specific_type,
             });
 
@@ -610,14 +610,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    chunk: chunk_id,
+                    cell,
                     action_type: ActionTypeEnum::HarvestResource,
                     action_specific_type: ActionSpecificTypeEnum::HarvestResource,
                     start_time,
@@ -633,8 +633,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id,
+                        cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::HarvestResource,
                         completion_time: start_time + (duration_ms / 1000),
@@ -661,8 +661,8 @@ async fn handle_client_message(
             let specific_data = SpecificAction::MoveUnit(MoveUnitAction {
                 player_id,
                 unit_id,
-                chunk_id: chunk_id.clone(),
-                cell: cell.clone(),
+                chunk_id,
+                cell,
             });
 
             let start_time = std::time::SystemTime::now()
@@ -671,14 +671,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    chunk: chunk_id,
+                    cell,
                     action_type: ActionTypeEnum::MoveUnit,
                     action_specific_type: ActionSpecificTypeEnum::MoveUnit,
                     start_time,
@@ -694,8 +694,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id,
+                        cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::MoveUnit,
                         completion_time: start_time + (duration_ms / 1000),
@@ -746,7 +746,7 @@ async fn handle_client_message(
                     // Broadcast success to all clients
                     responses.push(ServerMessage::UnitSlotUpdated {
                         unit_id,
-                        cell: cell.clone(),
+                        cell,
                         slot_position: Some(to_slot),
                     });
                 }
@@ -794,7 +794,7 @@ async fn handle_client_message(
                     // Broadcast success to all clients
                     responses.push(ServerMessage::UnitSlotUpdated {
                         unit_id,
-                        cell: cell.clone(),
+                        cell,
                         slot_position: Some(slot),
                     });
                 }
@@ -829,14 +829,14 @@ async fn handle_client_message(
                 .as_secs();
             let duration_ms = specific_data.duration_ms(&ActionContext {
                 player_id,
-                grid_cell: cell.clone(),
+                grid_cell: cell,
             });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
                     player_id,
-                    chunk: chunk_id.clone(),
-                    cell: cell.clone(),
+                    chunk: chunk_id,
+                    cell,
                     action_type: ActionTypeEnum::SendMessage,
                     action_specific_type: ActionSpecificTypeEnum::SendMessage,
                     start_time,
@@ -852,8 +852,8 @@ async fn handle_client_message(
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id,
+                        cell,
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::SendMessage,
                         completion_time: start_time + (duration_ms / 1000),
@@ -920,7 +920,7 @@ async fn handle_client_message(
                 let mut rng = rand::rng();
 
                 // Generate random gender
-                let is_male = rng.gen_bool(0.5);
+                let is_male = rng.random_bool(0.5);
                 let gender_str = if is_male { "male" } else { "female" };
 
                 // Use NameGenerator to get realistic names based on gender
@@ -940,7 +940,7 @@ async fn handle_client_message(
                 gender.clone(),
                 portrait_variant_id,
                 avatar_url,
-                cell.clone(),
+                cell,
                 shared::TerrainChunkId { x: 0, y: 0 },
                 shared::ProfessionEnum::Merchant,
             ).await;
@@ -950,7 +950,7 @@ async fn handle_client_message(
                     let request = shared::CreateOrganizationRequest {
                         name: name.clone(),
                         organization_type,
-                        headquarters_cell: Some(cell.clone()),
+                        headquarters_cell: Some(cell),
                         parent_organization_id,
                         founder_unit_id,
                     };
@@ -1018,14 +1018,14 @@ async fn handle_client_message(
                 let mut rng = rand::rng();
 
                 // Generate random gender (true = male, false = female)
-                let is_male = rng.gen_bool(0.5);
+                let is_male = rng.random_bool(0.5);
                 let gender_str = if is_male { "male" } else { "female" };
 
                 // Use NameGenerator to get realistic names based on gender
                 let (first_name, last_name) = name_generator.generate_random_name(Some(is_male));
 
                 // Generate random profession
-                let profession_id: i16 = rng.gen_range(1..=16);
+                let profession_id: i16 = rng.random_range(1..=16);
                 let profession = shared::ProfessionEnum::from_id(profession_id)
                     .unwrap_or(shared::ProfessionEnum::Farmer);
 
@@ -1042,7 +1042,7 @@ async fn handle_client_message(
                 gender.clone(),
                 portrait_variant_id.clone(),
                 avatar_url.clone(),
-                cell.clone(),
+                cell,
                 shared::TerrainChunkId { x: 0, y: 0 }, // Default chunk
                 profession,
             ).await {

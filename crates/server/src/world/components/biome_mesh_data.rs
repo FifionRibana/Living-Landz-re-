@@ -4,8 +4,12 @@ use hexx::*;
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use rayon::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants,
-    get_biome_from_color,
+    BiomeChunkData,
+    BiomeColor,
+    MeshData as SharedMeshData,
+    TerrainChunkId,
+    constants,
+    // get_biome_from_color,
     grid::{CellData, GridCell},
     types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome},
 };
@@ -58,7 +62,7 @@ impl BiomeMeshData {
         name: &str,
         image: &DynamicImage,
         binary_mask: &ImageBuffer<Luma<u8>, Vec<u8>>,
-        binary_masks: &HashMap<TerrainChunkId, ImageBuffer<Luma<u8>, Vec<u8>>>,
+        _binary_masks: &HashMap<TerrainChunkId, ImageBuffer<Luma<u8>, Vec<u8>>>,
         scale: &Vec2,
         cache_directory: &str,
     ) -> Self {
@@ -71,17 +75,14 @@ impl BiomeMeshData {
             let load_result = file_system::load_from_disk(
                 format!("{}{}_biomemap_{:?}.bin", cache_directory, name, biome_type).as_str(),
             );
-            let mut loaded = false;
             let mut scaled_image: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::default();
-            match load_result {
+            let loaded = match load_result {
                 Ok(image) => {
                     scaled_image = image;
-                    loaded = true;
+                    true
                 }
-                _ => {
-                    loaded = false;
-                }
-            }
+                _ => false,
+            };
 
             if !loaded {
                 tracing::info!(
@@ -130,7 +131,7 @@ impl BiomeMeshData {
                     t1.elapsed()
                 );
 
-                file_system::save_to_disk(
+                let _ = file_system::save_to_disk(
                     scaled_image_ref,
                     format!("{}{}_biomemap_{:?}.bin", cache_directory, name, biome_type).as_str(),
                 );
@@ -157,7 +158,7 @@ impl BiomeMeshData {
                     let x_offset = (cx * constants::CHUNK_SIZE.x as i32) as u32;
                     let y_offset = (cy * constants::CHUNK_SIZE.y as i32) as u32;
 
-                    let mut cropped = ImageBuffer::from_fn(
+                    let cropped = ImageBuffer::from_fn(
                         constants::CHUNK_SIZE.x as u32,
                         constants::CHUNK_SIZE.y as u32,
                         |px, py| *scaled_image.get_pixel(x_offset + px, y_offset + py),
@@ -262,17 +263,15 @@ impl BiomeMeshData {
         let load_result = file_system::load_from_disk(
             format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
         );
-        let mut loaded = false;
+        // let mut loaded = false;
         let mut scaled_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::default();
-        match load_result {
+        let loaded = match load_result {
             Ok(image) => {
                 scaled_image = image;
-                loaded = true;
+                true
             }
-            _ => {
-                loaded = false;
-            }
-        }
+            _ => false,
+        };
 
         if !loaded {
             let t1 = std::time::Instant::now();
@@ -296,7 +295,7 @@ impl BiomeMeshData {
                 t1.elapsed()
             );
 
-            file_system::save_to_disk(
+            let _ = file_system::save_to_disk(
                 scaled_image_ref,
                 format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
             );
@@ -390,7 +389,6 @@ impl BiomeMeshData {
             let input_path = format!("{}{}_biomemap_{:?}.bin", cache_directory, name, biome_type);
             info!("using: {}", input_path);
             let load_result = file_system::load_from_disk::<Luma<u8>>(input_path.as_str());
-            let mut loaded = false;
             match load_result {
                 Ok(image) => {
                     let output_path = std::path::Path::new(&input_path)

@@ -1,0 +1,2 @@
+-- Cannot revert this migration as we don't know the original incorrect values
+-- The original building_type_id values were incorrect and should not be restored

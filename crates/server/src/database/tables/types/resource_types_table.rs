@@ -14,7 +14,7 @@ impl ResourceTypesTable {
     }
 
     pub async fn initialize_resources(&self) -> Result<(), sqlx::Error> {
-        let types = vec![
+        let types = [
             ("Cedar", ResourceCategoryEnum::Wood, ResourceSpecificTypeEnum::Wood, "Cedar wood"),
             ("Iron", ResourceCategoryEnum::Metal, ResourceSpecificTypeEnum::Metal, "Iron ingots"),
             ("Iron ore", ResourceCategoryEnum::CrudeMaterial, ResourceSpecificTypeEnum::Ore, "Iron ore"),

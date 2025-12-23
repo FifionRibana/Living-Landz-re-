@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use shared::{grid::GridCell, RoadSegmentData};
-use sqlx::{PgPool, Row};
 use crate::road::RoadSegment;
+use bevy::prelude::*;
+use shared::grid::GridCell;
+use sqlx::{PgPool, Row};
 
 #[derive(Resource, Clone)]
 pub struct RoadSegmentsTable {
@@ -85,8 +85,8 @@ impl RoadSegmentsTable {
         // Créer un segment temporaire avec l'ID pour calculer les chunks
         let segment_with_id = RoadSegment {
             id: segment_id,
-            start_cell: segment.start_cell.clone(),
-            end_cell: segment.end_cell.clone(),
+            start_cell: segment.start_cell,
+            end_cell: segment.end_cell,
             cell_path: segment.cell_path.clone(),
             points: segment.points.clone(),
             importance: segment.importance,
@@ -94,7 +94,11 @@ impl RoadSegmentsTable {
         };
 
         if let Err(e) = self.update_chunk_visibility(&segment_with_id).await {
-            tracing::warn!("Failed to update chunk visibility for segment {}: {}", segment_id, e);
+            tracing::warn!(
+                "Failed to update chunk visibility for segment {}: {}",
+                segment_id,
+                e
+            );
             // On continue quand même, la visibilité peut être mise à jour plus tard
         }
 
@@ -103,7 +107,12 @@ impl RoadSegmentsTable {
 
     /// Sauvegarde un segment de route avec des coordonnées de chunk explicites
     /// (au lieu de les calculer à partir de la cellule)
-    pub async fn save_road_segment_with_chunk(&self, segment: &RoadSegment, chunk_x: i32, chunk_y: i32) -> Result<i64, sqlx::Error> {
+    pub async fn save_road_segment_with_chunk(
+        &self,
+        segment: &RoadSegment,
+        chunk_x: i32,
+        chunk_y: i32,
+    ) -> Result<i64, sqlx::Error> {
         // Encoder les points en bincode
         let points_vec: Vec<[f32; 2]> = segment.points.iter().map(|p| p.to_array()).collect();
         let points_bytes = bincode::encode_to_vec(&points_vec, bincode::config::standard())
@@ -171,8 +180,8 @@ impl RoadSegmentsTable {
         // Créer un segment temporaire avec l'ID pour calculer les chunks
         let segment_with_id = RoadSegment {
             id: segment_id,
-            start_cell: segment.start_cell.clone(),
-            end_cell: segment.end_cell.clone(),
+            start_cell: segment.start_cell,
+            end_cell: segment.end_cell,
             cell_path: segment.cell_path.clone(),
             points: segment.points.clone(),
             importance: segment.importance,
@@ -180,7 +189,11 @@ impl RoadSegmentsTable {
         };
 
         if let Err(e) = self.update_chunk_visibility(&segment_with_id).await {
-            tracing::warn!("Failed to update chunk visibility for segment {}: {}", segment_id, e);
+            tracing::warn!(
+                "Failed to update chunk visibility for segment {}: {}",
+                segment_id,
+                e
+            );
             // On continue quand même, la visibilité peut être mise à jour plus tard
         }
 
@@ -223,17 +236,26 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
-                let start_cell = GridCell { q: start_q, r: start_r };
+                let start_cell = GridCell {
+                    q: start_q,
+                    r: start_r,
+                };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
                 // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
-                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path")
+                {
                     // Décoder le cell_path depuis la DB
-                    let cell_path_tuples: Vec<(i32, i32)> =
-                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
-                            .ok()?
-                            .0;
-                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                    let cell_path_tuples: Vec<(i32, i32)> = bincode::decode_from_slice(
+                        &cell_path_bytes[..],
+                        bincode::config::standard(),
+                    )
+                    .ok()?
+                    .0;
+                    cell_path_tuples
+                        .iter()
+                        .map(|&(q, r)| GridCell { q, r })
+                        .collect()
                 } else {
                     // Fallback pour les anciens segments sans cell_path
                     if start_cell == end_cell {
@@ -305,17 +327,26 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
-                let start_cell = GridCell { q: start_q, r: start_r };
+                let start_cell = GridCell {
+                    q: start_q,
+                    r: start_r,
+                };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
                 // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
-                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path")
+                {
                     // Décoder le cell_path depuis la DB
-                    let cell_path_tuples: Vec<(i32, i32)> =
-                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
-                            .ok()?
-                            .0;
-                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                    let cell_path_tuples: Vec<(i32, i32)> = bincode::decode_from_slice(
+                        &cell_path_bytes[..],
+                        bincode::config::standard(),
+                    )
+                    .ok()?
+                    .0;
+                    cell_path_tuples
+                        .iter()
+                        .map(|&(q, r)| GridCell { q, r })
+                        .collect()
                 } else {
                     // Fallback pour les anciens segments sans cell_path
                     if start_cell == end_cell {
@@ -376,7 +407,10 @@ impl RoadSegmentsTable {
                     .ok()?
                     .0;
 
-            let start_cell = GridCell { q: start_q, r: start_r };
+            let start_cell = GridCell {
+                q: start_q,
+                r: start_r,
+            };
             let end_cell = GridCell { q: end_q, r: end_r };
 
             // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
@@ -386,7 +420,10 @@ impl RoadSegmentsTable {
                     bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
                         .ok()?
                         .0;
-                cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                cell_path_tuples
+                    .iter()
+                    .map(|&(q, r)| GridCell { q, r })
+                    .collect()
             } else {
                 // Fallback pour les anciens segments sans cell_path
                 if start_cell == end_cell {
@@ -462,17 +499,26 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
-                let start_cell = GridCell { q: start_q, r: start_r };
+                let start_cell = GridCell {
+                    q: start_q,
+                    r: start_r,
+                };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
                 // Décoder le cell_path depuis la DB, ou reconstruire si absent (anciens segments)
-                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path")
+                {
                     // Décoder le cell_path depuis la DB
-                    let cell_path_tuples: Vec<(i32, i32)> =
-                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
-                            .ok()?
-                            .0;
-                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                    let cell_path_tuples: Vec<(i32, i32)> = bincode::decode_from_slice(
+                        &cell_path_bytes[..],
+                        bincode::config::standard(),
+                    )
+                    .ok()?
+                    .0;
+                    cell_path_tuples
+                        .iter()
+                        .map(|&(q, r)| GridCell { q, r })
+                        .collect()
                 } else {
                     // Fallback pour les anciens segments sans cell_path
                     if start_cell == end_cell {
@@ -515,8 +561,8 @@ impl RoadSegmentsTable {
     /// Utilise les constantes du projet pour calculer le chunk
     fn cell_to_chunk(cell: &GridCell) -> (i32, i32) {
         // Convertir les coordonnées axiales en position monde
-        use shared::constants::{CHUNK_SIZE, HEX_SIZE, HEX_RATIO};
         use hexx::{Hex, HexLayout};
+        use shared::constants::{CHUNK_SIZE, HEX_RATIO, HEX_SIZE};
 
         // Utiliser le même HexLayout que le terrain pour garantir la cohérence
         let layout = HexLayout::flat()
@@ -532,7 +578,12 @@ impl RoadSegmentsTable {
 
         tracing::info!(
             "cell_to_chunk: cell ({},{}) -> world ({:.1},{:.1}) -> chunk ({},{})",
-            cell.q, cell.r, world_pos.x, world_pos.y, chunk_x, chunk_y
+            cell.q,
+            cell.r,
+            world_pos.x,
+            world_pos.y,
+            chunk_x,
+            chunk_y
         );
 
         (chunk_x, chunk_y)
@@ -647,7 +698,12 @@ impl RoadSegmentsTable {
             .execute(&self.pool)
             .await?;
 
-            tracing::info!("  -> Chunk ({},{}) endpoint={}", chunk_x, chunk_y, is_endpoint);
+            tracing::info!(
+                "  -> Chunk ({},{}) endpoint={}",
+                chunk_x,
+                chunk_y,
+                is_endpoint
+            );
         }
 
         Ok(())
@@ -660,7 +716,11 @@ impl RoadSegmentsTable {
         chunk_x: i32,
         chunk_y: i32,
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
-        tracing::info!("Loading road segments for chunk ({},{}) using visibility table", chunk_x, chunk_y);
+        tracing::info!(
+            "Loading road segments for chunk ({},{}) using visibility table",
+            chunk_x,
+            chunk_y
+        );
 
         // Étape 1: Récupérer les IDs des segments visibles dans ce chunk
         let segment_ids: Vec<i64> = sqlx::query_scalar(
@@ -676,11 +736,19 @@ impl RoadSegmentsTable {
         .await?;
 
         if segment_ids.is_empty() {
-            tracing::info!("  No road segments found in chunk ({},{})", chunk_x, chunk_y);
+            tracing::info!(
+                "  No road segments found in chunk ({},{})",
+                chunk_x,
+                chunk_y
+            );
             return Ok(Vec::new());
         }
 
-        tracing::info!("  Found {} segment IDs: {:?}", segment_ids.len(), segment_ids);
+        tracing::info!(
+            "  Found {} segment IDs: {:?}",
+            segment_ids.len(),
+            segment_ids
+        );
 
         // Étape 2: Charger les segments complets
         let rows = sqlx::query(
@@ -712,16 +780,25 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
-                let start_cell = GridCell { q: start_q, r: start_r };
+                let start_cell = GridCell {
+                    q: start_q,
+                    r: start_r,
+                };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
                 // Décoder le cell_path depuis la DB
-                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
-                    let cell_path_tuples: Vec<(i32, i32)> =
-                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
-                            .ok()?
-                            .0;
-                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path")
+                {
+                    let cell_path_tuples: Vec<(i32, i32)> = bincode::decode_from_slice(
+                        &cell_path_bytes[..],
+                        bincode::config::standard(),
+                    )
+                    .ok()?
+                    .0;
+                    cell_path_tuples
+                        .iter()
+                        .map(|&(q, r)| GridCell { q, r })
+                        .collect()
                 } else {
                     // Fallback pour les anciens segments sans cell_path
                     if start_cell == end_cell {
@@ -762,7 +839,11 @@ impl RoadSegmentsTable {
         chunk_x: i32,
         chunk_y: i32,
     ) -> Result<Vec<RoadSegment>, sqlx::Error> {
-        tracing::info!("Loading road segments for chunk ({},{}) AND neighbors using visibility table", chunk_x, chunk_y);
+        tracing::info!(
+            "Loading road segments for chunk ({},{}) AND neighbors using visibility table",
+            chunk_x,
+            chunk_y
+        );
 
         // Étape 1: Récupérer les IDs des segments visibles dans ce chunk ET ses 8 voisins
         let segment_ids: Vec<i64> = sqlx::query_scalar(
@@ -779,11 +860,19 @@ impl RoadSegmentsTable {
         .await?;
 
         if segment_ids.is_empty() {
-            tracing::info!("  No road segments found in chunk ({},{}) or neighbors", chunk_x, chunk_y);
+            tracing::info!(
+                "  No road segments found in chunk ({},{}) or neighbors",
+                chunk_x,
+                chunk_y
+            );
             return Ok(Vec::new());
         }
 
-        tracing::info!("  Found {} segment IDs across chunk and neighbors: {:?}", segment_ids.len(), segment_ids);
+        tracing::info!(
+            "  Found {} segment IDs across chunk and neighbors: {:?}",
+            segment_ids.len(),
+            segment_ids
+        );
 
         // Étape 2: Charger les segments complets
         let rows = sqlx::query(
@@ -815,16 +904,25 @@ impl RoadSegmentsTable {
                         .ok()?
                         .0;
 
-                let start_cell = GridCell { q: start_q, r: start_r };
+                let start_cell = GridCell {
+                    q: start_q,
+                    r: start_r,
+                };
                 let end_cell = GridCell { q: end_q, r: end_r };
 
                 // Décoder le cell_path depuis la DB
-                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path") {
-                    let cell_path_tuples: Vec<(i32, i32)> =
-                        bincode::decode_from_slice(&cell_path_bytes[..], bincode::config::standard())
-                            .ok()?
-                            .0;
-                    cell_path_tuples.iter().map(|&(q, r)| GridCell { q, r }).collect()
+                let cell_path = if let Ok(cell_path_bytes) = row.try_get::<Vec<u8>, _>("cell_path")
+                {
+                    let cell_path_tuples: Vec<(i32, i32)> = bincode::decode_from_slice(
+                        &cell_path_bytes[..],
+                        bincode::config::standard(),
+                    )
+                    .ok()?
+                    .0;
+                    cell_path_tuples
+                        .iter()
+                        .map(|&(q, r)| GridCell { q, r })
+                        .collect()
                 } else {
                     // Fallback pour les anciens segments sans cell_path
                     if start_cell == end_cell {
@@ -854,13 +952,19 @@ impl RoadSegmentsTable {
             })
             .collect();
 
-        tracing::info!("  Loaded {} complete segments from chunk and neighbors", segments.len());
+        tracing::info!(
+            "  Loaded {} complete segments from chunk and neighbors",
+            segments.len()
+        );
         Ok(segments)
     }
 
     /// Récupère tous les chunks où un segment est visible
     /// Utilisé pour régénérer les SDF de tous les chunks affectés quand un segment change
-    pub async fn get_chunks_for_segment(&self, segment_id: i64) -> Result<Vec<(i32, i32)>, sqlx::Error> {
+    pub async fn get_chunks_for_segment(
+        &self,
+        segment_id: i64,
+    ) -> Result<Vec<(i32, i32)>, sqlx::Error> {
         let chunks = sqlx::query_as::<_, (i32, i32)>(
             r#"
             SELECT DISTINCT chunk_x, chunk_y

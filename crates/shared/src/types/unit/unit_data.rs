@@ -238,7 +238,7 @@ impl FullUnitData {
 
     /// Calcule un bonus de stat donné par l'équipement
     /// (Cette fonction devrait être appelée côté serveur avec les données des items)
-    pub fn calculate_equipment_stat_bonus(&self, stat_name: &str) -> i32 {
+    pub fn calculate_equipment_stat_bonus(&self, _stat_name: &str) -> i32 {
         // À implémenter avec les données réelles des items depuis la DB
         // Pour l'instant on retourne 0
         0

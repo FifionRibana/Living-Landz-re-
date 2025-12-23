@@ -2,9 +2,8 @@ use bincode::{Decode, Encode};
 use sqlx::prelude::FromRow;
 
 use crate::{
-    ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildingCategoryEnum,
-    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, ResourceSpecificTypeEnum,
-    TerrainChunkId, grid::GridCell,
+    ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildingSpecificTypeEnum,
+    BuildingTypeEnum, ResourceSpecificTypeEnum, TerrainChunkId, grid::GridCell,
 };
 
 pub struct ActionContext {
@@ -40,13 +39,13 @@ impl SpecificActionData for BuildBuildingAction {
         ActionTypeEnum::BuildBuilding
     }
 
-    fn duration_ms(&self, context: &ActionContext) -> u64 {
+    fn duration_ms(&self, _context: &ActionContext) -> u64 {
         match self.building_specific_type {
             _ => 15_000,
         }
     }
 
-    fn validate(&self, context: &ValidationContext) -> Result<(), String> {
+    fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
         if matches!(
             self.building_specific_type,
             BuildingSpecificTypeEnum::Unknown
@@ -70,14 +69,14 @@ impl SpecificActionData for BuildRoadAction {
         ActionTypeEnum::BuildRoad
     }
 
-    fn duration_ms(&self, context: &ActionContext) -> u64 {
+    fn duration_ms(&self, _context: &ActionContext) -> u64 {
         // Durée basée sur la distance entre start et end
         let distance = self.start_cell.to_hex().distance_to(self.end_cell.to_hex());
         // 1 seconde par cellule + 1 seconde de base
         1_000 + (distance as u64) * 1_000
     }
 
-    fn validate(&self, context: &ValidationContext) -> Result<(), String> {
+    fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
         // Vérifier que les cellules sont différentes ou identiques (point unique autorisé)
         Ok(())
     }
@@ -106,7 +105,7 @@ impl SpecificActionData for MoveUnitAction {
         (distance as u64) * 1000 // 1s par hex
     }
 
-    fn validate(&self, context: &ValidationContext) -> Result<(), String> {
+    fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
         if self.unit_id == 0 {
             return Err("unit_id cannot be 0".to_string());
         }

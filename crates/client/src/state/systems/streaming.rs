@@ -91,7 +91,7 @@ pub fn unload_distant_chunks(
     biome_entities: Query<(Entity, &Biome)>,
     building_entities: Query<(Entity, &Building)>,
     world_cache_opt: Option<ResMut<WorldCache>>,
-    mut streaming_config: ResMut<StreamingConfig>,
+    streaming_config: ResMut<StreamingConfig>,
 ) {
     let Some(mut world_cache) = world_cache_opt else {
         return;

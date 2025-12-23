@@ -10,7 +10,7 @@ where
     // Sauvegarder dimensions + données
     file.write_all(&image.width().to_le_bytes())?;
     file.write_all(&image.height().to_le_bytes())?;
-    file.write_all(&image)?;
+    file.write_all(image)?;
 
     Ok(())
 }

@@ -98,7 +98,7 @@ impl ActionProcessor {
     }
 
     /// Traite les actions Pending qui doivent passer à InProgress
-    async fn process_pending_actions(&self, current_time: u64) {
+    async fn process_pending_actions(&self, _current_time: u64) {
         let mut active_actions = self.active_actions.write().await;
         let mut to_start = Vec::new();
 
@@ -143,8 +143,8 @@ impl ActionProcessor {
                 let message = ServerMessage::ActionStatusUpdate {
                     action_id,
                     player_id: action_info.player_id,
-                    chunk_id: action_info.chunk_id.clone(),
-                    cell: action_info.cell.clone(),
+                    chunk_id: action_info.chunk_id,
+                    cell: action_info.cell,
                     status: ActionStatusEnum::InProgress,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
@@ -222,8 +222,8 @@ impl ActionProcessor {
                 let status_message = ServerMessage::ActionStatusUpdate {
                     action_id,
                     player_id: action_info.player_id,
-                    chunk_id: action_info.chunk_id.clone(),
-                    cell: action_info.cell.clone(),
+                    chunk_id: action_info.chunk_id,
+                    cell: action_info.cell,
                     status: ActionStatusEnum::Completed,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
@@ -235,8 +235,8 @@ impl ActionProcessor {
                 // Pour l'instant on envoie immédiatement
                 let completion_message = ServerMessage::ActionCompleted {
                     action_id,
-                    chunk_id: action_info.chunk_id.clone(),
-                    cell: action_info.cell.clone(),
+                    chunk_id: action_info.chunk_id,
+                    cell: action_info.cell,
                     action_type: action_info.action_type,
                 };
 
@@ -272,9 +272,12 @@ impl ActionProcessor {
         let building_type_id = self.db_tables.actions.get_build_building_type(action_id).await?
             .ok_or_else(|| format!("No building type found for action {}", action_id))?;
 
+        tracing::info!("Building type id: {} for action {}", building_type_id, action_id);
         // Convertir building_type_id en BuildingTypeEnum
         let building_type = BuildingTypeEnum::from_id(building_type_id)
             .ok_or_else(|| format!("Invalid building type ID: {}", building_type_id))?;
+
+        tracing::info!("Building type: {:?} for action {}", building_type, action_id);
 
         // Déterminer la catégorie et le type spécifique
         let building_specific_type = building_type.to_specific_type();
@@ -363,8 +366,8 @@ impl ActionProcessor {
                 id: action_id,
                 category,
                 specific_type: building_specific_type,
-                chunk: action_info.chunk_id.clone(),
-                cell: action_info.cell.clone(),
+                chunk: action_info.chunk_id,
+                cell: action_info.cell,
                 created_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -410,7 +413,7 @@ impl ActionProcessor {
         // Calculer le chemin entre start_cell et end_cell
         let cell_path = if start_cell == end_cell {
             // Cas spécial: un seul point
-            vec![start_cell.clone()]
+            vec![start_cell]
         } else {
             // Vérifier si les cellules sont voisines (direct ou indirect)
             let is_direct_neighbor = start_cell.neighbors().contains(&end_cell);
@@ -418,7 +421,7 @@ impl ActionProcessor {
 
             if is_direct_neighbor || is_indirect_neighbor {
                 // Voisins: créer une route directe
-                vec![start_cell.clone(), end_cell.clone()]
+                vec![start_cell, end_cell]
             } else {
                 // Pas voisins: utiliser le pathfinding
                 tracing::info!(
@@ -426,7 +429,7 @@ impl ActionProcessor {
                     start_cell.q, start_cell.r, end_cell.q, end_cell.r
                 );
 
-                match find_path(start_cell.clone(), end_cell.clone(), PathfindingOptions {
+                match find_path(start_cell, end_cell, PathfindingOptions {
                     neighbor_type: NeighborType::Both,
                     ..Default::default()
                 }) {
@@ -464,8 +467,8 @@ impl ActionProcessor {
         // Créer le nouveau segment de route
         let segment = RoadSegment {
             id: 0,
-            start_cell: cell_path.first().unwrap().clone(),
-            end_cell: cell_path.last().unwrap().clone(),
+            start_cell: *cell_path.first().unwrap(),
+            end_cell: *cell_path.last().unwrap(),
             cell_path: cell_path.clone(),
             points,
             importance: 1,
@@ -584,8 +587,8 @@ impl ActionProcessor {
         // Créer le segment fusionné
         let merged_segment = RoadSegment {
             id: 0, // Nouveau segment
-            start_cell: merged_path.first().unwrap().clone(),
-            end_cell: merged_path.last().unwrap().clone(),
+            start_cell: *merged_path.first().unwrap(),
+            end_cell: *merged_path.last().unwrap(),
             cell_path: merged_path,
             points,
             importance: segments_to_merge.iter().map(|s| s.importance).max().unwrap_or(1),
@@ -630,11 +633,11 @@ impl ActionProcessor {
 
     /// Trouve un segment qui peut être fusionné dans une chaîne linéaire
     /// Retourne Some(segment) si exactement un segment est connecté et forme une chaîne linéaire
-    fn find_linear_chain_segment<'a>(
+    fn find_linear_chain_segment(
         &self,
         _current: &RoadSegment,
-        connection_cell: &shared::grid::GridCell,
-        connected: &'a [RoadSegment],
+        _connection_cell: &shared::grid::GridCell,
+        connected: &[RoadSegment],
         visited: &HashSet<i64>
     ) -> Option<RoadSegment> {
         // Filtrer les segments déjà visités
@@ -663,7 +666,7 @@ impl ActionProcessor {
         visited: &mut HashSet<i64>
     ) -> Vec<RoadSegment> {
         let mut chain = Vec::new();
-        let mut current_cell = connection_cell.clone();
+        let mut current_cell = *connection_cell;
 
         loop {
             visited.insert(current.id);
@@ -680,8 +683,8 @@ impl ActionProcessor {
                 // Inverser le segment
                 RoadSegment {
                     id: current.id,
-                    start_cell: current.end_cell.clone(),
-                    end_cell: current.start_cell.clone(),
+                    start_cell: current.end_cell,
+                    end_cell: current.start_cell,
                     cell_path: current.cell_path.iter().rev().cloned().collect(),
                     points: current.points.iter().rev().cloned().collect(),
                     importance: current.importance,
@@ -703,7 +706,7 @@ impl ActionProcessor {
             match self.find_linear_chain_segment(&current, other_end, &next_connected, visited) {
                 Some(next) => {
                     current = next;
-                    current_cell = other_end.clone();
+                    current_cell = *other_end;
                 }
                 None => break,
             }
@@ -722,7 +725,7 @@ impl ActionProcessor {
         visited: &mut HashSet<i64>
     ) -> Vec<RoadSegment> {
         let mut chain = Vec::new();
-        let mut current_cell = connection_cell.clone();
+        let mut current_cell = *connection_cell;
 
         loop {
             visited.insert(current.id);
@@ -741,8 +744,8 @@ impl ActionProcessor {
                 // Inverser le segment
                 RoadSegment {
                     id: current.id,
-                    start_cell: current.end_cell.clone(),
-                    end_cell: current.start_cell.clone(),
+                    start_cell: current.end_cell,
+                    end_cell: current.start_cell,
                     cell_path: current.cell_path.iter().rev().cloned().collect(),
                     points: current.points.iter().rev().cloned().collect(),
                     importance: current.importance,
@@ -762,7 +765,7 @@ impl ActionProcessor {
             match self.find_linear_chain_segment(&current, other_end, &next_connected, visited) {
                 Some(next) => {
                     current = next;
-                    current_cell = other_end.clone();
+                    current_cell = *other_end;
                 }
                 None => break,
             }
@@ -803,7 +806,7 @@ impl ActionProcessor {
     async fn _create_road_for_action_old(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
         use crate::road::RoadSegment;
 
-        let cell = action_info.cell.clone();
+        let cell = action_info.cell;
         let chunk_id = action_info.chunk_id;
 
         // Charger les routes existantes dans le chunk ET les chunks voisins pour détecter les connexions
@@ -912,9 +915,9 @@ impl ActionProcessor {
 
             if new_cell_path.is_empty() {
                 // Reconstruire le path à partir de start_cell et end_cell si vide
-                new_cell_path.push(existing.start_cell.clone());
+                new_cell_path.push(existing.start_cell);
                 if existing.start_cell != existing.end_cell {
-                    new_cell_path.push(existing.end_cell.clone());
+                    new_cell_path.push(existing.end_cell);
                 }
             }
 
@@ -927,12 +930,12 @@ impl ActionProcessor {
 
             // Convertir les cellules existantes en positions monde
             let existing_cell_positions: Vec<bevy::prelude::Vec2> = existing.cell_path.iter()
-                .map(|c| cell_to_world_pos(c))
+                .map(cell_to_world_pos)
                 .collect();
 
             let (new_start, new_end, new_points) = if is_start_connection {
                 // Ajouter au début du chemin
-                new_cell_path.insert(0, cell.clone());
+                new_cell_path.insert(0, cell);
 
                 // Étendre la spline au début avec lissage
                 let extended_points = extend_spline(
@@ -944,10 +947,10 @@ impl ActionProcessor {
                     smoothing_influence
                 );
 
-                (cell.clone(), new_cell_path.last().unwrap().clone(), extended_points)
+                (cell, *new_cell_path.last().unwrap(), extended_points)
             } else {
                 // Ajouter à la fin du chemin
-                new_cell_path.push(cell.clone());
+                new_cell_path.push(cell);
 
                 // Étendre la spline à la fin avec lissage
                 let extended_points = extend_spline(
@@ -959,7 +962,7 @@ impl ActionProcessor {
                     smoothing_influence
                 );
 
-                (new_cell_path.first().unwrap().clone(), cell.clone(), extended_points)
+                (*new_cell_path.first().unwrap(), cell, extended_points)
             };
 
             tracing::info!(
@@ -974,8 +977,8 @@ impl ActionProcessor {
             // Créer le segment mis à jour
             let updated_segment = RoadSegment {
                 id: 0, // Nouveau ID sera assigné
-                start_cell: new_start.clone(),
-                end_cell: new_end.clone(),
+                start_cell: new_start,
+                end_cell: new_end,
                 cell_path: new_cell_path.clone(),
                 points: new_points,
                 importance: 1,
@@ -1018,9 +1021,9 @@ impl ActionProcessor {
 
             let segment = RoadSegment {
                 id: 0,
-                start_cell: cell.clone(),
-                end_cell: cell.clone(),  // Même cellule pour indiquer un point unique
-                cell_path: vec![cell.clone()],  // Une seule cellule dans le chemin
+                start_cell: cell,
+                end_cell: cell,  // Même cellule pour indiquer un point unique
+                cell_path: vec![cell],  // Une seule cellule dans le chemin
                 points: vec![cell_pos],  // Un seul point
                 importance: 1,
                 road_type: shared::RoadType::default(), // Chemin de terre par défaut
@@ -1140,7 +1143,7 @@ impl ActionProcessor {
                 // Envoyer la mise à jour de la SDF à tous les joueurs du chunk
                 let road_update = shared::protocol::ServerMessage::RoadChunkSdfUpdate {
                     terrain_name: "Gaulyia".to_string(),
-                    chunk_id: chunk_id.clone(),
+                    chunk_id: *chunk_id,
                     road_sdf_data: road_sdf,
                 };
 

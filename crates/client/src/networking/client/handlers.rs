@@ -33,7 +33,7 @@ pub fn handle_server_message(
     mut units_cache: ResMut<UnitsCache>,
     mut units_data_cache: ResMut<UnitsDataCache>,
     network_client_opt: Option<ResMut<NetworkClient>>,
-    time: Res<Time>,
+    // time: Res<Time>,
     mut commands: Commands,
     terrain_query: Query<(Entity, &Terrain)>,
 ) {
@@ -196,7 +196,7 @@ pub fn handle_server_message(
                 action_id,
                 chunk_id,
                 cell,
-                action_type,
+                action_type: _,
             } => {
                 info!(
                     "Action {} completed at chunk ({}, {}) cell ({}, {})",

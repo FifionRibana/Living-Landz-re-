@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    BuildingCategoryEnum, BuildingSpecificTypeEnum, BuildingTypeEnum, RoadCategory, TerrainChunkId,
-    constants,
+    BuildingCategoryEnum, BuildingTypeEnum, RoadCategory, TerrainChunkId, constants,
     grid::{GridCell, GridConfig},
 };
 
@@ -11,9 +10,8 @@ use crate::{
     state::resources::ConnectionStatus,
     ui::{
         components::{
-            ActionCategory, ActionContentContainer, ActionRunButton, ActionTabButton,
-            ActionTabsContainer, ActionsPanelMarker, BuildingButton, BuildingGridContainer,
-            RecipeContainer,
+            ActionCategory, ActionRunButton, ActionTabButton, ActionTabsContainer,
+            ActionsPanelMarker, BuildingButton, BuildingGridContainer, RecipeContainer,
         },
         resources::ActionState,
     },
@@ -64,7 +62,12 @@ pub fn update_action_panel_content(
         match category {
             ActionCategory::Roads => {
                 // Roads have no tabs, just content
-                populate_roads_content(&mut commands, &building_grid_query, &asset_server, &action_state);
+                populate_roads_content(
+                    &mut commands,
+                    &building_grid_query,
+                    &asset_server,
+                    &action_state,
+                );
             }
             ActionCategory::Buildings => {
                 // Buildings have tabs for each building category
@@ -247,6 +250,11 @@ fn populate_building_content(
     if let Some(building_category) = action_state.selected_building_category {
         // Get buildings for this category
         let buildings = get_buildings_for_category(building_category);
+        info!(
+            "Building count {} for category {:?}",
+            buildings.len(),
+            building_category
+        );
 
         // Populate building grid
         for entity in grid_query.iter() {

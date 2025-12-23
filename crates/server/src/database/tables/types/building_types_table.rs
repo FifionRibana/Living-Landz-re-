@@ -14,7 +14,7 @@ impl BuildingTypesTable {
     }
 
     pub async fn initialize_buildings(&self) -> Result<(), sqlx::Error> {
-        let types = vec![
+        let types = [
             ("Cedar", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "A cedar tree"),
             ("Larch", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "A larch tree"),
             ("Oak", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "An oak tree"),

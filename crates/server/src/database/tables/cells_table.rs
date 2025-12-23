@@ -68,7 +68,7 @@ impl CellsTable {
                     q: r.get("q"),
                     r: r.get("r"),
                 },
-                chunk: chunk_id.clone(),
+                chunk: *chunk_id,
             })
             .collect::<Vec<_>>();
 

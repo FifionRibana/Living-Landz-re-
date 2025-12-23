@@ -38,8 +38,14 @@ impl BuildingsTable {
 
             query_builder.push_values(chunk.iter(), |mut b, building| {
                 let building_data = &building.base_data;
+                // Use BuildingTypeEnum (1-55) for constructed buildings, 0 for trees/unknown
+                let building_type_id = building
+                    .to_building_type()
+                    .map(|bt| bt.to_id() as i32)
+                    .unwrap_or(0);
+
                 b.push_bind(building_data.id as i64)
-                    .push_bind(building_data.specific_type.to_id())
+                    .push_bind(building_type_id)
                     .push_bind(building_data.category.to_id())
                     .push_bind(building_data.chunk.x)
                     .push_bind(building_data.chunk.y)
@@ -111,13 +117,16 @@ impl BuildingsTable {
             tree_query_builder.build().execute(&mut *tx).await?;
 
             // MANUFACTURING WORKSHOPS
-            let workshops: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::ManufacturingWorkshop(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.workshop_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let workshops: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::ManufacturingWorkshop(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.workshop_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !workshops.is_empty() {
                 let mut workshop_query_builder = sqlx::QueryBuilder::new(
@@ -146,13 +155,16 @@ impl BuildingsTable {
             }
 
             // AGRICULTURE
-            let agriculture: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::Agriculture(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.agriculture_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let agriculture: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::Agriculture(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.agriculture_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !agriculture.is_empty() {
                 let mut agriculture_query_builder = sqlx::QueryBuilder::new(
@@ -181,13 +193,16 @@ impl BuildingsTable {
             }
 
             // ANIMAL BREEDING
-            let animal_breeding: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::AnimalBreeding(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.animal_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let animal_breeding: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::AnimalBreeding(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.animal_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !animal_breeding.is_empty() {
                 let mut animal_breeding_query_builder = sqlx::QueryBuilder::new(
@@ -212,17 +227,23 @@ impl BuildingsTable {
                     "#,
                 );
 
-                animal_breeding_query_builder.build().execute(&mut *tx).await?;
+                animal_breeding_query_builder
+                    .build()
+                    .execute(&mut *tx)
+                    .await?;
             }
 
             // ENTERTAINMENT
-            let entertainment: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::Entertainment(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.entertainment_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let entertainment: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::Entertainment(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.entertainment_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !entertainment.is_empty() {
                 let mut entertainment_query_builder = sqlx::QueryBuilder::new(
@@ -247,31 +268,34 @@ impl BuildingsTable {
                     "#,
                 );
 
-                entertainment_query_builder.build().execute(&mut *tx).await?;
+                entertainment_query_builder
+                    .build()
+                    .execute(&mut *tx)
+                    .await?;
             }
 
             // CULT
-            let cult: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::Cult(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.cult_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let cult: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::Cult(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.cult_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !cult.is_empty() {
                 let mut cult_query_builder = sqlx::QueryBuilder::new(
                     "INSERT INTO buildings.cult (building_id, cult_type_id, variant)",
                 );
 
-                cult_query_builder.push_values(
-                    cult,
-                    |mut b, (id, cult_type, variant)| {
-                        b.push_bind(id)
-                            .push_bind(cult_type.to_id())
-                            .push_bind(variant as i32);
-                    },
-                );
+                cult_query_builder.push_values(cult, |mut b, (id, cult_type, variant)| {
+                    b.push_bind(id)
+                        .push_bind(cult_type.to_id())
+                        .push_bind(variant as i32);
+                });
 
                 cult_query_builder.push(
                     r#"
@@ -286,13 +310,16 @@ impl BuildingsTable {
             }
 
             // COMMERCE
-            let commerce: Vec<_> = chunk.iter().filter_map(|b| {
-                if let BuildingSpecific::Commerce(data) = &b.specific_data {
-                    Some((b.base_data.id as i64, data.commerce_type, data.variant))
-                } else {
-                    None
-                }
-            }).collect();
+            let commerce: Vec<_> = chunk
+                .iter()
+                .filter_map(|b| {
+                    if let BuildingSpecific::Commerce(data) = &b.specific_data {
+                        Some((b.base_data.id as i64, data.commerce_type, data.variant))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             if !commerce.is_empty() {
                 let mut commerce_query_builder = sqlx::QueryBuilder::new(
@@ -327,14 +354,21 @@ impl BuildingsTable {
     }
 
     /// Crée un nouveau bâtiment en construction
-    pub async fn create_building(
-        &self,
-        building_data: &BuildingData,
-    ) -> Result<(), String> {
-        let mut tx = self.pool.begin().await
+    pub async fn create_building(&self, building_data: &BuildingData) -> Result<(), String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
         // Insert into buildings_base
+        // Pour building_type_id: utiliser BuildingTypeEnum (1-55) pour les bâtiments construits
+        // Pour les arbres et Unknown, utiliser 0 (pas de correspondance dans building_types)
+        let building_type_id = building_data
+            .to_building_type()
+            .map(|bt| bt.to_id() as i32)
+            .unwrap_or(0);
+
         sqlx::query(
             r#"
             INSERT INTO buildings.buildings_base
@@ -343,7 +377,7 @@ impl BuildingsTable {
             "#,
         )
         .bind(building_data.base_data.id as i64)
-        .bind(building_data.base_data.specific_type.to_id())
+        .bind(building_type_id)
         .bind(building_data.base_data.category.to_id())
         .bind(building_data.base_data.chunk.x)
         .bind(building_data.base_data.chunk.y)
@@ -465,7 +499,8 @@ impl BuildingsTable {
             }
         }
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         Ok(())
@@ -516,9 +551,11 @@ impl BuildingsTable {
             r#"
             SELECT
                 b.id, b.building_type_id, b.category_id,
+                bt.specific_type_id,
                 b.cell_q, b.cell_r,
                 b.quality, b.durability, b.damage, b.created_at
             FROM buildings.buildings_base b
+            LEFT JOIN buildings.building_types bt ON b.building_type_id = bt.id
             WHERE chunk_x = $1 AND chunk_y = $2 AND is_built = true
         "#,
         )
@@ -529,25 +566,28 @@ impl BuildingsTable {
 
         for r in base_buildings_rows {
             let id = r.get::<i64, &str>("id");
-            let category = BuildingCategoryEnum::from_id(r.get("category_id"))
+            let category_id: i16 = r.get("category_id");
+            let specific_type_id: i16 = r.get("specific_type_id");
+            
+            let category = BuildingCategoryEnum::from_id(category_id)
                 .unwrap_or(BuildingCategoryEnum::Unknown);
-            let building_type_id: i32 = r.get("building_type_id");
-            let specific_type = BuildingSpecificTypeEnum::from_id(building_type_id as i16)
+            // let specific_type_id: Option<i16> = r.try_get("specific_type_id").ok();
+            let specific_type = BuildingSpecificTypeEnum::from_id(specific_type_id)
                 .unwrap_or(BuildingSpecificTypeEnum::Unknown);
 
             let base_data = BuildingBaseData {
                 id: id as u64,
-                specific_type: specific_type.clone(),
-                category: category.clone(),
+                specific_type,
+                category,
                 cell: GridCell {
                     q: r.get("cell_q"),
                     r: r.get("cell_r"),
                 },
-                chunk: chunk_id.clone(),
+                chunk: *chunk_id,
                 quality: r.get::<f64, &str>("quality") as f32,
                 durability: r.get::<f64, &str>("durability") as f32,
                 damage: r.get::<f64, &str>("damage") as f32,
-                created_at: (r.get::<i64, &str>("created_at") as i64) as u64,
+                created_at: (r.get::<i64, &str>("created_at")) as u64,
             };
 
             let specific_data = match specific_type {
@@ -585,8 +625,9 @@ impl BuildingsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
-                    let workshop_type = ManufacturingWorkshopTypeEnum::from_id(workshop.get("workshop_type_id"))
-                        .unwrap_or(ManufacturingWorkshopTypeEnum::Blacksmith);
+                    let workshop_type =
+                        ManufacturingWorkshopTypeEnum::from_id(workshop.get("workshop_type_id"))
+                            .unwrap_or(ManufacturingWorkshopTypeEnum::Blacksmith);
 
                     BuildingSpecific::ManufacturingWorkshop(ManufacturingWorkshopData {
                         workshop_type,
@@ -605,8 +646,9 @@ impl BuildingsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
-                    let agriculture_type = AgricultureTypeEnum::from_id(agriculture.get("agriculture_type_id"))
-                        .unwrap_or(AgricultureTypeEnum::Farm);
+                    let agriculture_type =
+                        AgricultureTypeEnum::from_id(agriculture.get("agriculture_type_id"))
+                            .unwrap_or(AgricultureTypeEnum::Farm);
 
                     BuildingSpecific::Agriculture(AgricultureData {
                         agriculture_type,
@@ -625,8 +667,9 @@ impl BuildingsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
-                    let animal_type = AnimalBreedingTypeEnum::from_id(animal_breeding.get("animal_type_id"))
-                        .unwrap_or(AnimalBreedingTypeEnum::Cowshed);
+                    let animal_type =
+                        AnimalBreedingTypeEnum::from_id(animal_breeding.get("animal_type_id"))
+                            .unwrap_or(AnimalBreedingTypeEnum::Cowshed);
 
                     BuildingSpecific::AnimalBreeding(AnimalBreedingData {
                         animal_type,
@@ -645,8 +688,9 @@ impl BuildingsTable {
                     .fetch_one(&self.pool)
                     .await?;
 
-                    let entertainment_type = EntertainmentTypeEnum::from_id(entertainment.get("entertainment_type_id"))
-                        .unwrap_or(EntertainmentTypeEnum::Theater);
+                    let entertainment_type =
+                        EntertainmentTypeEnum::from_id(entertainment.get("entertainment_type_id"))
+                            .unwrap_or(EntertainmentTypeEnum::Theater);
 
                     BuildingSpecific::Entertainment(EntertainmentData {
                         entertainment_type,

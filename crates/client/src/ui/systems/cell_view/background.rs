@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{BiomeTypeEnum, BuildingData, BuildingTypeEnum};
+use shared::{BiomeTypeEnum, BuildingData};
 
 /// Get the background image path for a cell
 /// Currently returns placeholder paths that will need to be created
@@ -9,8 +9,12 @@ pub fn get_background_image_path(
 ) -> String {
     if let Some(building) = building {
         // Building-specific backgrounds
-        let building_type = &building.base_data.specific_type;
-        format!("ui/backgrounds/building_{}.png", building_type.to_name_lowercase())
+        if let Some(building_type) = &building.to_building_type() {
+            // let building_type = &building.base_data.specific_type;
+            format!("ui/backgrounds/building_{}.jpg", building_type.to_name_lowercase())
+        } else {
+            "ui/backgrounds/building_generic.png".to_string()
+        }
     } else {
         // Terrain/biome backgrounds
         format!("ui/backgrounds/terrain_{:?}.jpg", biome)

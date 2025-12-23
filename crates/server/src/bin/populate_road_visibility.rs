@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = PgPool::connect(&database_url).await?;
 
     // Utiliser les structures de server
-    use server::database::tables::road_segments_table::RoadSegmentsTable;
+    use server::database::tables::RoadSegmentsTable;
 
     let road_table = RoadSegmentsTable::new(pool.clone());
 

@@ -2,12 +2,11 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingSpecificTypeEnum, BuildingTypeEnum,
-    ResourceSpecificTypeEnum, TerrainChunkId, OceanData, RoadChunkSdfData,
+    BiomeChunkData, BuildingData, BuildingTypeEnum, OceanData, OrganizationSummary,
+    OrganizationType, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId,
+    UnitData,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
-    OrganizationType, OrganizationSummary,
-    SlotPosition, UnitData,
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -108,7 +107,6 @@ pub enum ClientMessage {
     // ========================================================================
     // DEBUG COMMANDS
     // ========================================================================
-
     /// Debug: Create an organization at a specific cell
     DebugCreateOrganization {
         name: String,
@@ -206,7 +204,6 @@ pub enum ServerMessage {
     // ========================================================================
     // DEBUG RESPONSES
     // ========================================================================
-
     /// Debug: Organization created successfully
     DebugOrganizationCreated {
         organization_id: u64,

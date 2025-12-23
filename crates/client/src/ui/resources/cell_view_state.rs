@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{grid::GridCell, SlotPosition, SlotType};
+use shared::{SlotPosition, grid::GridCell};
 
 /// State resource for the cell detail view mode
 #[derive(Resource, Default)]

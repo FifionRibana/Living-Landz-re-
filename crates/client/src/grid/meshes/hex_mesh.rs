@@ -5,7 +5,7 @@ use bevy::render::render_resource::PrimitiveTopology;
 use hexx::{HexLayout, MeshInfo, PlaneMeshBuilder};
 
 /// Crée un mesh hexagonal en utilisant hexx::ColumnMeshBuilder
-pub fn create_hexagonal_mesh(layout: HexLayout, radius: f32) -> Mesh {
+pub fn create_hexagonal_mesh(layout: HexLayout, _radius: f32) -> Mesh {
     // Utilise ColumnMeshBuilder de hexx pour un hexagone plat
     let mesh_info = PlaneMeshBuilder::new(&layout)
         .facing(Vec3::Z)

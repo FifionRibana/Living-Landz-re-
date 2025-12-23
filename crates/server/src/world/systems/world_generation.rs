@@ -4,7 +4,6 @@ use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
 use crate::world::components::generate_ocean_data;
-use crate::world::resources::SdfConfig;
 use crate::world::resources::WorldMaps;
 use bevy::prelude::*;
 use hexx::HexOrientation;
@@ -12,7 +11,6 @@ use shared::BuildingData;
 use shared::GameState;
 use shared::constants;
 use shared::grid::GridConfig;
-use shared::{get_biome_color, get_biome_from_color};
 
 pub fn setup_grid_config() -> GridConfig {
     let radius = constants::HEX_SIZE;
@@ -43,9 +41,21 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     let building_db = &db_tables.buildings;
 
     tracing::info!("=== WORLD GENERATION PARAMETERS ===");
-    tracing::info!("Original map dimensions: {}x{}", maps.binary_map.width(), maps.binary_map.height());
-    tracing::info!("Original heightmap dimensions: {}x{}", maps.heightmap.width(), maps.heightmap.height());
-    tracing::info!("Map config chunks: {}x{}", maps.config.chunks_x, maps.config.chunks_y);
+    tracing::info!(
+        "Original map dimensions: {}x{}",
+        maps.binary_map.width(),
+        maps.binary_map.height()
+    );
+    tracing::info!(
+        "Original heightmap dimensions: {}x{}",
+        maps.heightmap.width(),
+        maps.heightmap.height()
+    );
+    tracing::info!(
+        "Map config chunks: {}x{}",
+        maps.config.chunks_x,
+        maps.config.chunks_y
+    );
 
     // Scale factor used for terrain upscaling
     let scale = Vec2::splat(5.);
@@ -65,11 +75,15 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         scaled_chunks_x,
         scaled_chunks_y
     );
-    tracing::info!("Chunk size: {}x{}", constants::CHUNK_SIZE.x, constants::CHUNK_SIZE.y);
+    tracing::info!(
+        "Chunk size: {}x{}",
+        constants::CHUNK_SIZE.x,
+        constants::CHUNK_SIZE.y
+    );
 
     tracing::info!("=== GENERATING TERRAIN ===");
     let (terrain_mesh_data, chunk_masks, scaled_binary_map) = TerrainMeshData::from_image(
-        &map_name.to_string(),
+        map_name,
         &maps.binary_map,
         Some(&maps.heightmap),
         &scale,
@@ -77,7 +91,11 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     );
 
     tracing::info!("✓ Terrain generated");
-    tracing::info!("Scaled binary map output: {}x{}", scaled_binary_map.width(), scaled_binary_map.height());
+    tracing::info!(
+        "Scaled binary map output: {}x{}",
+        scaled_binary_map.width(),
+        scaled_binary_map.height()
+    );
 
     // Now generate ocean data with SCALED images and correct chunk counts
     tracing::info!("=== PREPARING OCEAN DATA ===");
@@ -88,13 +106,29 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         scaled_binary_map.height(),
         image::imageops::FilterType::Lanczos3,
     );
-    tracing::info!("✓ Heightmap resized to: {}x{}", scaled_heightmap.width(), scaled_heightmap.height());
+    tracing::info!(
+        "✓ Heightmap resized to: {}x{}",
+        scaled_heightmap.width(),
+        scaled_heightmap.height()
+    );
 
     tracing::info!("Calling generate_ocean_data with:");
-    tracing::info!("  - binary_map: {}x{}", scaled_binary_map.width(), scaled_binary_map.height());
-    tracing::info!("  - heightmap: {}x{}", scaled_heightmap.width(), scaled_heightmap.height());
+    tracing::info!(
+        "  - binary_map: {}x{}",
+        scaled_binary_map.width(),
+        scaled_binary_map.height()
+    );
+    tracing::info!(
+        "  - heightmap: {}x{}",
+        scaled_heightmap.width(),
+        scaled_heightmap.height()
+    );
     tracing::info!("  - chunks: {}x{}", scaled_chunks_x, scaled_chunks_y);
-    tracing::info!("  - world_size: {}x{}", scaled_chunks_x as f32 * constants::CHUNK_SIZE.x, scaled_chunks_y as f32 * constants::CHUNK_SIZE.y);
+    tracing::info!(
+        "  - world_size: {}x{}",
+        scaled_chunks_x as f32 * constants::CHUNK_SIZE.x,
+        scaled_chunks_y as f32 * constants::CHUNK_SIZE.y
+    );
 
     let ocean_data = generate_ocean_data(
         map_name.to_string(),
@@ -119,7 +153,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     }
 
     let biome_mesh_data = BiomeMeshData::from_image(
-        &map_name.to_string(),
+        map_name,
         &maps.biome_map,
         &scaled_binary_map, //maps.binary_map.to_luma8(),
         &chunk_masks,
@@ -136,7 +170,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 
     let grid_config = &setup_grid_config();
     let sampled_cells = BiomeMeshData::sample_biome(
-        &map_name.to_string(),
+        map_name,
         &maps.biome_map.to_rgba8(),
         &Vec2::splat(5.),
         &grid_config.layout,
@@ -155,8 +189,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
             &trees
                 .buildings
                 .values()
-                .into_iter()
-                .map(|v| v.clone())
+                .cloned()
                 .collect::<Vec<BuildingData>>(),
         )
         .await
@@ -188,7 +221,7 @@ pub async fn clear_world(map_name: &str, terrain_db: &tables::TerrainsTable) {
 pub async fn save_world_to_png(map_name: &str) {
     tracing::info!("Starting saving...");
     let start = std::time::Instant::now();
-    TerrainMeshData::save_png_image(map_name, &format!("assets/maps/{}_binarymap.bin", map_name));
-    BiomeMeshData::save_png_image(map_name, "assets/maps/");
+    let _ = TerrainMeshData::save_png_image(map_name, &format!("assets/maps/{}_binarymap.bin", map_name));
+    let _ = BiomeMeshData::save_png_image(map_name, "assets/maps/");
     tracing::info!("✓ Saving {} map in {:?}", map_name, start.elapsed());
 }

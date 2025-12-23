@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-
 
 #[derive(Resource, Clone)]
 pub struct SdfConfig {
@@ -19,7 +17,7 @@ impl Default for SdfConfig {
             resolution: 64,
             chunk_world_size_x: 160.0, // 16 hex * ~10 unités par hex
             chunk_world_size_y: 160.0, // 16 hex * ~10 unités par hex
-            max_distance: 30.0,      // 30 unités de transition plage
+            max_distance: 30.0,        // 30 unités de transition plage
         }
     }
 }

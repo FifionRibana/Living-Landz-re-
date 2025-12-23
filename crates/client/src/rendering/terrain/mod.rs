@@ -1,8 +1,8 @@
 pub mod components;
-mod plugin;
-pub mod materials;
-pub mod systems;
 pub mod debug;
+pub mod materials;
+mod plugin;
+pub mod systems;
 
 pub use plugin::TerrainPlugin;
-pub use debug::ChunkDebugEnabled;
+// pub use debug::ChunkDebugEnabled;

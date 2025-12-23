@@ -15,8 +15,8 @@ pub struct OceanEntity;
 
 /// Crée un mesh 2D rectangulaire avec UVs correctement définis
 fn create_ocean_mesh(width: f32, height: f32) -> Mesh {
-    let half_width = width / 2.0;
-    let half_height = height / 2.0;
+    let _half_width = width / 2.0;
+    let _half_height = height / 2.0;
 
     // Vertices du rectangle (4 coins)
     // Format: [x, y, z]
@@ -81,7 +81,7 @@ pub fn spawn_ocean(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut ocean_materials: ResMut<Assets<OceanMaterial>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut _materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
     cache: Res<WorldCache>,
     ocean_query: Query<Entity, With<OceanEntity>>,

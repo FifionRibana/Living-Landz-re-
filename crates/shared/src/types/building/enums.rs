@@ -190,6 +190,23 @@ impl TreeTypeEnum {
             _ => vec![],
         }
     }
+
+    pub fn to_building_type(&self) -> BuildingTypeEnum {
+        match self {
+            Self::Cedar => BuildingTypeEnum::Cedar,
+            Self::Larch => BuildingTypeEnum::Larch,
+            Self::Oak => BuildingTypeEnum::Oak,
+        }
+    }
+
+    pub fn from_building_type(building_type: BuildingTypeEnum) -> Option<Self> {
+        match building_type {
+            BuildingTypeEnum::Cedar => Some(Self::Cedar),
+            BuildingTypeEnum::Larch => Some(Self::Larch),
+            BuildingTypeEnum::Oak => Some(Self::Oak),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
@@ -218,6 +235,10 @@ pub enum BuildingTypeEnum {
     Slaughterhouse = 53,
     IceHouse = 54,
     Market = 55,
+    // Natural - Trees (1000+ range)
+    Cedar = 1001,
+    Larch = 1002,
+    Oak = 1003,
 }
 
 // Unknown
@@ -249,7 +270,9 @@ impl BuildingTypeEnum {
             Self::Slaughterhouse => BuildingSpecificTypeEnum::Commerce,
             Self::IceHouse => BuildingSpecificTypeEnum::Commerce,
             Self::Market => BuildingSpecificTypeEnum::Commerce,
-            _ => BuildingSpecificTypeEnum::Unknown,
+            Self::Cedar => BuildingSpecificTypeEnum::Tree,
+            Self::Larch => BuildingSpecificTypeEnum::Tree,
+            Self::Oak => BuildingSpecificTypeEnum::Tree,
         }
     }
 
@@ -277,6 +300,9 @@ impl BuildingTypeEnum {
             53 => Some(Self::Slaughterhouse),
             54 => Some(Self::IceHouse),
             55 => Some(Self::Market),
+            1001 => Some(Self::Cedar),
+            1002 => Some(Self::Larch),
+            1003 => Some(Self::Oak),
             _ => None,
         }
     }
@@ -301,6 +327,9 @@ impl BuildingTypeEnum {
             Self::Slaughterhouse => "slaughterhouse",
             Self::IceHouse => "ice_house",
             Self::Market => "market",
+            Self::Cedar => "cedar",
+            Self::Larch => "larch",
+            Self::Oak => "oak",
         }
     }
 
@@ -323,6 +352,7 @@ impl BuildingTypeEnum {
             | Self::Slaughterhouse
             | Self::IceHouse
             | Self::Market => BuildingCategoryEnum::Commerce,
+            Self::Cedar | Self::Larch | Self::Oak => BuildingCategoryEnum::Natural,
         }
     }
 
@@ -346,8 +376,15 @@ impl BuildingTypeEnum {
             BuildingTypeEnum::Slaughterhouse,
             BuildingTypeEnum::IceHouse,
             BuildingTypeEnum::Market,
+            BuildingTypeEnum::Cedar,
+            BuildingTypeEnum::Larch,
+            BuildingTypeEnum::Oak,
         ]
         .into_iter()
+    }
+
+    pub fn to_tree_type(&self) -> Option<TreeTypeEnum> {
+        TreeTypeEnum::from_building_type(*self)
     }
 }
 
@@ -410,7 +447,7 @@ impl ManufacturingWorkshopTypeEnum {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
 pub enum AgricultureTypeEnum {
-    Farm = 1,
+    Farm = 10,
 }
 
 impl AgricultureTypeEnum {
@@ -420,7 +457,7 @@ impl AgricultureTypeEnum {
 
     pub fn from_id(id: i16) -> Option<Self> {
         match id {
-            1 => Some(Self::Farm),
+            10 => Some(Self::Farm),
             _ => None,
         }
     }
@@ -444,10 +481,10 @@ impl AgricultureTypeEnum {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
 pub enum AnimalBreedingTypeEnum {
-    Cowshed = 1,
-    Piggery = 2,
-    Sheepfold = 3,
-    Stable = 4,
+    Cowshed = 20,
+    Piggery = 21,
+    Sheepfold = 22,
+    Stable = 23,
 }
 
 impl AnimalBreedingTypeEnum {
@@ -457,10 +494,10 @@ impl AnimalBreedingTypeEnum {
 
     pub fn from_id(id: i16) -> Option<Self> {
         match id {
-            1 => Some(Self::Cowshed),
-            2 => Some(Self::Piggery),
-            3 => Some(Self::Sheepfold),
-            4 => Some(Self::Stable),
+            20 => Some(Self::Cowshed),
+            21 => Some(Self::Piggery),
+            22 => Some(Self::Sheepfold),
+            23 => Some(Self::Stable),
             _ => None,
         }
     }
@@ -496,7 +533,7 @@ impl AnimalBreedingTypeEnum {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
 pub enum EntertainmentTypeEnum {
-    Theater = 1,
+    Theater = 30,
 }
 
 impl EntertainmentTypeEnum {
@@ -506,7 +543,7 @@ impl EntertainmentTypeEnum {
 
     pub fn from_id(id: i16) -> Option<Self> {
         match id {
-            1 => Some(Self::Theater),
+            30 => Some(Self::Theater),
             _ => None,
         }
     }
@@ -530,7 +567,7 @@ impl EntertainmentTypeEnum {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
 pub enum CultTypeEnum {
-    Temple = 1,
+    Temple = 40,
 }
 
 impl CultTypeEnum {
@@ -540,7 +577,7 @@ impl CultTypeEnum {
 
     pub fn from_id(id: i16) -> Option<Self> {
         match id {
-            1 => Some(Self::Temple),
+            40 => Some(Self::Temple),
             _ => None,
         }
     }
@@ -564,12 +601,12 @@ impl CultTypeEnum {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
 pub enum CommerceTypeEnum {
-    Bakehouse = 1,
-    Brewery = 2,
-    Distillery = 3,
-    Slaughterhouse = 4,
-    IceHouse = 5,
-    Market = 6,
+    Bakehouse = 50,
+    Brewery = 51,
+    Distillery = 52,
+    Slaughterhouse = 53,
+    IceHouse = 54,
+    Market = 55,
 }
 
 impl CommerceTypeEnum {
@@ -579,12 +616,12 @@ impl CommerceTypeEnum {
 
     pub fn from_id(id: i16) -> Option<Self> {
         match id {
-            1 => Some(Self::Bakehouse),
-            2 => Some(Self::Brewery),
-            3 => Some(Self::Distillery),
-            4 => Some(Self::Slaughterhouse),
-            5 => Some(Self::IceHouse),
-            6 => Some(Self::Market),
+            50 => Some(Self::Bakehouse),
+            51 => Some(Self::Brewery),
+            52 => Some(Self::Distillery),
+            53 => Some(Self::Slaughterhouse),
+            54 => Some(Self::IceHouse),
+            55 => Some(Self::Market),
             _ => None,
         }
     }
