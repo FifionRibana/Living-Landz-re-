@@ -60,7 +60,7 @@ pub fn update_drag_visual(
         return;
     }
 
-    let Some(dragging_unit) = &cell_view_state.dragging_unit else {
+    let Some(_dragging_unit) = &cell_view_state.dragging_unit else {
         return;
     };
 

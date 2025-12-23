@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 use bevy::prelude::*;
 use shared::{BuildingTypeEnum, atlas::BuildingAtlas};
@@ -7,9 +7,14 @@ pub fn setup_building_atlas(mut commands: Commands, asset_server: Res<AssetServe
     let mut atlas = BuildingAtlas::default();
     atlas.load();
 
-    info!("Loading building atlas with {} building types", BuildingTypeEnum::iter().count());
+    // Filter out trees - they use TreeAtlas, not BuildingAtlas
+    let building_types: Vec<_> = BuildingTypeEnum::iter()
+        .filter(|bt| bt.to_specific_type() != shared::BuildingSpecificTypeEnum::Tree)
+        .collect();
 
-    for building_type in BuildingTypeEnum::iter() {
+    info!("Loading building atlas with {} building types", building_types.len());
+
+    for building_type in building_types {
         let sprite_variations = atlas
             .get_variations(building_type)
             .expect(format!("No variation found for building type {:?}", building_type).as_str())

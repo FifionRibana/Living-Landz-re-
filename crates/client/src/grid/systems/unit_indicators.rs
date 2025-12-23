@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use hexx::Hex;
 
 use crate::{
-    grid::components::UnitIndicator,
+    // grid::components::UnitIndicator,
     state::resources::UnitsCache,
 };
 use shared::grid::GridConfig;
@@ -48,10 +48,7 @@ fn calculate_circle_positions(count: usize, radius: f32) -> Vec<Vec2> {
     match count {
         0 => vec![],
         1 => vec![Vec2::ZERO],
-        2 => vec![
-            Vec2::new(-radius / 2.0, 0.0),
-            Vec2::new(radius / 2.0, 0.0),
-        ],
+        2 => vec![Vec2::new(-radius / 2.0, 0.0), Vec2::new(radius / 2.0, 0.0)],
         3 => vec![
             Vec2::new(0.0, radius * 0.6),
             Vec2::new(-radius * 0.5, -radius * 0.3),
@@ -64,10 +61,7 @@ fn calculate_circle_positions(count: usize, radius: f32) -> Vec<Vec2> {
 
             for i in 0..count {
                 let angle = angle_step * i as f32;
-                positions.push(Vec2::new(
-                    angle.cos() * radius,
-                    angle.sin() * radius,
-                ));
+                positions.push(Vec2::new(angle.cos() * radius, angle.sin() * radius));
             }
 
             positions

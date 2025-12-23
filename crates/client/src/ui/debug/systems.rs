@@ -58,7 +58,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                         is_hoverable: false,
                     },
                 ))
-                .observe(|over: On<Pointer<Over>>| {
+                .observe(|_over: On<Pointer<Over>>| {
                     println!("oveerd");
                 });
 

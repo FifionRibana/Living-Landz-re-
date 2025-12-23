@@ -6,9 +6,8 @@ use i_triangle::float::{triangulatable::Triangulatable, triangulation::Triangula
 use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
-use shared::{MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId, OceanData};
-use shared::{TerrainChunkSdfData, HeightmapChunkData, RoadChunkSdfData, constants};
+use shared::{HeightmapChunkData, RoadChunkSdfData, TerrainChunkSdfData, constants};
+use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
 
 use super::mesh_data::MeshData;
 
@@ -72,17 +71,16 @@ impl TerrainMeshData {
     ) {
         let start = std::time::Instant::now();
         let load_result = file_system::load_from_disk(cache_path);
-        let mut loaded = false;
         let mut scaled_image: ImageBuffer<image::Luma<u8>, Vec<u8>> = ImageBuffer::default();
-        match load_result {
+        let loaded = match load_result {
             Ok(image) => {
                 scaled_image = image;
-                loaded = true;
+                true
             }
             _ => {
-                loaded = false;
+                false
             }
-        }
+        };
 
         if !loaded {
             tracing::info!("Upscaling image by: {}x{}", scale.x, scale.y);
@@ -99,7 +97,7 @@ impl TerrainMeshData {
                 t1.elapsed()
             );
 
-            file_system::save_to_disk(scaled_image_ref, cache_path);
+            let _ = file_system::save_to_disk(scaled_image_ref, cache_path);
         }
 
         let scaled_image_output = scaled_image.clone();
@@ -159,7 +157,7 @@ impl TerrainMeshData {
         tracing::info!("Splitting SDF into chunks");
         let t3 = std::time::Instant::now();
 
-        let mut chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = HashMap::new();
+        // let mut chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = HashMap::new();
 
         let chunk_sdf_values = split_sdf_into_chunks(
             &global_sdf,
@@ -184,57 +182,58 @@ impl TerrainMeshData {
         tracing::info!("    SDF chunks created in {:?}", t3.elapsed());
 
         // Générer la heightmap globale et la découper en chunks (optionnel)
-        let chunk_heightmap_data: HashMap<TerrainChunkId, Option<HeightmapChunkData>> = if let Some(heightmap_img) = heightmap_image {
-            tracing::info!("Generating global heightmap");
-            let t_heightmap = std::time::Instant::now();
+        let chunk_heightmap_data: HashMap<TerrainChunkId, Option<HeightmapChunkData>> =
+            if let Some(heightmap_img) = heightmap_image {
+                tracing::info!("Generating global heightmap");
+                let t_heightmap = std::time::Instant::now();
 
-            let heightmap_luma = heightmap_img.to_luma8();
-            let global_heightmap = generate_global_heightmap(
-                &heightmap_luma,
-                global_sdf_width,
-                global_sdf_height,
-            );
+                let heightmap_luma = heightmap_img.to_luma8();
+                let global_heightmap =
+                    generate_global_heightmap(&heightmap_luma, global_sdf_width, global_sdf_height);
 
-            tracing::info!(
-                "    Global heightmap {}x{} generated in {:?}",
-                global_sdf_width,
-                global_sdf_height,
-                t_heightmap.elapsed()
-            );
+                tracing::info!(
+                    "    Global heightmap {}x{} generated in {:?}",
+                    global_sdf_width,
+                    global_sdf_height,
+                    t_heightmap.elapsed()
+                );
 
-            tracing::info!("Splitting heightmap into chunks");
-            let t_heightmap_split = std::time::Instant::now();
+                tracing::info!("Splitting heightmap into chunks");
+                let t_heightmap_split = std::time::Instant::now();
 
-            let chunk_heightmap_values = split_sdf_into_chunks(
-                &global_heightmap,
-                global_sdf_width,
-                global_sdf_height,
-                sdf_resolution,
-                n_chunk_x,
-                n_chunk_y,
-            );
+                let chunk_heightmap_values = split_sdf_into_chunks(
+                    &global_heightmap,
+                    global_sdf_width,
+                    global_sdf_height,
+                    sdf_resolution,
+                    n_chunk_x,
+                    n_chunk_y,
+                );
 
-            let result: HashMap<TerrainChunkId, Option<HeightmapChunkData>> = chunk_heightmap_values
-                .into_iter()
-                .map(|(id, values)| {
-                    let data = HeightmapChunkData::from_values(sdf_resolution as u8, values);
-                    (id, Some(data))
-                })
-                .collect();
+                let result: HashMap<TerrainChunkId, Option<HeightmapChunkData>> =
+                    chunk_heightmap_values
+                        .into_iter()
+                        .map(|(id, values)| {
+                            let data =
+                                HeightmapChunkData::from_values(sdf_resolution as u8, values);
+                            (id, Some(data))
+                        })
+                        .collect();
 
-            tracing::info!("    Heightmap chunks created in {:?}", t_heightmap_split.elapsed());
+                tracing::info!(
+                    "    Heightmap chunks created in {:?}",
+                    t_heightmap_split.elapsed()
+                );
 
-            result
-        } else {
-            // Pas de heightmap : None pour tous les chunks
-            (0..n_chunk_y)
-                .flat_map(|cy| {
-                    (0..n_chunk_x).map(move |cx| {
-                        (TerrainChunkId { x: cx, y: cy }, None)
+                result
+            } else {
+                // Pas de heightmap : None pour tous les chunks
+                (0..n_chunk_y)
+                    .flat_map(|cy| {
+                        (0..n_chunk_x).map(move |cx| (TerrainChunkId { x: cx, y: cy }, None))
                     })
-                })
-                .collect()
-        };
+                    .collect()
+            };
 
         let chunk_heightmap_data_ref = &chunk_heightmap_data;
 
@@ -296,7 +295,7 @@ impl TerrainMeshData {
             t5.elapsed()
         );
 
-        let t6 = std::time::Instant::now();
+        // let t6 = std::time::Instant::now();
 
         tracing::info!("TerrainMeshData completed in {:?}", start.elapsed());
 
@@ -317,7 +316,10 @@ impl TerrainMeshData {
                                 mesh_data: meshes.clone(),
                                 outlines: chunk_contours_ref.get(&id).cloned().unwrap_or_default(),
                                 sdf_data: chunk_sdf_data_ref.get(&id).cloned().unwrap_or_default(),
-                                heightmap_data: chunk_heightmap_data_ref.get(&id).cloned().unwrap_or(None),
+                                heightmap_data: chunk_heightmap_data_ref
+                                    .get(&id)
+                                    .cloned()
+                                    .unwrap_or(None),
                                 road_sdf_data: None, // Les routes seront ajoutées dynamiquement
                                 generated_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
@@ -397,7 +399,6 @@ impl TerrainMeshData {
     pub fn save_png_image(name: &str, cache_path: &str) -> Result {
         info!("using: {}", cache_path);
         let load_result = file_system::load_from_disk::<Luma<u8>>(cache_path);
-        let mut loaded = false;
         match load_result {
             Ok(image) => {
                 let output_path = std::path::Path::new(cache_path)
@@ -792,8 +793,8 @@ fn point_to_line_distance(point: Vec2, line_start: Vec2, line_end: Vec2) -> f32 
 
 /// Re-calcule les edge_info pour les points simplifiés
 fn resample_edge_info(
-    original: &[Vec2],
-    original_edges: &[EdgeType],
+    _original: &[Vec2],
+    _original_edges: &[EdgeType],
     simplified: &[Vec2],
     threshold: f32,
     chunk_size: Vec2,
@@ -1168,7 +1169,11 @@ fn generate_global_sdf(
         sdf_to_img_y,
         search_radius
     );
-    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
+    tracing::info!(
+        "    Total pixels to process: {} ({:.2} MB)",
+        total_pixels,
+        total_pixels as f64 / 1_000_000.0
+    );
 
     (0..total_pixels)
         .into_par_iter()
@@ -1244,9 +1249,22 @@ pub fn generate_ocean_data(
 ) -> OceanData {
     tracing::info!("=== OCEAN DATA GENERATION START ===");
     tracing::info!("World name: {}", name);
-    tracing::info!("Input binary_map: {}x{}", binary_map.width(), binary_map.height());
-    tracing::info!("Input heightmap: {}x{}", heightmap_image.width(), heightmap_image.height());
-    tracing::info!("Chunks: {}x{} (total: {})", n_chunk_x, n_chunk_y, n_chunk_x * n_chunk_y);
+    tracing::info!(
+        "Input binary_map: {}x{}",
+        binary_map.width(),
+        binary_map.height()
+    );
+    tracing::info!(
+        "Input heightmap: {}x{}",
+        heightmap_image.width(),
+        heightmap_image.height()
+    );
+    tracing::info!(
+        "Chunks: {}x{} (total: {})",
+        n_chunk_x,
+        n_chunk_y,
+        n_chunk_x * n_chunk_y
+    );
     tracing::info!("World dimensions: {}x{}", world_width, world_height);
 
     let sdf_resolution = 64usize;
@@ -1261,23 +1279,42 @@ pub fn generate_ocean_data(
     let expected_mb = (expected_bytes_sdf + expected_bytes_heightmap) as f64 / 1_000_000.0;
 
     tracing::info!("Expected memory allocation:");
-    tracing::info!("  - SDF: {} bytes ({:.2} MB)", expected_bytes_sdf, expected_bytes_sdf as f64 / 1_000_000.0);
-    tracing::info!("  - Heightmap: {} bytes ({:.2} MB)", expected_bytes_heightmap, expected_bytes_heightmap as f64 / 1_000_000.0);
+    tracing::info!(
+        "  - SDF: {} bytes ({:.2} MB)",
+        expected_bytes_sdf,
+        expected_bytes_sdf as f64 / 1_000_000.0
+    );
+    tracing::info!(
+        "  - Heightmap: {} bytes ({:.2} MB)",
+        expected_bytes_heightmap,
+        expected_bytes_heightmap as f64 / 1_000_000.0
+    );
     tracing::info!("  - Total: {:.2} MB", expected_mb);
 
     if expected_mb > 1000.0 {
-        tracing::error!("❌ ALLOCATION TOO LARGE! Expected {:.2} MB > 1000 MB", expected_mb);
+        tracing::error!(
+            "❌ ALLOCATION TOO LARGE! Expected {:.2} MB > 1000 MB",
+            expected_mb
+        );
         tracing::error!("Parameters seem wrong:");
         tracing::error!("  n_chunk_x = {}, n_chunk_y = {}", n_chunk_x, n_chunk_y);
         tracing::error!("  sdf_resolution = {}", sdf_resolution);
-        tracing::error!("  global_width = {}, global_height = {}", global_width, global_height);
+        tracing::error!(
+            "  global_width = {}, global_height = {}",
+            global_width,
+            global_height
+        );
         panic!("Ocean data generation would allocate too much memory");
     }
 
     // 1. Générer le SDF global
     tracing::info!("Converting binary_map to luma8...");
     let binary_luma = binary_map.to_luma8();
-    tracing::info!("✓ Binary luma ready: {}x{}", binary_luma.width(), binary_luma.height());
+    tracing::info!(
+        "✓ Binary luma ready: {}x{}",
+        binary_luma.width(),
+        binary_luma.height()
+    );
 
     tracing::info!("Generating global SDF...");
     let global_sdf = generate_global_sdf(
@@ -1293,15 +1330,18 @@ pub fn generate_ocean_data(
     // 2. Générer la heightmap globale
     tracing::info!("Converting heightmap to luma8...");
     let heightmap_luma = heightmap_image.to_luma8();
-    tracing::info!("✓ Heightmap luma ready: {}x{}", heightmap_luma.width(), heightmap_luma.height());
+    tracing::info!(
+        "✓ Heightmap luma ready: {}x{}",
+        heightmap_luma.width(),
+        heightmap_luma.height()
+    );
 
     tracing::info!("Generating global heightmap...");
-    let global_heightmap = generate_global_heightmap(
-        &heightmap_luma,
-        global_width,
-        global_height,
+    let global_heightmap = generate_global_heightmap(&heightmap_luma, global_width, global_height);
+    tracing::info!(
+        "✓ Global heightmap generated: {} bytes",
+        global_heightmap.len()
     );
-    tracing::info!("✓ Global heightmap generated: {} bytes", global_heightmap.len());
 
     // 3. Créer OceanData
     tracing::info!("Creating OceanData structure...");
@@ -1343,7 +1383,11 @@ pub fn generate_global_heightmap(
         scale_x,
         scale_y
     );
-    tracing::info!("    Total pixels to process: {} ({:.2} MB)", total_pixels, total_pixels as f64 / 1_000_000.0);
+    tracing::info!(
+        "    Total pixels to process: {} ({:.2} MB)",
+        total_pixels,
+        total_pixels as f64 / 1_000_000.0
+    );
 
     (0..total_pixels)
         .into_par_iter()
@@ -1362,11 +1406,7 @@ pub fn generate_global_heightmap(
 }
 
 /// Échantillonne une heightmap avec interpolation bilinéaire
-fn sample_heightmap_bilinear(
-    image: &ImageBuffer<Luma<u8>, Vec<u8>>,
-    x: f32,
-    y: f32,
-) -> u8 {
+fn sample_heightmap_bilinear(image: &ImageBuffer<Luma<u8>, Vec<u8>>, x: f32, y: f32) -> u8 {
     let x0 = (x.floor() as i32).clamp(0, image.width() as i32 - 1) as u32;
     let y0 = (y.floor() as i32).clamp(0, image.height() as i32 - 1) as u32;
     let x1 = (x0 + 1).min(image.width() - 1);

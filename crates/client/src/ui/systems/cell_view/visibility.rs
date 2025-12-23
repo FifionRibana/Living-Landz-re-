@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::grid::GridCell;
+// use shared::grid::GridCell;
 use crate::ui::components::{
     ActionBarMarker, ActionsPanelMarker, CellDetailsPanelMarker, CellViewBackgroundImage,
     CellViewContainer, ChatPanelMarker, TopBarMarker, SlotGridContainer, SlotIndicator, CellViewBackButton,
@@ -8,6 +8,7 @@ use crate::ui::resources::CellViewState;
 use crate::ui::systems::cell_view::load_background_image;
 use crate::state::resources::WorldCache;
 use shared::{BiomeTypeEnum, SlotConfiguration, SlotPosition, SlotType};
+use hexx::HexLayout;
 
 /// Update cell view and world UI visibility based on CellViewState
 pub fn update_cell_view_visibility(
@@ -75,10 +76,19 @@ pub fn update_cell_view_content(
         .map(|c| c.biome)
         .unwrap_or(BiomeTypeEnum::Undefined);
 
-    // Determine slot configuration
-    // For now, use terrain type since we need BuildingTypeEnum
-    // TODO: Map BuildingData to BuildingTypeEnum properly
-    let slot_config = SlotConfiguration::for_terrain_type(biome);
+    // Determine slot configuration based on building type or terrain
+    let slot_config = if let Some(building_data) = building {
+        // Try to get slot config from building type first
+        if let Some(building_type) = building_data.to_building_type() {
+            SlotConfiguration::for_building_type(building_type)
+        } else {
+            // Fallback to terrain type for trees or unknown buildings
+            SlotConfiguration::for_terrain_type(biome)
+        }
+    } else {
+        // No building, use terrain type
+        SlotConfiguration::for_terrain_type(biome)
+    };
 
     // Clear existing content in container
     for container_entity in &container_query {
@@ -139,9 +149,11 @@ pub fn update_cell_view_content(
                             ..default()
                         },))
                         .with_children(|grids| {
+                            // Create HexLayout for slot positioning
+                            let slot_hex_layout = HexLayout::pointy().with_hex_size(40.0);
+
                             // Interior slots (if any)
                             if slot_config.has_interior() {
-                                let (rows, cols) = slot_config.interior_grid_size;
                                 let hex_image = asset_server.load("ui/slot_hex_interior.png");
 
                                 grids.spawn((Node {
@@ -157,24 +169,33 @@ pub fn update_cell_view_content(
                                         TextColor(Color::WHITE),
                                     ));
 
+                                    // Container avec positions absolues
+                                    let container_size = Vec2::new(600.0, 500.0);
                                     section.spawn((
                                         Node {
-                                            display: Display::Grid,
-                                            grid_template_columns: vec![RepeatedGridTrack::flex(cols as u16, 1.0)],
-                                            grid_template_rows: vec![RepeatedGridTrack::flex(rows as u16, 1.0)],
-                                            column_gap: Val::Px(8.0),
-                                            row_gap: Val::Px(8.0),
+                                            position_type: PositionType::Relative,
+                                            width: Val::Px(container_size.x),
+                                            height: Val::Px(container_size.y),
                                             padding: UiRect::all(Val::Px(16.0)),
                                             ..default()
                                         },
                                         BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.5)),
                                         BorderRadius::all(Val::Px(8.0)),
                                         SlotGridContainer { slot_type: SlotType::Interior },
-                                    )).with_children(|grid| {
-                                        for index in 0..slot_config.interior_slots {
-                                            grid.spawn((
+                                    )).with_children(|container| {
+                                        // Générer les positions avec hexx
+                                        let positions = slot_config.interior_layout.generate_positions(
+                                            container_size,
+                                            &slot_hex_layout
+                                        );
+
+                                        for (index, pos) in positions.iter().enumerate() {
+                                            container.spawn((
                                                 Button,
                                                 Node {
+                                                    position_type: PositionType::Absolute,
+                                                    left: Val::Px(pos.x - 32.0),   // Centrer (64px / 2)
+                                                    top: Val::Px(pos.y - 37.0),    // Centrer (74px / 2)
                                                     width: Val::Px(64.0),
                                                     height: Val::Px(74.0),
                                                     justify_content: JustifyContent::Center,
@@ -194,7 +215,6 @@ pub fn update_cell_view_content(
                             }
 
                             // Exterior slots
-                            let (rows, cols) = slot_config.exterior_grid_size;
                             let hex_image = asset_server.load("ui/slot_hex_exterior.png");
 
                             grids.spawn((Node {
@@ -210,24 +230,33 @@ pub fn update_cell_view_content(
                                     TextColor(Color::WHITE),
                                 ));
 
+                                // Container with absolute positions
+                                let container_size = Vec2::new(600.0, 500.0);
                                 section.spawn((
                                     Node {
-                                        display: Display::Grid,
-                                        grid_template_columns: vec![RepeatedGridTrack::flex(cols as u16, 1.0)],
-                                        grid_template_rows: vec![RepeatedGridTrack::flex(rows as u16, 1.0)],
-                                        column_gap: Val::Px(8.0),
-                                        row_gap: Val::Px(8.0),
+                                        position_type: PositionType::Relative,
+                                        width: Val::Px(container_size.x),
+                                        height: Val::Px(container_size.y),
                                         padding: UiRect::all(Val::Px(16.0)),
                                         ..default()
                                     },
                                     BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.5)),
                                     BorderRadius::all(Val::Px(8.0)),
                                     SlotGridContainer { slot_type: SlotType::Exterior },
-                                )).with_children(|grid| {
-                                    for index in 0..slot_config.exterior_slots {
-                                        grid.spawn((
+                                )).with_children(|container| {
+                                    // Generate positions with hexx
+                                    let positions = slot_config.exterior_layout.generate_positions(
+                                        container_size,
+                                        &slot_hex_layout
+                                    );
+
+                                    for (index, pos) in positions.iter().enumerate() {
+                                        container.spawn((
                                             Button,
                                             Node {
+                                                position_type: PositionType::Absolute,
+                                                left: Val::Px(pos.x - 32.0),   // Center (64px / 2)
+                                                top: Val::Px(pos.y - 37.0),    // Center (74px / 2)
                                                 width: Val::Px(64.0),
                                                 height: Val::Px(74.0),
                                                 justify_content: JustifyContent::Center,
@@ -277,7 +306,7 @@ pub fn update_cell_view_content(
 
         info!(
             "Cell view content updated for cell: q={}, r={} (interior: {}, exterior: {})",
-            viewed_cell.q, viewed_cell.r, slot_config.interior_slots, slot_config.exterior_slots
+            viewed_cell.q, viewed_cell.r, slot_config.interior_slots(), slot_config.exterior_slots()
         );
     }
 }

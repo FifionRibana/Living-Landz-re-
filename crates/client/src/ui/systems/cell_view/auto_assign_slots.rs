@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 use crate::ui::resources::CellViewState;
-use crate::state::resources::UnitsCache;
+use crate::state::resources::{UnitsCache, WorldCache};
 use crate::networking::client::NetworkClient;
-use shared::{SlotPosition, SlotType, SlotConfiguration};
+use shared::{SlotPosition, SlotType, SlotConfiguration, BiomeTypeEnum};
 use shared::protocol::ClientMessage;
-use shared::grid::GridCell;
+// use shared::grid::GridCell;
 
 /// Auto-assign units without slots to random free slots when entering cell view
 pub fn auto_assign_unslotted_units(
     cell_view_state: Res<CellViewState>,
+    world_cache: Res<WorldCache>,
     mut units_cache: ResMut<UnitsCache>,
     mut network_client: Option<ResMut<NetworkClient>>,
 ) {
@@ -49,10 +50,26 @@ pub fn auto_assign_unslotted_units(
         unslotted_units.len(), viewed_cell.q, viewed_cell.r
     );
 
-    // Get slot configuration for this cell
-    // For now, use a default configuration (could be based on building type or terrain)
-    // TODO: Get actual building type or biome from WorldCache
-    let slot_config = SlotConfiguration::default();
+    // Get slot configuration for this cell based on building type or terrain
+    let cell_data = world_cache.get_cell(&viewed_cell);
+    let building = world_cache.get_building(&viewed_cell);
+
+    let biome = cell_data
+        .map(|c| c.biome)
+        .unwrap_or(BiomeTypeEnum::Undefined);
+
+    let slot_config = if let Some(building_data) = building {
+        // Try to get slot config from building type first
+        if let Some(building_type) = building_data.to_building_type() {
+            SlotConfiguration::for_building_type(building_type)
+        } else {
+            // Fallback to terrain type for trees or unknown buildings
+            SlotConfiguration::for_terrain_type(biome)
+        }
+    } else {
+        // No building, use terrain type
+        SlotConfiguration::for_terrain_type(biome)
+    };
 
     // Get currently occupied slots
     let occupied_slots = units_cache.get_occupied_slots(&viewed_cell);
@@ -65,7 +82,7 @@ pub fn auto_assign_unslotted_units(
     let mut available_slots = Vec::new();
 
     // Add interior slots
-    for i in 0..slot_config.interior_slots {
+    for i in 0..slot_config.interior_slots() {
         let slot_pos = SlotPosition {
             slot_type: SlotType::Interior,
             index: i,
@@ -76,7 +93,7 @@ pub fn auto_assign_unslotted_units(
     }
 
     // Add exterior slots
-    for i in 0..slot_config.exterior_slots {
+    for i in 0..slot_config.exterior_slots() {
         let slot_pos = SlotPosition {
             slot_type: SlotType::Exterior,
             index: i,

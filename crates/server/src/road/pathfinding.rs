@@ -41,7 +41,7 @@ impl Ord for Node {
 /// Trouve le chemin le plus court entre deux cellules hexagonales en utilisant A*
 pub fn find_path(start: &GridCell, end: &GridCell) -> Option<Vec<GridCell>> {
     if start == end {
-        return Some(vec![start.clone()]);
+        return Some(vec![*start]);
     }
 
     let mut open_set = BinaryHeap::new();
@@ -51,11 +51,11 @@ pub fn find_path(start: &GridCell, end: &GridCell) -> Option<Vec<GridCell>> {
 
     // Ajouter le nœud de départ
     open_set.push(Node {
-        cell: start.clone(),
+        cell: *start,
         g_cost: 0.0,
         h_cost: heuristic_distance(start, end),
     });
-    g_costs.insert(start.clone(), 0.0);
+    g_costs.insert(*start, 0.0);
 
     while let Some(current_node) = open_set.pop() {
         let current = current_node.cell;
@@ -70,7 +70,7 @@ pub fn find_path(start: &GridCell, end: &GridCell) -> Option<Vec<GridCell>> {
             continue;
         }
 
-        closed_set.insert(current.clone());
+        closed_set.insert(current);
 
         // Explorer les voisins
         for neighbor in current.neighbors() {
@@ -84,11 +84,11 @@ pub fn find_path(start: &GridCell, end: &GridCell) -> Option<Vec<GridCell>> {
 
             if tentative_g_cost < current_g_cost {
                 // Ce chemin est meilleur
-                came_from.insert(neighbor.clone(), current.clone());
-                g_costs.insert(neighbor.clone(), tentative_g_cost);
+                came_from.insert(neighbor, current);
+                g_costs.insert(neighbor, tentative_g_cost);
 
                 open_set.push(Node {
-                    cell: neighbor.clone(),
+                    cell: neighbor,
                     g_cost: tentative_g_cost,
                     h_cost: heuristic_distance(&neighbor, end),
                 });
@@ -111,12 +111,12 @@ fn heuristic_distance(a: &GridCell, b: &GridCell) -> f32 {
 
 /// Reconstruit le chemin à partir de la table came_from
 fn reconstruct_path(came_from: &HashMap<GridCell, GridCell>, current: &GridCell) -> Vec<GridCell> {
-    let mut path = vec![current.clone()];
-    let mut current = current.clone();
+    let mut path = vec![*current];
+    let mut current = *current;
 
     while let Some(previous) = came_from.get(&current) {
-        path.push(previous.clone());
-        current = previous.clone();
+        path.push(*previous);
+        current = *previous;
     }
 
     path.reverse();

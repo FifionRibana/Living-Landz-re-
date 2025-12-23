@@ -19,16 +19,16 @@ impl PortraitGenerator {
 
         match gender {
             "male" => {
-                let idx = rng.gen_range(0..MALE_VARIANT_IDS.len());
+                let idx = rng.random_range(0..MALE_VARIANT_IDS.len());
                 MALE_VARIANT_IDS[idx].to_string()
             }
             "female" => {
-                let idx = rng.gen_range(0..FEMALE_VARIANT_IDS.len());
+                let idx = rng.random_range(0..FEMALE_VARIANT_IDS.len());
                 FEMALE_VARIANT_IDS[idx].to_string()
             }
             _ => {
                 // Par défaut, choisir masculin
-                let idx = rng.gen_range(0..MALE_VARIANT_IDS.len());
+                let idx = rng.random_range(0..MALE_VARIANT_IDS.len());
                 MALE_VARIANT_IDS[idx].to_string()
             }
         }
@@ -74,10 +74,7 @@ impl PortraitGenerator {
 
         format!(
             "sprites/portraits/{}/{}/{}_{}.jpg",
-            gender,
-            variant_id,
-            variant_id,
-            profession_name
+            gender, variant_id, variant_id, profession_name
         )
     }
 
@@ -85,10 +82,7 @@ impl PortraitGenerator {
     ///
     /// # Returns
     /// Un tuple (variant_id, avatar_url)
-    pub fn generate_variant_and_url(
-        gender: &str,
-        profession: ProfessionEnum,
-    ) -> (String, String) {
+    pub fn generate_variant_and_url(gender: &str, profession: ProfessionEnum) -> (String, String) {
         let variant_id = Self::generate_random_variant_id(gender);
         let avatar_url = Self::generate_portrait_url(gender, &variant_id, profession);
         (variant_id, avatar_url)
@@ -113,20 +107,14 @@ mod tests {
 
     #[test]
     fn test_generate_portrait_url() {
-        let url = PortraitGenerator::generate_portrait_url(
-            "male",
-            "02m",
-            ProfessionEnum::Farmer,
-        );
+        let url = PortraitGenerator::generate_portrait_url("male", "02m", ProfessionEnum::Farmer);
         assert_eq!(url, "sprites/portraits/male/02m/02m_Farmer.jpg");
     }
 
     #[test]
     fn test_generate_variant_and_url() {
-        let (variant_id, url) = PortraitGenerator::generate_variant_and_url(
-            "female",
-            ProfessionEnum::Blacksmith,
-        );
+        let (variant_id, url) =
+            PortraitGenerator::generate_variant_and_url("female", ProfessionEnum::Blacksmith);
         assert!(FEMALE_VARIANT_IDS.contains(&variant_id.as_str()));
         assert!(url.contains(&variant_id));
         assert!(url.contains("Blacksmith"));

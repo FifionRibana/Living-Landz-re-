@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use shared::{
-    EquipmentSlotEnum, FullUnitData, InventoryItem, ItemData, ItemTypeEnum, ProfessionEnum,
-    ProfessionSkillBonus, SkillEnum, TerrainChunkId, UnitBaseStats, UnitData, UnitDerivedStats,
-    UnitSkill, grid::GridCell, AutomatedAction, ConsumptionDemand, EquippedItem,
+    EquipmentSlotEnum, FullUnitData, InventoryItem, ProfessionEnum,
+    SkillEnum, TerrainChunkId, UnitBaseStats, UnitData, UnitDerivedStats,
+    UnitSkill, grid::GridCell, EquippedItem,
 };
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;

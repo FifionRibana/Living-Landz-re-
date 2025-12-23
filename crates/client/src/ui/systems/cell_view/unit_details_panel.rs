@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::ui::components::{UnitDetailsPanelMarker, UnitDetailsAvatar, UnitDetailsNameText, UnitDetailsLevelText, UnitDetailsProfessionText, UnitDetailsCloseButton};
 use crate::ui::resources::CellViewState;
-use crate::state::resources::{UnitsCache, UnitsDataCache};
+use crate::state::resources::{UnitsDataCache};
 
 /// Marker component for the unit details panel container
 #[derive(Component)]

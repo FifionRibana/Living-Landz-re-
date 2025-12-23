@@ -156,3 +156,65 @@ pub struct BuildingData {
     pub base_data: BuildingBaseData,
     pub specific_data: BuildingSpecific,
 }
+
+impl BuildingData {
+    /// Convert BuildingData to BuildingTypeEnum for slot configuration
+    pub fn to_building_type(&self) -> Option<crate::BuildingTypeEnum> {
+        use crate::BuildingTypeEnum;
+
+        match &self.specific_data {
+            BuildingSpecific::ManufacturingWorkshop(data) => {
+                use crate::ManufacturingWorkshopTypeEnum;
+                match data.workshop_type {
+                    ManufacturingWorkshopTypeEnum::Blacksmith => Some(BuildingTypeEnum::Blacksmith),
+                    ManufacturingWorkshopTypeEnum::BlastFurnace => Some(BuildingTypeEnum::BlastFurnace),
+                    ManufacturingWorkshopTypeEnum::Bloomery => Some(BuildingTypeEnum::Bloomery),
+                    ManufacturingWorkshopTypeEnum::CarpenterShop => Some(BuildingTypeEnum::CarpenterShop),
+                    ManufacturingWorkshopTypeEnum::GlassFactory => Some(BuildingTypeEnum::GlassFactory),
+                }
+            }
+            BuildingSpecific::Agriculture(data) => {
+                use crate::AgricultureTypeEnum;
+                match data.agriculture_type {
+                    AgricultureTypeEnum::Farm => Some(BuildingTypeEnum::Farm),
+                }
+            }
+            BuildingSpecific::AnimalBreeding(data) => {
+                use crate::AnimalBreedingTypeEnum;
+                match data.animal_type {
+                    AnimalBreedingTypeEnum::Cowshed => Some(BuildingTypeEnum::Cowshed),
+                    AnimalBreedingTypeEnum::Piggery => Some(BuildingTypeEnum::Piggery),
+                    AnimalBreedingTypeEnum::Sheepfold => Some(BuildingTypeEnum::Sheepfold),
+                    AnimalBreedingTypeEnum::Stable => Some(BuildingTypeEnum::Stable),
+                }
+            }
+            BuildingSpecific::Entertainment(data) => {
+                use crate::EntertainmentTypeEnum;
+                match data.entertainment_type {
+                    EntertainmentTypeEnum::Theater => Some(BuildingTypeEnum::Theater),
+                }
+            }
+            BuildingSpecific::Cult(data) => {
+                use crate::CultTypeEnum;
+                match data.cult_type {
+                    CultTypeEnum::Temple => Some(BuildingTypeEnum::Temple),
+                }
+            }
+            BuildingSpecific::Commerce(data) => {
+                use crate::CommerceTypeEnum;
+                match data.commerce_type {
+                    CommerceTypeEnum::Bakehouse => Some(BuildingTypeEnum::Bakehouse),
+                    CommerceTypeEnum::Brewery => Some(BuildingTypeEnum::Brewery),
+                    CommerceTypeEnum::Distillery => Some(BuildingTypeEnum::Distillery),
+                    CommerceTypeEnum::Slaughterhouse => Some(BuildingTypeEnum::Slaughterhouse),
+                    CommerceTypeEnum::IceHouse => Some(BuildingTypeEnum::IceHouse),
+                    CommerceTypeEnum::Market => Some(BuildingTypeEnum::Market),
+                }
+            }
+            BuildingSpecific::Tree(data) => {
+                Some(data.tree_type.to_building_type())
+            }
+            BuildingSpecific::Unknown() => None,
+        }
+    }
+}

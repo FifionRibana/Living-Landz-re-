@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use hexx::Hex;
+// use hexx::Hex;
 
 use crate::{
     grid::resources::SelectedHexes,
@@ -17,7 +17,7 @@ pub fn handle_debug_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     selected_hexes: Res<SelectedHexes>,
     current_organization: Res<CurrentOrganization>,
-    grid_config: Res<GridConfig>,
+    _grid_config: Res<GridConfig>,
     mut network_client: ResMut<NetworkClient>,
 ) {
     // Vérifier si Shift est maintenu

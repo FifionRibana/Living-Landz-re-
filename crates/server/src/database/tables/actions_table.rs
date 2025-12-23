@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 
 use shared::{
-    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingSpecificTypeEnum, BuildingTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkId, grid::GridCell
+    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum,
+    BuildBuildingAction, BuildRoadAction, BuildingTypeEnum, CraftResourceAction,
+    HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction,
+    SpecificAction, TerrainChunkId, grid::GridCell,
 };
 use sqlx::{PgPool, Row};
 
@@ -21,7 +24,9 @@ impl ScheduledActionsTable {
         // let action_type = base_action.action_type();
         tracing::info!(
             "Adding scheduled action of type {:?} (id: {}), for player {}",
-            base_action.action_type, base_action.player_id, base_action.action_type.to_id()
+            base_action.action_type,
+            base_action.player_id,
+            base_action.action_type.to_id()
         );
 
         let db_id = sqlx::query_scalar::<_, i64>(
@@ -45,9 +50,7 @@ impl ScheduledActionsTable {
         .await
         .map_err(|e| format!("DB error: {}", e))?;
 
-        tracing::info!(
-            "Scheduled action inserted with ID {}", db_id
-        );
+        tracing::info!("Scheduled action inserted with ID {}", db_id);
 
         // Insérer dans la table spécifique
         self.add_action_data(db_id as u64, &action.specific_data)
@@ -55,7 +58,8 @@ impl ScheduledActionsTable {
 
         tracing::info!(
             "Added scheduled action ID {} for player {}",
-            db_id, base_action.player_id
+            db_id,
+            base_action.player_id
         );
 
         Ok(db_id as u64)
@@ -118,7 +122,7 @@ impl ScheduledActionsTable {
                     "INSERT INTO actions.harvest_resource_actions (action_id, resource_type) VALUES ($1, $2)"
                 )
                 .bind(action_id as i64)
-                .bind(&a.resource_specific_type.to_id())
+                .bind(a.resource_specific_type.to_id())
                 .execute(&self.pool)
                 .await
                 .map_err(|e| format!("DB error: {}", e))?;
@@ -142,7 +146,7 @@ impl ScheduledActionsTable {
 
     pub async fn load_chunk_actions(
         &self,
-        chunk_id: TerrainChunkId,
+        chunk_id: &TerrainChunkId,
     ) -> Result<Vec<ActionData>, sqlx::Error> {
         let mut actions = Vec::new();
 
@@ -183,10 +187,10 @@ impl ScheduledActionsTable {
 
             let base_data = ActionBaseData {
                 player_id: r.get::<i64, &str>("player_id") as u64,
-                cell: cell.clone(),
-                chunk: chunk_id.clone(),
-                action_type: action_type.clone(),
-                action_specific_type: action_specific_type.clone(),
+                cell,
+                chunk: *chunk_id,
+                action_type,
+                action_specific_type,
                 start_time: r.get::<i64, &str>("start_time") as u64,
                 duration_ms: r.get::<i64, &str>("duration_ms") as u64,
                 completion_time: r.get::<i64, &str>("completion_time") as u64,
@@ -203,7 +207,7 @@ impl ScheduledActionsTable {
                             WHERE action_id = $1
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -217,8 +221,8 @@ impl ScheduledActionsTable {
 
                     SpecificAction::BuildBuilding(BuildBuildingAction {
                         player_id,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id: *chunk_id,
+                        cell,
                         building_type,
                         building_specific_type,
                     })
@@ -231,7 +235,7 @@ impl ScheduledActionsTable {
                             WHERE action_id = $1
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -242,39 +246,42 @@ impl ScheduledActionsTable {
 
                     SpecificAction::BuildRoad(BuildRoadAction {
                         player_id,
-                        start_cell: GridCell { q: start_q, r: start_r },
+                        start_cell: GridCell {
+                            q: start_q,
+                            r: start_r,
+                        },
                         end_cell: GridCell { q: end_q, r: end_r },
                     })
                 }
                 ActionSpecificTypeEnum::CraftResource => {
-                    let craft_resource = sqlx::query(
+                    let _craft_resource = sqlx::query(
                         r#"
                             SELECT recipe_id, quantity
                             FROM actions.craft_resource_actions
                             WHERE action_id = $1
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
                     SpecificAction::CraftResource(CraftResourceAction {
                         player_id,
                         recipe_id: r.get("recipe_id"),
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id: *chunk_id,
+                        cell,
                         quantity: r.get::<i32, &str>("quantity") as u32,
                     })
                 }
                 ActionSpecificTypeEnum::HarvestResource => {
-                    let harvest_resource = sqlx::query(
+                    let _harvest_resource = sqlx::query(
                         r#"
                             SELECT resource_type_id
                             FROM actions.harvest_resource_actions
                             WHERE action_id = $1
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -287,26 +294,26 @@ impl ScheduledActionsTable {
                     SpecificAction::HarvestResource(HarvestResourceAction {
                         player_id,
                         resource_specific_type,
-                        chunk_id: chunk_id.clone(),
-                        cell: cell.clone(),
+                        chunk_id: *chunk_id,
+                        cell,
                     })
                 }
                 ActionSpecificTypeEnum::MoveUnit => {
-                    let move_unit = sqlx::query(
+                    let _move_unit = sqlx::query(
                         r#"
                             SELECT unit_id, cell_q, cell_r
                             FROM actions.move_unit_actions
                             WHERE action_id = $1
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
                     SpecificAction::MoveUnit(MoveUnitAction {
                         player_id,
                         unit_id: r.get::<i64, &str>("unit_id") as u64,
-                        chunk_id: chunk_id.clone(),
+                        chunk_id: *chunk_id,
                         cell: GridCell {
                             q: r.get("cell_q"),
                             r: r.get("cell_r"),
@@ -314,7 +321,7 @@ impl ScheduledActionsTable {
                     })
                 }
                 ActionSpecificTypeEnum::SendMessage => {
-                    let send_message = sqlx::query(
+                    let _send_message = sqlx::query(
                         r#"
                             SELECT 
                                 sma.action_id,
@@ -327,7 +334,7 @@ impl ScheduledActionsTable {
                             GROUP BY sma.action_id, sma.message_content
                         "#,
                     )
-                    .bind(id as i64)
+                    .bind(id)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -337,8 +344,7 @@ impl ScheduledActionsTable {
                         receivers: receivers_array.into_iter().map(|uid| uid as u64).collect(),
                         content: r.get("message_content"),
                     })
-                }
-                _ => SpecificAction::Unknown(),
+                } // _ => SpecificAction::Unknown(),
             };
 
             actions.push(ActionData {
@@ -351,7 +357,22 @@ impl ScheduledActionsTable {
     }
 
     /// Charge toutes les actions actives (Pending ou InProgress)
-    pub async fn load_active_actions(&self) -> Result<Vec<(u64, u64, TerrainChunkId, GridCell, ActionTypeEnum, ActionStatusEnum, u64, u64, u64)>, String> {
+    pub async fn load_active_actions(
+        &self,
+    ) -> Result<
+        Vec<(
+            u64,
+            u64,
+            TerrainChunkId,
+            GridCell,
+            ActionTypeEnum,
+            ActionStatusEnum,
+            u64,
+            u64,
+            u64,
+        )>,
+        String,
+    > {
         let result = sqlx::query(
             r#"
             SELECT
@@ -359,7 +380,7 @@ impl ScheduledActionsTable {
                 action_type_id, status_id, start_time, duration_ms, completion_time
             FROM actions.scheduled_actions
             WHERE status_id IN (1, 2)
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -391,20 +412,34 @@ impl ScheduledActionsTable {
             let duration_ms = row.get::<i64, &str>("duration_ms") as u64;
             let completion_time = row.get::<i64, &str>("completion_time") as u64;
 
-            actions.push((action_id, player_id, chunk_id, cell, action_type, status, start_time, duration_ms, completion_time));
+            actions.push((
+                action_id,
+                player_id,
+                chunk_id,
+                cell,
+                action_type,
+                status,
+                start_time,
+                duration_ms,
+                completion_time,
+            ));
         }
 
         Ok(actions)
     }
 
     /// Met à jour le statut d'une action
-    pub async fn update_action_status(&self, action_id: u64, new_status: ActionStatusEnum) -> Result<(), String> {
+    pub async fn update_action_status(
+        &self,
+        action_id: u64,
+        new_status: ActionStatusEnum,
+    ) -> Result<(), String> {
         sqlx::query(
             r#"
             UPDATE actions.scheduled_actions
             SET status_id = $1
             WHERE id = $2
-            "#
+            "#,
         )
         .bind(new_status.to_id())
         .bind(action_id as i64)
@@ -422,7 +457,7 @@ impl ScheduledActionsTable {
             SELECT building_type_id
             FROM actions.build_building_actions
             WHERE action_id = $1
-            "#
+            "#,
         )
         .bind(action_id as i64)
         .fetch_optional(&self.pool)
@@ -433,13 +468,16 @@ impl ScheduledActionsTable {
     }
 
     /// Récupère les cellules start et end pour une action BuildRoad
-    pub async fn get_build_road_cells(&self, action_id: u64) -> Result<(GridCell, GridCell), String> {
+    pub async fn get_build_road_cells(
+        &self,
+        action_id: u64,
+    ) -> Result<(GridCell, GridCell), String> {
         let result = sqlx::query(
             r#"
             SELECT start_q, start_r, end_q, end_r
             FROM actions.build_road_actions
             WHERE action_id = $1
-            "#
+            "#,
         )
         .bind(action_id as i64)
         .fetch_one(&self.pool)

@@ -15,7 +15,7 @@ pub use background::*;
 pub use drag_drop::*;
 pub use input::*;
 pub use setup::*;
-pub use slot_grid::*;
+// pub use slot_grid::*;
 pub use slot_visual::*;
 pub use unit_details_panel::*;
 pub use unit_selection::*;

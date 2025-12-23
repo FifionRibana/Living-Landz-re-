@@ -1,6 +1,6 @@
+use rand::Rng;
 use std::fs;
 use std::path::Path;
-use rand::Rng;
 
 /// Structure pour générer des noms aléatoires à partir de fichiers
 pub struct NameGenerator {
@@ -33,7 +33,9 @@ impl NameGenerator {
     }
 
     /// Charge les noms depuis un fichier (format: Nom;Pays)
-    fn load_names_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    fn load_names_from_file<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(path.as_ref())?;
         let names: Vec<String> = content
             .lines()
@@ -67,7 +69,7 @@ impl NameGenerator {
                 if self.male_first_names.is_empty() {
                     "John".to_string()
                 } else {
-                    let idx = rng.gen_range(0..self.male_first_names.len());
+                    let idx = rng.random_range(0..self.male_first_names.len());
                     self.male_first_names[idx].clone()
                 }
             }
@@ -76,24 +78,24 @@ impl NameGenerator {
                 if self.female_first_names.is_empty() {
                     "Jane".to_string()
                 } else {
-                    let idx = rng.gen_range(0..self.female_first_names.len());
+                    let idx = rng.random_range(0..self.female_first_names.len());
                     self.female_first_names[idx].clone()
                 }
             }
             None => {
                 // Aléatoire
-                if rng.gen_bool(0.5) {
+                if rng.random_bool(0.5) {
                     if self.male_first_names.is_empty() {
                         "John".to_string()
                     } else {
-                        let idx = rng.gen_range(0..self.male_first_names.len());
+                        let idx = rng.random_range(0..self.male_first_names.len());
                         self.male_first_names[idx].clone()
                     }
                 } else {
                     if self.female_first_names.is_empty() {
                         "Jane".to_string()
                     } else {
-                        let idx = rng.gen_range(0..self.female_first_names.len());
+                        let idx = rng.random_range(0..self.female_first_names.len());
                         self.female_first_names[idx].clone()
                     }
                 }
@@ -104,7 +106,7 @@ impl NameGenerator {
         let last_name = if self.last_names.is_empty() {
             "Smith".to_string()
         } else {
-            let idx = rng.gen_range(0..self.last_names.len());
+            let idx = rng.random_range(0..self.last_names.len());
             self.last_names[idx].clone()
         };
 
@@ -117,7 +119,7 @@ impl NameGenerator {
             return "John".to_string();
         }
         let mut rng = rand::rng();
-        let idx = rng.gen_range(0..self.male_first_names.len());
+        let idx = rng.random_range(0..self.male_first_names.len());
         self.male_first_names[idx].clone()
     }
 
@@ -127,7 +129,7 @@ impl NameGenerator {
             return "Jane".to_string();
         }
         let mut rng = rand::rng();
-        let idx = rng.gen_range(0..self.female_first_names.len());
+        let idx = rng.random_range(0..self.female_first_names.len());
         self.female_first_names[idx].clone()
     }
 
@@ -137,7 +139,7 @@ impl NameGenerator {
             return "Smith".to_string();
         }
         let mut rng = rand::rng();
-        let idx = rng.gen_range(0..self.last_names.len());
+        let idx = rng.random_range(0..self.last_names.len());
         self.last_names[idx].clone()
     }
 }

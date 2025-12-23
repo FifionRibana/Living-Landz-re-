@@ -16,19 +16,19 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{SdfParams, RoadParams};
+use crate::rendering::terrain::materials::{RoadParams, SdfParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
     connection: Res<ConnectionStatus>,
     network_client_opt: Option<ResMut<NetworkClient>>,
-    mut world_cache_opt: Option<ResMut<WorldCache>>,
-    terrains: Query<&Terrain>,
+    world_cache_opt: Option<ResMut<WorldCache>>,
+    // terrains: Query<&Terrain>,
 ) {
-    let Some(mut network_client) = network_client_opt else {
+    let Some(_network_client) = network_client_opt else {
         return;
     };
-    let Some(mut world_cache) = world_cache_opt else {
+    let Some(_world_cache) = world_cache_opt else {
         return;
     };
 
@@ -41,12 +41,12 @@ pub fn spawn_terrain(
     mut commands: Commands,
     world_cache_opt: Option<Res<WorldCache>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    // mut materials: ResMut<Assets<ColorMaterial>>,
     mut terrain_materials: ResMut<Assets<TerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
     // default_terrain_material: Res<DefaultTerrainMaterial>,
     terrains: Query<&Terrain>,
-    biomes: Query<&Biome>,
+    // biomes: Query<&Biome>,
 ) {
     let Some(world_cache) = world_cache_opt else {
         return;
@@ -109,9 +109,9 @@ pub fn spawn_terrain(
         // generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
 
         // Vertex colors : terrain principal = opaque
-        let all_colors: Vec<[f32; 4]> = vec![[1.0, 1.0, 1.0, 1.0]; all_triangles.len()];
+        let _all_colors: Vec<[f32; 4]> = vec![[1.0, 1.0, 1.0, 1.0]; all_triangles.len()];
 
-        let uvs =
+        let _uvs =
             generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
 
         // let mut triangles = mesh_data_ref.triangles.clone();
@@ -149,7 +149,7 @@ pub fn spawn_terrain(
                         edge_softness: 2.0,
                         noise_frequency: 0.15,
                         noise_amplitude: 3.0,
-                    }
+                    },
                 )
             } else {
                 // Create dummy 1x1 RG16 texture (no roads)
@@ -164,12 +164,15 @@ pub fn spawn_terrain(
                     TextureFormat::Rg16Unorm,
                     default(),
                 ));
-                (dummy_road, RoadParams {
-                    has_roads: 0.0,
-                    edge_softness: 2.0,
-                    noise_frequency: 0.15,
-                    noise_amplitude: 3.0,
-                })
+                (
+                    dummy_road,
+                    RoadParams {
+                        has_roads: 0.0,
+                        edge_softness: 2.0,
+                        noise_frequency: 0.15,
+                        noise_amplitude: 3.0,
+                    },
+                )
             };
 
             info!("Creating material WITH SDF for chunk {:?}", terrain.id);
@@ -180,7 +183,7 @@ pub fn spawn_terrain(
                 sdf_params: SdfParams {
                     beach_start: -0.15,
                     beach_end: 0.6,
-                    has_coast: 1.0,  // Terrain has coast SDF
+                    has_coast: 1.0, // Terrain has coast SDF
                     _padding: 0.0,
                 },
                 road_sdf_texture: road_texture,
@@ -205,7 +208,10 @@ pub fn spawn_terrain(
 
             // Check for roads even without terrain SDF
             let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {
-                info!("Creating road texture for chunk {:?} (no terrain SDF)", terrain.id);
+                info!(
+                    "Creating road texture for chunk {:?} (no terrain SDF)",
+                    terrain.id
+                );
                 let road_tex = create_road_sdf_texture(road_sdf, &mut images);
                 (
                     road_tex,
@@ -214,7 +220,7 @@ pub fn spawn_terrain(
                         edge_softness: 2.0,
                         noise_frequency: 0.15,
                         noise_amplitude: 3.0,
-                    }
+                    },
                 )
             } else {
                 // Create dummy 1x1 RG16 texture (no roads)
@@ -229,12 +235,15 @@ pub fn spawn_terrain(
                     TextureFormat::Rg16Unorm,
                     default(),
                 ));
-                (dummy_road, RoadParams {
-                    has_roads: 0.0,
-                    edge_softness: 2.0,
-                    noise_frequency: 0.15,
-                    noise_amplitude: 3.0,
-                })
+                (
+                    dummy_road,
+                    RoadParams {
+                        has_roads: 0.0,
+                        edge_softness: 2.0,
+                        noise_frequency: 0.15,
+                        noise_amplitude: 3.0,
+                    },
+                )
             };
 
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
@@ -244,7 +253,7 @@ pub fn spawn_terrain(
                 sdf_params: SdfParams {
                     beach_start: 0.0,
                     beach_end: 0.0,
-                    has_coast: 0.0,  // No coast SDF
+                    has_coast: 0.0, // No coast SDF
                     _padding: 0.0,
                 },
                 road_sdf_texture: road_texture,
@@ -395,7 +404,7 @@ pub fn spawn_terrain(
 pub fn spawn_building(
     mut commands: Commands,
     world_cache_opt: Option<Res<WorldCache>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    // mut materials: ResMut<Assets<ColorMaterial>>,
     buildings: Query<&Building>,
     images: Res<Assets<Image>>,
     tree_atlas: Res<TreeAtlas>,
@@ -421,6 +430,11 @@ pub fn spawn_building(
         let mut world_position = grid_config
             .layout
             .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
+
+        info!(
+            "BUILDING A CATEGORY: {:?} on cell {:?}",
+            building_base.category, building_base.cell
+        );
 
         match (&building_base.category, &building.specific_data) {
             (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(tree_data)) => {
@@ -564,6 +578,10 @@ pub fn spawn_building(
             }
             _ => {
                 // Fallback pour les types inconnus
+                info!(
+                    "  Unknown building from category {:?} on cell: {:?}",
+                    building_base.category, building_base.cell
+                );
                 let color = Color::srgba(0.5, 0.5, 0.5, 1.0);
                 let size = Vec2::new(32.0, 32.0);
 
@@ -596,6 +614,9 @@ fn spawn_building_sprite(
     world_position: Vec2,
     category_name: &str,
 ) {
+    if building_type == BuildingTypeEnum::Market {
+        info!("BUILDING TYPE {:?} SPAWN REQUEST", building_type);
+    }
     if let Some(image_handle) = building_atlas.get_sprite(building_type, variant) {
         let image_size = images.get(&*image_handle).map(|img| {
             let size = img.texture_descriptor.size;
@@ -604,7 +625,7 @@ fn spawn_building_sprite(
 
         let custom_size = image_size.map(|size| Vec2::new(48.0, 48.0 * (size.y / size.x)));
 
-        let mut position = Vec2::new(world_position.x, world_position.y + 8.);
+        let position = Vec2::new(world_position.x, world_position.y + 8.);
 
         commands.spawn((
             Name::new(format!("{}_{}", category_name, building_id)),
@@ -692,7 +713,7 @@ pub fn create_road_sdf_texture(
                 // Read R channel (distance) as little-endian u16
                 let dist = u16::from_le_bytes([
                     road_sdf_data.data[offset],
-                    road_sdf_data.data[offset + 1]
+                    road_sdf_data.data[offset + 1],
                 ]);
                 min_dist = min_dist.min(dist);
                 max_dist = max_dist.max(dist);
@@ -704,7 +725,13 @@ pub fn create_road_sdf_texture(
 
         info!(
             "Road SDF texture: {}x{}, min_dist: {}, max_dist: {}, non_max_pixels: {}/{}, data_len: {}",
-            width, height, min_dist, max_dist, non_max_count, total_pixels, road_sdf_data.data.len()
+            width,
+            height,
+            min_dist,
+            max_dist,
+            non_max_count,
+            total_pixels,
+            road_sdf_data.data.len()
         );
     }
 
@@ -726,7 +753,7 @@ pub fn create_road_sdf_texture(
 
 // Setup du material par défaut au démarrage
 pub fn setup_default_terrain_material(
-    mut commands: Commands,
+    _commands: Commands,
     mut materials: ResMut<Assets<TerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -743,7 +770,7 @@ pub fn setup_default_terrain_material(
         default(),
     ));
 
-    let default_material = materials.add(TerrainMaterial {
+    let _default_material = materials.add(TerrainMaterial {
         sdf_texture: dummy_texture,
         sdf_params: SdfParams {
             beach_start: 0.,
