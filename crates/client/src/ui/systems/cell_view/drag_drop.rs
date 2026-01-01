@@ -10,19 +10,31 @@ use shared::SlotPosition;
 #[derive(Component)]
 pub struct DragIndicator;
 
-/// Handle the start of a drag operation when user clicks on an occupied slot
+/// Drag trigger distance in pixels - mouse must move this far to start drag
+const DRAG_TRIGGER_DISTANCE: f32 = 5.0;
+
+/// Handle the start of a potential drag operation when user clicks on an occupied slot
 pub fn handle_slot_drag_start(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mut cell_view_state: ResMut<CellViewState>,
     units_cache: Res<UnitsCache>,
     slot_query: Query<(&Interaction, &SlotIndicator), Changed<Interaction>>,
+    windows: Query<&Window>,
 ) {
     // Only process in cell view mode and when not already dragging
-    if !cell_view_state.is_active || cell_view_state.is_dragging() {
+    if !cell_view_state.is_active || cell_view_state.is_dragging() || cell_view_state.has_potential_drag() {
         return;
     }
 
     let Some(viewed_cell) = cell_view_state.viewed_cell else {
+        return;
+    };
+
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
 
@@ -33,13 +45,59 @@ pub fn handle_slot_drag_start(
                 // Check if this slot has a unit
                 if let Some(unit_id) = units_cache.get_unit_at_slot(&viewed_cell, &slot_indicator.position) {
                     info!(
-                        "Starting drag: unit {} from slot {:?}",
+                        "Potential drag started: unit {} from slot {:?}",
                         unit_id, slot_indicator.position
                     );
-                    cell_view_state.start_dragging(unit_id, slot_indicator.position);
+                    // Start potential drag (not confirmed yet)
+                    cell_view_state.start_potential_drag(unit_id, slot_indicator.position, cursor_pos);
                     break;
                 }
             }
+        }
+    }
+}
+
+/// Detect mouse movement to confirm drag or handle mouse release for click
+pub fn detect_drag_movement(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut cell_view_state: ResMut<CellViewState>,
+    windows: Query<&Window>,
+) {
+    // Only process if there's a potential drag
+    let Some(potential_drag) = &cell_view_state.potential_drag else {
+        return;
+    };
+
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    // If mouse button is released before drag is confirmed, treat as click
+    if mouse_button.just_released(MouseButton::Left) {
+        info!(
+            "Mouse released before drag threshold - treating as unit selection: {}",
+            potential_drag.unit_id
+        );
+        // Select the unit instead of dragging
+        cell_view_state.selected_unit = Some(potential_drag.unit_id);
+        cell_view_state.cancel_potential_drag();
+        return;
+    }
+
+    // Check if mouse has moved enough to confirm drag
+    if mouse_button.pressed(MouseButton::Left) {
+        let Some(cursor_pos) = window.cursor_position() else {
+            return;
+        };
+
+        let distance = cursor_pos.distance(potential_drag.start_position);
+
+        if distance >= DRAG_TRIGGER_DISTANCE {
+            info!(
+                "Drag confirmed: unit {} moved {:.1}px (threshold: {}px)",
+                potential_drag.unit_id, distance, DRAG_TRIGGER_DISTANCE
+            );
+            cell_view_state.confirm_drag();
         }
     }
 }
@@ -128,6 +186,9 @@ pub fn handle_slot_drop(
             }
         }
 
+        // Check if this unit was previously selected
+        let was_selected = cell_view_state.selected_unit == Some(dragging_unit.unit_id);
+
         match dropped_on_slot {
             Some(target_slot) => {
                 // Check if target slot is different from source
@@ -153,11 +214,15 @@ pub fn handle_slot_drop(
                         };
 
                         network_client.send_message(message);
+
+                        // Keep unit selected if it was selected before the drag
+                        if was_selected {
+                            cell_view_state.selected_unit = Some(dragging_unit.unit_id);
+                        }
                     }
                 } else {
-                    info!("Dropped on same slot, treating as unit selection");
-                    // This is a click on the same slot, treat it as a selection
-                    cell_view_state.selected_unit = Some(dragging_unit.unit_id);
+                    // Dropped on same slot after dragging - don't treat as selection
+                    info!("Dropped on same slot after drag, ignoring");
                 }
             }
             None => {
@@ -170,13 +235,18 @@ pub fn handle_slot_drop(
     }
 }
 
-/// Cancel drag if ESC is pressed
+/// Cancel drag or potential drag if ESC is pressed
 pub fn cancel_drag_on_escape(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut cell_view_state: ResMut<CellViewState>,
 ) {
-    if cell_view_state.is_dragging() && keyboard.just_pressed(KeyCode::Escape) {
-        info!("Drag canceled by ESC key");
-        cell_view_state.stop_dragging();
+    if keyboard.just_pressed(KeyCode::Escape) {
+        if cell_view_state.is_dragging() {
+            info!("Drag canceled by ESC key");
+            cell_view_state.stop_dragging();
+        } else if cell_view_state.has_potential_drag() {
+            info!("Potential drag canceled by ESC key");
+            cell_view_state.cancel_potential_drag();
+        }
     }
 }

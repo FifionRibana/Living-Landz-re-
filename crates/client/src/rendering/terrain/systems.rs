@@ -618,7 +618,7 @@ fn spawn_building_sprite(
         info!("BUILDING TYPE {:?} SPAWN REQUEST", building_type);
     }
     if let Some(image_handle) = building_atlas.get_sprite(building_type, variant) {
-        let image_size = images.get(&*image_handle).map(|img| {
+        let image_size = images.get(image_handle).map(|img| {
             let size = img.texture_descriptor.size;
             Vec2::new(size.width as f32, size.height as f32)
         });

@@ -3,9 +3,9 @@ use bevy::{prelude::*};
 
 use crate::ui::components::MenuButton;
 
-const NORMAL_COLOR: Color = Color::srgb_u8(157, 136, 93);
-const HOVER_COLOR: Color = Color::srgb_u8(197, 176, 133);
-const CLICK_COLOR: Color = Color::srgb_u8(227, 206, 163);
+pub const NORMAL_COLOR: Color = Color::srgb_u8(157, 136, 93);
+pub const HOVER_COLOR: Color = Color::srgb_u8(197, 176, 133);
+pub const CLICK_COLOR: Color = Color::srgb_u8(227, 206, 163);
 
 pub fn handle_menu_button_interactions(
     mut query: Query<(&MenuButton, &mut ImageNode, &Interaction), Changed<Interaction>>,

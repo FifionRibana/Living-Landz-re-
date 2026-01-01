@@ -91,13 +91,11 @@ impl NameGenerator {
                         let idx = rng.random_range(0..self.male_first_names.len());
                         self.male_first_names[idx].clone()
                     }
+                } else if self.female_first_names.is_empty() {
+                    "Jane".to_string()
                 } else {
-                    if self.female_first_names.is_empty() {
-                        "Jane".to_string()
-                    } else {
-                        let idx = rng.random_range(0..self.female_first_names.len());
-                        self.female_first_names[idx].clone()
-                    }
+                    let idx = rng.random_range(0..self.female_first_names.len());
+                    self.female_first_names[idx].clone()
                 }
             }
         };

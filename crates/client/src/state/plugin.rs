@@ -26,7 +26,7 @@ impl Plugin for ClientStatePlugin {
                 (
                     systems::unload_distant_chunks,
                     systems::request_chunks_around_camera,
-                    systems::track_hovered_cell_organization,
+                    // systems::track_hovered_cell_organization,
                 )
                     .chain(),
             );

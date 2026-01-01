@@ -1,23 +1,6 @@
-mod auto_assign_slots;
 mod background;
-mod drag_drop;
-mod input;
-mod setup;
-mod slot_grid;
-mod slot_visual;
 mod unit_details_panel;
-mod unit_selection;
-mod unit_sprites;
-mod visibility;
 
-pub use auto_assign_slots::*;
 pub use background::*;
-pub use drag_drop::*;
-pub use input::*;
-pub use setup::*;
 // pub use slot_grid::*;
-pub use slot_visual::*;
 pub use unit_details_panel::*;
-pub use unit_selection::*;
-pub use unit_sprites::*;
-pub use visibility::*;

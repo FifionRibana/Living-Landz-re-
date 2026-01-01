@@ -13,7 +13,7 @@ pub fn setup_cell_details_panel(
     asset_server: &Res<AssetServer>,
     gauge_atlas: &Res<GaugeAtlas>,
 ) {
-    let paper_panel_image = asset_server.load("ui/ui_paper_panel.png");
+    let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
             left: 42.,

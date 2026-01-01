@@ -1,3 +1,4 @@
+mod action_menu;
 mod action_bar;
 mod action_panel_content;
 mod action_panel_setup;
@@ -5,13 +6,17 @@ mod actions_panel;
 mod cell_action_display;
 mod cell_details;
 mod cell_details_panel;
-pub mod cell_view;
+mod cell_view;
 mod chat_panel;
 mod chat_panel_setup;
 mod clock;
 mod menu_buttons;
 mod player_info;
 mod top_bar;
+
+pub mod panels;
+
+pub use action_menu::*;
 
 pub use action_bar::*;
 pub use action_panel_content::*;

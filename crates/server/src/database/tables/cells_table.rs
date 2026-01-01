@@ -74,4 +74,27 @@ impl CellsTable {
 
         Ok(cells)
     }
+
+    /// Get biome type at a specific cell
+    pub async fn get_biome_at_cell(&self, cell: &GridCell) -> Result<Option<BiomeTypeEnum>, String> {
+        let result = sqlx::query(
+            r#"
+            SELECT biome_id
+            FROM terrain.cells
+            WHERE q = $1 AND r = $2
+            "#,
+        )
+        .bind(cell.q)
+        .bind(cell.r)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get biome at cell: {}", e))?;
+
+        if let Some(row) = result {
+            let biome_id = row.get::<i32, _>("biome_id");
+            Ok(BiomeTypeEnum::from_id(biome_id as i16))
+        } else {
+            Ok(None)
+        }
+    }
 }
