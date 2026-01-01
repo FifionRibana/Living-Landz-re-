@@ -1,11 +1,7 @@
 use bevy::prelude::*;
 
 use shared::{
-    AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum,
-    BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific,
-    BuildingSpecificTypeEnum, CommerceData, CommerceTypeEnum, CultData, CultTypeEnum,
-    EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData,
-    ManufacturingWorkshopTypeEnum, TerrainChunkId, TreeData, TreeTypeEnum, grid::GridCell,
+    AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum, BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CommerceTypeEnum, CultData, CultTypeEnum, EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData, ManufacturingWorkshopTypeEnum, TerrainChunkId, TreeData, TreeTypeEnum, grid::GridCell
 };
 use sqlx::{PgPool, Row};
 
@@ -747,5 +743,29 @@ impl BuildingsTable {
         }
 
         Ok(buildings)
+    }
+
+    /// Get building type at a specific cell
+    pub async fn get_building_type_at_cell(&self, cell: &GridCell) -> Result<Option<BuildingTypeEnum>, String> {
+        let result = sqlx::query(
+            r#"
+            SELECT bt.id as building_type_id
+            FROM buildings.buildings_base b
+            INNER JOIN buildings.building_types bt ON b.building_type_id = bt.id
+            WHERE b.cell_q = $1 AND b.cell_r = $2 AND b.is_built = true
+            "#,
+        )
+        .bind(cell.q)
+        .bind(cell.r)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get building type at cell: {}", e))?;
+
+        if let Some(row) = result {
+            let building_type_id = row.get::<i32, _>("building_type_id");
+            Ok(BuildingTypeEnum::from_id(building_type_id as i16))
+        } else {
+            Ok(None)
+        }
     }
 }

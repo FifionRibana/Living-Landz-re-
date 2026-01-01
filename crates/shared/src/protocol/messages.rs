@@ -217,8 +217,7 @@ pub enum ServerMessage {
 
     /// Debug: Unit spawned successfully
     DebugUnitSpawned {
-        unit_id: u64,
-        cell: GridCell,
+        unit_data: UnitData,
     },
 
     /// Response with organization info at a cell

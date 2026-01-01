@@ -1,3 +1,5 @@
+use std::f32;
+
 use bevy::prelude::*;
 use hexx::Hex;
 use shared::{ActionStatusEnum, TerrainChunkId, grid::{GridCell, GridConfig}};
@@ -103,8 +105,8 @@ fn spawn_action_indicator(
         Transform::from_translation(position),
         ActionIndicator {
             action_id,
-            chunk_id: chunk_id.clone(),
-            cell: cell.clone(),
+            chunk_id: *chunk_id,
+            cell: *cell,
             status,
         },
     ));
@@ -149,7 +151,7 @@ pub fn animate_in_progress_indicators(
     let time_secs = time.elapsed_secs();
     for mut transform in query.iter_mut() {
         // Animation de pulsation avec un cycle de 2 secondes
-        let scale = 1.0 + (time_secs * 3.14159).sin() * 0.15;
+        let scale = 1.0 + (time_secs * f32::consts::PI).sin() * 0.15;
         transform.scale = Vec3::splat(scale);
     }
 }
@@ -187,11 +189,7 @@ pub fn update_action_timer_text(
                 .unwrap()
                 .as_secs();
 
-            let remaining_seconds = if current_time < action.completion_time {
-                action.completion_time - current_time
-            } else {
-                0
-            };
+            let remaining_seconds = action.completion_time.saturating_sub(current_time);
 
             let minutes = remaining_seconds / 60;
             let seconds = remaining_seconds % 60;

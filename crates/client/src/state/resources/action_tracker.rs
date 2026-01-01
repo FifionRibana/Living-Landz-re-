@@ -33,7 +33,7 @@ impl ActionTracker {
 
     /// Ajoute ou met à jour une action
     pub fn update_action(&mut self, action: TrackedAction) {
-        let cell_key = (action.chunk_id.clone(), action.cell.clone());
+        let cell_key = (action.chunk_id, action.cell);
 
         // Si l'action est complétée, on peut la retirer après un délai
         // Pour l'instant on la garde pour afficher la coche verte

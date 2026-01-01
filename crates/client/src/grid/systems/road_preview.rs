@@ -1,9 +1,12 @@
-use bevy::prelude::*;
-use shared::grid::{GridCell, pathfinding::{find_path, PathfindingOptions, NeighborType}};
-use hexx::{Hex, HexLayout};
-use crate::grid::resources::{SelectedHexes, RoadPreview};
-use crate::ui::resources::ActionState;
+use crate::grid::resources::{RoadPreview, SelectedHexes};
 use crate::ui::components::ActionCategory;
+use crate::ui::resources::ActionState;
+use bevy::prelude::*;
+use hexx::{Hex, HexLayout};
+use shared::grid::{
+    GridCell,
+    pathfinding::{NeighborType, PathfindingOptions, find_path},
+};
 
 /// Système qui met à jour le preview de route en fonction des cellules sélectionnées
 pub fn update_road_preview(
@@ -62,10 +65,14 @@ pub fn update_road_preview(
             vec![start_cell, end_cell]
         } else {
             // Pathfinding
-            match find_path(start_cell, end_cell, PathfindingOptions {
-                neighbor_type: NeighborType::Both,
-                ..Default::default()
-            }) {
+            match find_path(
+                start_cell,
+                end_cell,
+                PathfindingOptions {
+                    neighbor_type: NeighborType::Both,
+                    ..Default::default()
+                },
+            ) {
                 Some(p) => p,
                 None => {
                     // Pas de chemin trouvé
@@ -145,7 +152,7 @@ fn catmull_rom_point_vec3(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: f32) -> Vec
 
 /// Convertit une cellule hexagonale en position monde (Vec3)
 fn cell_to_world_pos(cell: &GridCell) -> Vec3 {
-    use shared::constants::{HEX_SIZE, HEX_RATIO};
+    use shared::constants::{HEX_RATIO, HEX_SIZE};
 
     let layout = HexLayout::flat()
         .with_hex_size(HEX_SIZE)
@@ -159,11 +166,7 @@ fn cell_to_world_pos(cell: &GridCell) -> Vec3 {
 }
 
 /// Système qui dessine le preview de la route avec Gizmos
-pub fn draw_road_preview(
-    road_preview: Res<RoadPreview>,
-    mut gizmos: Gizmos,
-    time: Res<Time>,
-) {
+pub fn draw_road_preview(road_preview: Res<RoadPreview>, mut gizmos: Gizmos, time: Res<Time>) {
     if !road_preview.is_valid || road_preview.world_points.is_empty() {
         return;
     }
@@ -178,7 +181,12 @@ pub fn draw_road_preview(
     // Animation pulsante
     let pulse = (time.elapsed_secs() * 3.0).sin() * 0.5 + 0.5;
     let alpha = 0.6 + pulse * 0.4;
-    let color = Color::srgba(base_color.to_srgba().red, base_color.to_srgba().green, base_color.to_srgba().blue, alpha);
+    let color = Color::srgba(
+        base_color.to_srgba().red,
+        base_color.to_srgba().green,
+        base_color.to_srgba().blue,
+        alpha,
+    );
 
     // Dessiner une ligne pointillée entre chaque point
     for i in 0..road_preview.world_points.len() - 1 {
@@ -207,10 +215,10 @@ pub fn draw_road_preview(
         gizmos.sphere(first, 0.3, Color::srgba(0.2, 1.0, 0.2, alpha)); // Vert pour le début
     }
 
-    if road_preview.world_points.len() > 1 {
-        if let Some(&last) = road_preview.world_points.last() {
-            gizmos.sphere(last, 0.3, Color::srgba(1.0, 0.2, 0.2, alpha)); // Rouge pour la fin
-        }
+    if road_preview.world_points.len() > 1
+        && let Some(&last) = road_preview.world_points.last()
+    {
+        gizmos.sphere(last, 0.3, Color::srgba(1.0, 0.2, 0.2, alpha)); // Rouge pour la fin
     }
 
     // Dessiner des petites sphères aux points intermédiaires

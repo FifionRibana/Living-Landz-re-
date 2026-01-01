@@ -1,8 +1,12 @@
 use bevy::{ecs::relationship::RelatedSpawnerCommands, prelude::*};
 use shared::atlas::MoonAtlas;
 
-use crate::ui::components::{
-    ClockText, DateText, MenuButton, MoonPhaseImage, PlayerNameText, CharacterNameText, TopBarMarker,
+use crate::ui::{
+    components::{
+        ActionMenuMarker, ActionModeMenuButton, ActionModeMenuIcon, CharacterNameText, ClockText, DateText, MenuButton, MoonPhaseImage, PlayerNameText, TopBarMarker
+    },
+    resources::{ActionModeEnum, PanelEnum, UIState},
+    systems::{CLICK_COLOR, HOVER_COLOR, NORMAL_COLOR},
 };
 
 pub fn setup_top_bar(
@@ -10,7 +14,7 @@ pub fn setup_top_bar(
     asset_server: &Res<AssetServer>,
     moon_atlas: &Res<MoonAtlas>,
 ) {
-    let top_bar_image = asset_server.load("ui/ui_top_bar.png");
+    let top_bar_image = asset_server.load("ui/ui_top_bar_2.png");
     let top_bar_slicer = TextureSlicer {
         border: BorderRect {
             left: 24.,
@@ -30,17 +34,39 @@ pub fn setup_top_bar(
     let griffin_shield_image = asset_server.load("ui/icons/griffin-shield.png");
     let laurels_trophy_image = asset_server.load("ui/icons/laurels-trophy.png");
     let search_image = asset_server.load("ui/icons/search.png");
+    let world_map_image = asset_server.load("ui/icons/compass.png");
     let village_image = asset_server.load("ui/icons/village.png");
 
+    let sub_tab_normal_image: Handle<Image> =
+        asset_server.load("ui/ui_sub_top_bar_button_normal.png");
+    let sub_tab_hovered_image: Handle<Image> =
+        asset_server.load("ui/ui_sub_top_bar_button_hovered.png");
+    let sub_tab_selected_image: Handle<Image> =
+        asset_server.load("ui/ui_sub_top_bar_button_selected.png");
+    let sub_tab_disabled_image: Handle<Image> =
+        asset_server.load("ui/ui_sub_top_bar_button_disabled.png");
+
+    let road_image = asset_server.load("ui/icons/stone-path.png");
+    let training_image = asset_server.load("ui/icons/graduate-cap.png");
+    let diplomacy_image = asset_server.load("ui/icons/shaking-hands.png");
+
     let menu_images = [
-        village_image,
-        griffin_shield_image,
-        bookmarklet_image,
-        envelope_image,
-        laurels_trophy_image,
-        calendar_image,
-        search_image,
-        cog_image,
+        (world_map_image, PanelEnum::MapView),
+        (griffin_shield_image, PanelEnum::ManagementPanel),
+        (bookmarklet_image, PanelEnum::RecordsPanel),
+        (envelope_image, PanelEnum::MessagesPanel),
+        (laurels_trophy_image, PanelEnum::RankingPanel),
+        (calendar_image, PanelEnum::CalendarPanel),
+        (search_image, PanelEnum::SearchView),
+        (cog_image.clone(), PanelEnum::SettingsView),
+    ];
+
+    let sub_menu_images = [
+        (road_image, ActionModeEnum::RoadActionMode),
+        (village_image, ActionModeEnum::BuildingActionMode),
+        (cog_image, ActionModeEnum::ProductionActionMode),
+        (training_image, ActionModeEnum::TrainingActionMode),
+        (diplomacy_image, ActionModeEnum::DiplomacyActionMode),
     ];
 
     parent
@@ -62,6 +88,7 @@ pub fn setup_top_bar(
                 ..default()
             },
             TopBarMarker,
+            GlobalZIndex(1000),
             Pickable {
                 should_block_lower: true,
                 is_hoverable: true,
@@ -83,27 +110,35 @@ pub fn setup_top_bar(
                     },
                 ))
                 .with_children(|menu_bar_parent| {
-                    for (index, menu_image) in menu_images.iter().enumerate() {
-                        menu_bar_parent.spawn((
-                            Button,
-                            Node {
-                                width: px(32.),
-                                height: px(32.),
-                                margin: UiRect::horizontal(px(8.)),
-                                ..default()
-                            },
-                            ImageNode {
-                                image: menu_image.clone(),
-                                image_mode: NodeImageMode::Auto,
-                                color: Color::srgb_u8(157, 136, 93),
-                                ..default()
-                            },
-                            Pickable {
-                                should_block_lower: true,
-                                is_hoverable: true,
-                            },
-                            MenuButton { button_id: index },
-                        ));
+                    for (index, (menu_image, panel)) in menu_images.iter().enumerate() {
+                        menu_bar_parent
+                            .spawn((
+                                Button,
+                                Node {
+                                    width: px(32.),
+                                    height: px(32.),
+                                    margin: UiRect::horizontal(px(8.)),
+                                    ..default()
+                                },
+                                ImageNode {
+                                    image: menu_image.clone(),
+                                    image_mode: NodeImageMode::Auto,
+                                    color: Color::srgb_u8(157, 136, 93),
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: true,
+                                },
+                                MenuButton {
+                                    button_id: index,
+                                    panel: *panel,
+                                },
+                            ))
+                            .observe(recolor_menu_button_on::<Pointer<Over>>(HOVER_COLOR))
+                            .observe(recolor_menu_button_on::<Pointer<Out>>(NORMAL_COLOR))
+                            .observe(recolor_menu_button_on::<Pointer<Click>>(CLICK_COLOR))
+                            .observe(on_menu_button_click);
                     }
                 });
 
@@ -308,4 +343,128 @@ pub fn setup_top_bar(
                     ));
                 });
         });
+
+    parent
+        .spawn((
+            Node {
+                width: percent(100),
+                height: Val::Px(44.),
+                position_type: PositionType::Absolute,
+                top: Val::Px(60.),
+                left: Val::Px(20.),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+            GlobalZIndex(1001),
+            ActionMenuMarker,
+            Pickable {
+                should_block_lower: true,
+                is_hoverable: true,
+            },
+        ))
+        .with_children(|sub_bar_parent| {
+            for (index, (sub_menu_image, action_mode)) in sub_menu_images.iter().enumerate() {
+                sub_bar_parent
+                    .spawn((
+                        Button,
+                        Node {
+                            width: Val::Px(48.),
+                            height: Val::Px(44.),
+                            margin: UiRect::horizontal(Val::Px(2.)),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            ..default()
+                        },
+                        ImageNode {
+                            image: if index == 0 {
+                                sub_tab_selected_image.clone()
+                            } else {
+                                sub_tab_normal_image.clone()
+                            },
+                            image_mode: NodeImageMode::Auto,
+                            ..default()
+                        },
+                        ActionModeMenuButton {
+                            action_mode: *action_mode,
+                        },
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: true,
+                        },
+                    ))
+                    .observe(on_action_button_hovered::<Pointer<Over>>(true))
+                    .observe(on_action_button_hovered::<Pointer<Out>>(false))
+                    .observe(on_action_menu_button_click)
+                    .with_children(|button_parent| {
+                        button_parent.spawn((
+                            Node {
+                                width: Val::Px(28.),
+                                height: Val::Px(28.),
+                                ..default()
+                            },
+                            ImageNode {
+                                image: sub_menu_image.clone(),
+                                image_mode: NodeImageMode::Auto,
+                                color: Color::srgb_u8(157, 136, 93),
+                                ..default()
+                            },
+                            ActionModeMenuIcon {
+                                action_mode: *action_mode,
+                            },
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: false,
+                            },
+                        ));
+                    });
+            }
+        });
+}
+
+pub fn recolor_menu_button_on<E: EntityEvent>(
+    color: Color,
+) -> impl Fn(On<E>, Query<(&MenuButton, &mut ImageNode)>) {
+    move |event, mut menu_button_query| {
+        if let Ok((_, mut image_node)) = menu_button_query.get_mut(event.event_target()) {
+            image_node.color = color;
+        }
+    }
+}
+
+pub fn on_action_button_hovered<E: EntityEvent>(
+    state: bool,
+) -> impl Fn(On<E>, ResMut<UIState>, Query<&ActionModeMenuButton>) {
+    move |event, mut ui_state, action_button_query| {
+        if let Ok(action_button) = action_button_query.get(event.event_target()) {
+            ui_state.set_action_mode_hovered(action_button.action_mode, state);
+        }
+    }
+}
+
+pub fn on_menu_button_click(
+    event: On<Pointer<Click>>,
+    menu_button_query: Query<&MenuButton>,
+    mut ui_state: ResMut<UIState>,
+) {
+    if let Ok(menu_button) = menu_button_query.get(event.entity) {
+        info!("Switching to {:?}", menu_button.panel);
+        ui_state.switch_to(menu_button.panel);
+    }
+}
+
+pub fn on_action_menu_button_click(
+    event: On<Pointer<Click>>,
+    menu_button_query: Query<&ActionModeMenuButton>,
+    mut ui_state: ResMut<UIState>,
+) {
+    if let Ok(menu_button) = menu_button_query.get(event.entity) {
+        if Some(menu_button.action_mode) == ui_state.action_mode {
+            info!("Reset action mode");
+            ui_state.reset_action_mode();
+        } else {
+            info!("Set action mode to: {:?}", menu_button.action_mode);
+            ui_state.set_action_mode(menu_button.action_mode);
+        }
+    }
 }

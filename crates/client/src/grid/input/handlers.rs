@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::camera::MainCamera;
 use crate::grid::resources::SelectedHexes;
-use crate::ui::resources::CellViewState;
+use crate::state::resources::WorldCache;
+use crate::ui::resources::{CellState, PanelEnum};
+use crate::{camera::MainCamera, ui::resources::UIState};
 
-use shared::grid::{GridCell, GridConfig};
 use hexx::Hex;
+use shared::grid::{GridCell, GridConfig};
 
 pub fn handle_hexagon_selection(
     mut selected_hexes: ResMut<SelectedHexes>,
@@ -15,9 +16,14 @@ pub fn handle_hexagon_selection(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     grid_config: Res<GridConfig>,
+    ui_state: Res<UIState>,
     // Check if cursor is over UI - now all UI elements (buttons and panels) have Interaction
     ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
 ) -> Result {
+    if ui_state.panel_state != PanelEnum::MapView {
+        return Ok(());
+    }
+
     if mouse_button.just_pressed(MouseButton::Left) {
         let window = windows.single()?;
 
@@ -64,7 +70,7 @@ pub fn handle_hexagon_selection(
 /// Detect double-click on hexagons to enter cell view mode
 pub fn handle_cell_view_entry(
     mouse_button: Res<ButtonInput<MouseButton>>,
-    mut cell_view_state: ResMut<CellViewState>,
+    mut cell_state: ResMut<CellState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     grid_config: Res<GridConfig>,
@@ -72,9 +78,12 @@ pub fn handle_cell_view_entry(
     // Check if cursor is over UI
     ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
     mut last_click: Local<Option<(Hex, f32)>>,
+    mut ui_state: ResMut<UIState>,
+    world_cache: Res<WorldCache>,
 ) {
     // Only process clicks when NOT in cell view mode
-    if cell_view_state.is_active {
+    if ui_state.panel_state == PanelEnum::CellView {
+        //cell_view_state.is_active {
         return;
     }
 
@@ -106,15 +115,21 @@ pub fn handle_cell_view_entry(
             let current_time = time.elapsed_secs();
 
             // Check for double-click
-            if let Some((last_hex, last_time)) = *last_click {
-                if last_hex == clicked_hex && (current_time - last_time) < 0.3 {
-                    // Double-click detected!
-                    let cell = GridCell::from_hex(&clicked_hex);
-                    info!("Double-click detected on cell: q={}, r={}", cell.q, cell.r);
-                    cell_view_state.enter_view(cell);
-                    *last_click = None;
-                    return;
-                }
+            if let Some((last_hex, last_time)) = *last_click
+                && last_hex == clicked_hex
+                && (current_time - last_time) < 0.3
+            {
+                // Double-click detected!
+                let cell = GridCell::from_hex(&clicked_hex);
+                info!("Double-click detected on cell: q={}, r={}", cell.q, cell.r);
+
+                cell_state.enter_view(
+                    world_cache.get_cell(&cell).cloned(),
+                    world_cache.get_building(&cell).cloned(),
+                );
+                ui_state.switch_to(PanelEnum::CellView);
+                *last_click = None;
+                return;
             }
 
             // Store this click for potential double-click

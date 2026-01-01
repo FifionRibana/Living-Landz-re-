@@ -9,7 +9,7 @@ pub struct UnitDetailsPanelContainer;
 
 /// Spawn the unit details panel UI (initially hidden)
 pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let paper_panel_image = asset_server.load("ui/ui_paper_panel.png");
+    let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
             left: 42.,

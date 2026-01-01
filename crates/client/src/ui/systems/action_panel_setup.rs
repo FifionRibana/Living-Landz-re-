@@ -8,7 +8,7 @@ use crate::ui::components::{
 };
 
 pub fn setup_action_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &Res<AssetServer>) {
-    let wood_panel_image = asset_server.load("ui/ui_wood_panel.png");
+    let wood_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let wood_panel_slicer = TextureSlicer {
         border: BorderRect {
             left: 42.,

@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::input_focus::InputFocus;
+use bevy::prelude::*;
 use bevy_ui_text_input::TextInputNode;
 
 use crate::camera::components::MainCamera;
@@ -14,10 +14,10 @@ pub fn camera_movement(
     text_inputs: Query<(), With<TextInputNode>>,
 ) {
     // Don't move camera if any text input has focus
-    if let Some(focused_entity) = input_focus.0 {
-        if text_inputs.get(focused_entity).is_ok() {
-            return;
-        }
+    if let Some(focused_entity) = input_focus.0
+        && text_inputs.get(focused_entity).is_ok()
+    {
+        return;
     }
 
     let Ok((mut transform, projection)) = camera.single_mut() else {
@@ -56,15 +56,12 @@ pub fn camera_zoom(
         return;
     };
 
-    if keys.pressed(KeyCode::NumpadAdd)
-    {
+    if keys.pressed(KeyCode::NumpadAdd) {
         if let Projection::Orthographic(ortho) = projection.as_mut() {
             ortho.scale -= 0.1;
             ortho.scale = ortho.scale.clamp(settings.min_zoom, settings.max_zoom);
         }
-    }
-    else if keys.pressed(KeyCode::NumpadSubtract)
-    {
+    } else if keys.pressed(KeyCode::NumpadSubtract) {
         if let Projection::Orthographic(ortho) = projection.as_mut() {
             ortho.scale += 0.1;
             ortho.scale = ortho.scale.clamp(settings.min_zoom, settings.max_zoom);

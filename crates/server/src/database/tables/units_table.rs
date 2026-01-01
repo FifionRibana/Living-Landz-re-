@@ -630,4 +630,68 @@ impl UnitsTable {
 
         Ok(())
     }
+
+    /// Count units on a specific cell
+    pub async fn count_units_on_cell(&self, cell: &GridCell, chunk: &TerrainChunkId) -> Result<usize, String> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM units.units
+            WHERE current_cell_q = $1 AND current_cell_r = $2
+              AND current_chunk_x = $3 AND current_chunk_y = $4
+            "#,
+        )
+        .bind(cell.q)
+        .bind(cell.r)
+        .bind(chunk.x)
+        .bind(chunk.y)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to count units on cell: {}", e))?;
+
+        Ok(count as usize)
+    }
+
+    /// Get occupied slots on a specific cell
+    pub async fn get_occupied_slots_on_cell(
+        &self,
+        cell: &GridCell,
+        chunk: &TerrainChunkId,
+    ) -> Result<Vec<shared::SlotPosition>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT slot_type, slot_index
+            FROM units.units
+            WHERE current_cell_q = $1 AND current_cell_r = $2
+              AND current_chunk_x = $3 AND current_chunk_y = $4
+              AND slot_type IS NOT NULL AND slot_index IS NOT NULL
+            "#,
+        )
+        .bind(cell.q)
+        .bind(cell.r)
+        .bind(chunk.x)
+        .bind(chunk.y)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get occupied slots: {}", e))?;
+
+        let mut occupied_slots = Vec::new();
+        for row in rows {
+            let slot_type_str: String = row.get("slot_type");
+            let slot_index: i32 = row.get("slot_index");
+
+            let slot_type = match slot_type_str.as_str() {
+                "interior" => shared::SlotType::Interior,
+                "exterior" => shared::SlotType::Exterior,
+                _ => continue, // Skip invalid slot types
+            };
+
+            occupied_slots.push(shared::SlotPosition {
+                slot_type,
+                index: slot_index as usize,
+            });
+        }
+
+        Ok(occupied_slots)
+    }
 }

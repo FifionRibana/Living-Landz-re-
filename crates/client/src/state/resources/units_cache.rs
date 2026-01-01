@@ -17,7 +17,7 @@ impl UnitsCache {
     pub fn add_unit(&mut self, cell: GridCell, unit_id: u64) {
         self.units_by_cell
             .entry(cell)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(unit_id);
     }
 

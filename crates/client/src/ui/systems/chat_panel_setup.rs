@@ -7,7 +7,7 @@ use crate::ui::components::{
 };
 
 pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &Res<AssetServer>) {
-    let paper_panel_image = asset_server.load("ui/ui_paper_panel.png");
+    let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
             left: 42.,

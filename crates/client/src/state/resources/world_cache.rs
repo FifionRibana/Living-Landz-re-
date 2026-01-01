@@ -106,8 +106,8 @@ impl CellCache {
         });
     }
 
-    pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
-        self.loaded.get(cell).copied()
+    pub fn get_cell(&self, cell: &GridCell) -> Option<&CellData> {
+        self.loaded.get(cell)
     }
 }
 
@@ -120,12 +120,12 @@ impl BuildingCache {
     pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
         info!("Inserting {} buildings into cache", buildings.len());
         buildings.iter().for_each(|building_data| {
-            self.loaded.insert(building_data.base_data.cell, building_data.clone());
+            self.loaded.insert(building_data.base_data.cell, building_data);
         });
     }
 
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
-        self.loaded.get(cell).clone()
+        self.loaded.get(cell)
     }
     
     pub fn unload_distant(
@@ -331,7 +331,7 @@ impl WorldCache {
         self.cells.insert_cells(cells);
     }
 
-    pub fn get_cell(&self, cell: &GridCell) -> Option<CellData> {
+    pub fn get_cell(&self, cell: &GridCell) -> Option<&CellData> {
         self.cells.get_cell(cell)
     }
 

@@ -9,7 +9,7 @@ pub trait BuildingSpecificData: Clone {
     fn category(&self) -> BuildingCategoryEnum;
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub enum BuildingSpecific {
     Unknown(),
     Tree(TreeData),
@@ -50,7 +50,7 @@ impl BuildingSpecific {
 }
 
 // BUILDINGS
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct TreeData {
     pub density: f32,
     pub age: i32,
@@ -64,7 +64,7 @@ impl BuildingSpecificData for TreeData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct ManufacturingWorkshopData {
     pub workshop_type: ManufacturingWorkshopTypeEnum,
     pub variant: u32,
@@ -76,7 +76,7 @@ impl BuildingSpecificData for ManufacturingWorkshopData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct AgricultureData {
     pub agriculture_type: AgricultureTypeEnum,
     pub variant: u32,
@@ -88,7 +88,7 @@ impl BuildingSpecificData for AgricultureData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct AnimalBreedingData {
     pub animal_type: AnimalBreedingTypeEnum,
     pub variant: u32,
@@ -100,7 +100,7 @@ impl BuildingSpecificData for AnimalBreedingData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct EntertainmentData {
     pub entertainment_type: EntertainmentTypeEnum,
     pub variant: u32,
@@ -112,7 +112,7 @@ impl BuildingSpecificData for EntertainmentData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct CultData {
     pub cult_type: CultTypeEnum,
     pub variant: u32,
@@ -124,7 +124,7 @@ impl BuildingSpecificData for CultData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct CommerceData {
     pub commerce_type: CommerceTypeEnum,
     pub variant: u32,
@@ -136,7 +136,7 @@ impl BuildingSpecificData for CommerceData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct BuildingBaseData {
     pub id: u64,
     pub category: BuildingCategoryEnum,
@@ -151,7 +151,7 @@ pub struct BuildingBaseData {
     pub damage: f32,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, Encode, Decode)]
 pub struct BuildingData {
     pub base_data: BuildingBaseData,
     pub specific_data: BuildingSpecific,

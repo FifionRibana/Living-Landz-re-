@@ -1011,6 +1011,92 @@ async fn handle_client_message(
         ClientMessage::DebugSpawnUnit { cell } => {
             tracing::info!("DEBUG: Spawning random unit at {:?}", cell);
 
+            // Check slot availability before spawning
+            let default_chunk = shared::TerrainChunkId { x: 0, y: 0 };
+
+            // Get occupied slots on the cell
+            let occupied_slots = match db_tables.units.get_occupied_slots_on_cell(&cell, &default_chunk).await {
+                Ok(slots) => slots,
+                Err(e) => {
+                    tracing::error!("✗ Failed to get occupied slots: {}", e);
+                    return vec![ServerMessage::DebugError {
+                        reason: format!("Failed to get occupied slots: {}", e),
+                    }];
+                }
+            };
+
+            // Determine slot configuration based on building type or terrain biome
+            let slot_config = {
+                use shared::SlotConfiguration;
+
+                // Try to get building type first
+                match db_tables.buildings.get_building_type_at_cell(&cell).await {
+                    Ok(Some(building_type)) => {
+                        SlotConfiguration::for_building_type(building_type)
+                    }
+                    Ok(None) => {
+                        // No building, check terrain biome
+                        match db_tables.cells.get_biome_at_cell(&cell).await {
+                            Ok(Some(biome)) => SlotConfiguration::for_terrain_type(biome),
+                            Ok(None) => {
+                                tracing::warn!("No biome found for cell {:?}, using default config", cell);
+                                SlotConfiguration::default()
+                            }
+                            Err(e) => {
+                                tracing::error!("✗ Failed to get biome: {}", e);
+                                return vec![ServerMessage::DebugError {
+                                    reason: format!("Failed to get biome: {}", e),
+                                }];
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("✗ Failed to get building type: {}", e);
+                        return vec![ServerMessage::DebugError {
+                            reason: format!("Failed to get building type: {}", e),
+                        }];
+                    }
+                }
+            };
+
+            let total_slots = slot_config.total_slots();
+
+            // Generate list of all available slots
+            let mut all_slots = Vec::new();
+
+            // Add all interior slots
+            for i in 0..slot_config.interior_slots() {
+                all_slots.push(shared::SlotPosition {
+                    slot_type: shared::SlotType::Interior,
+                    index: i,
+                });
+            }
+
+            // Add all exterior slots
+            for i in 0..slot_config.exterior_slots() {
+                all_slots.push(shared::SlotPosition {
+                    slot_type: shared::SlotType::Exterior,
+                    index: i,
+                });
+            }
+
+            // Filter out occupied slots to get available slots
+            let available_slots: Vec<_> = all_slots
+                .into_iter()
+                .filter(|slot| !occupied_slots.contains(slot))
+                .collect();
+
+            // Check if there's space available
+            if available_slots.is_empty() {
+                tracing::warn!("✗ Cannot spawn unit: cell {:?} is full ({}/{} slots occupied)",
+                    cell, occupied_slots.len(), total_slots);
+                return vec![ServerMessage::DebugError {
+                    reason: format!("Cell is full ({}/{} slots occupied)", occupied_slots.len(), total_slots),
+                }];
+            }
+
+            tracing::info!("Cell has available slots: {}/{} occupied", occupied_slots.len(), total_slots);
+
             // Generate random unit data using NameGenerator and PortraitGenerator
             let (first_name, last_name, gender, profession, portrait_variant_id, avatar_url) = {
                 use rand::Rng;
@@ -1035,6 +1121,14 @@ async fn handle_client_message(
                 (first_name, last_name, gender_str.to_string(), profession, variant_id, avatar_url)
             };
 
+            // Choose a random available slot
+            let chosen_slot = {
+                use rand::Rng;
+                let mut rng = rand::rng();
+                let index = rng.random_range(0..available_slots.len());
+                available_slots[index]
+            };
+
             match db_tables.units.create_unit(
                 None, // No player
                 first_name.clone(),
@@ -1043,15 +1137,50 @@ async fn handle_client_message(
                 portrait_variant_id.clone(),
                 avatar_url.clone(),
                 cell,
-                shared::TerrainChunkId { x: 0, y: 0 }, // Default chunk
+                default_chunk,
                 profession,
             ).await {
                 Ok(unit_id) => {
-                    tracing::info!("✓ Unit spawned: {} {} ({}, {}, ID: {})", first_name, last_name, gender, avatar_url, unit_id);
-                    vec![ServerMessage::DebugUnitSpawned {
+                    // Assign the chosen slot to the unit
+                    let slot_type_str = match chosen_slot.slot_type {
+                        shared::SlotType::Interior => "interior",
+                        shared::SlotType::Exterior => "exterior",
+                    };
+
+                    match db_tables.units.update_slot_position(
                         unit_id,
-                        cell,
-                    }]
+                        Some(slot_type_str.to_string()),
+                        Some(chosen_slot.index as i32),
+                    ).await {
+                        Ok(_) => {
+                            tracing::info!("✓ Unit spawned: {} {} ({}, {}, ID: {}) - Assigned to slot {:?} {} - {}/{} slots occupied",
+                                first_name, last_name, gender, avatar_url, unit_id, slot_type_str, chosen_slot.index,
+                                occupied_slots.len() + 1, total_slots);
+
+                            // Load the full unit data to send to the client
+                            match db_tables.units.load_unit(unit_id).await {
+                                Ok(unit_data) => {
+                                    vec![ServerMessage::DebugUnitSpawned {
+                                        unit_data,
+                                    }]
+                                }
+                                Err(e) => {
+                                    tracing::error!("✗ Failed to load unit data after spawn: {}", e);
+                                    vec![ServerMessage::DebugError {
+                                        reason: format!("Unit created but failed to load data: {}", e),
+                                    }]
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("✗ Failed to assign slot to unit: {}", e);
+                            // Unit was created but slot assignment failed
+                            // We could delete the unit here, or just warn
+                            vec![ServerMessage::DebugError {
+                                reason: format!("Unit created but slot assignment failed: {}", e),
+                            }]
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::error!("✗ Failed to spawn unit: {}", e);

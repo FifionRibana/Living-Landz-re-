@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::ui::resources::CellViewState;
+use crate::ui::resources::{CellState, PanelEnum, UIState};
 use crate::state::resources::{UnitsCache, WorldCache};
 use crate::networking::client::NetworkClient;
 use shared::{SlotPosition, SlotType, SlotConfiguration, BiomeTypeEnum};
@@ -8,22 +8,18 @@ use shared::protocol::ClientMessage;
 
 /// Auto-assign units without slots to random free slots when entering cell view
 pub fn auto_assign_unslotted_units(
-    cell_view_state: Res<CellViewState>,
+    ui_state: Res<UIState>,
+    cell_state: Res<CellState>,
     world_cache: Res<WorldCache>,
     mut units_cache: ResMut<UnitsCache>,
     mut network_client: Option<ResMut<NetworkClient>>,
 ) {
     // Only run when cell view is active
-    if !cell_view_state.is_active {
+    if ui_state.panel_state != PanelEnum::CellView {
         return;
     }
 
-    // Only run when entering cell view OR when units cache changes
-    if !cell_view_state.is_changed() && !units_cache.is_changed() {
-        return;
-    }
-
-    let Some(viewed_cell) = cell_view_state.viewed_cell else {
+    let Some(viewed_cell) = cell_state.cell() else {
         return;
     };
 

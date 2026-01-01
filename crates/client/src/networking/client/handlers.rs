@@ -1,8 +1,13 @@
 use bevy::prelude::*;
 
 use super::NetworkClient;
-use crate::state::resources::{ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache};
 use crate::rendering::terrain::components::Terrain;
+use crate::state::resources::{
+    ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache,
+    UnitsDataCache, WorldCache,
+};
+use crate::ui::components::{SlotIndicator, SlotUnitPortrait};
+use crate::ui::systems::panels::InSlot;
 use shared::SlotPosition;
 use shared::SlotType;
 
@@ -36,6 +41,8 @@ pub fn handle_server_message(
     // time: Res<Time>,
     mut commands: Commands,
     terrain_query: Query<(Entity, &Terrain)>,
+    unit_query: Query<(Entity, &InSlot, &SlotUnitPortrait)>,
+    slot_query: Query<(Entity, &SlotIndicator)>,
 ) {
     let Some(mut network_client) = network_client_opt else {
         return;
@@ -56,17 +63,29 @@ pub fn handle_server_message(
 
                 // Store player name from received data
                 player_info.temp_player_name = Some(player.family_name.clone());
-                info!("Player '{}' logged in (ID: {})", player.family_name, player.id);
+                info!(
+                    "Player '{}' logged in (ID: {})",
+                    player.family_name, player.id
+                );
 
                 // Store character if provided
                 if let Some(character_data) = character {
                     let character_name = if let Some(nickname) = &character_data.nickname {
-                        format!("{} \"{}\" {}", character_data.first_name, nickname, character_data.family_name)
+                        format!(
+                            "{} \"{}\" {}",
+                            character_data.first_name, nickname, character_data.family_name
+                        )
                     } else {
-                        format!("{} {}", character_data.first_name, character_data.family_name)
+                        format!(
+                            "{} {}",
+                            character_data.first_name, character_data.family_name
+                        )
                     };
                     player_info.temp_character_name = Some(character_name.clone());
-                    info!("Character '{}' loaded (ID: {})", character_name, character_data.id);
+                    info!(
+                        "Character '{}' loaded (ID: {})",
+                        character_name, character_data.id
+                    );
                 }
             }
             shared::protocol::ServerMessage::LoginError { reason } => {
@@ -79,7 +98,11 @@ pub fn handle_server_message(
                 building_data,
                 unit_data,
             } => {
-                info!("✓ Received terrain: {} with {} units", terrain_chunk_data.clone().name, unit_data.len());
+                info!(
+                    "✓ Received terrain: {} with {} units",
+                    terrain_chunk_data.clone().name,
+                    unit_data.len()
+                );
 
                 let is_update = cache.insert_terrain(&terrain_chunk_data);
 
@@ -91,7 +114,10 @@ pub fn handle_server_message(
 
                     for (entity, terrain) in terrain_query.iter() {
                         if &terrain.name == terrain_name && terrain.id == terrain_id {
-                            info!("Despawning terrain entity for chunk ({},{}) to trigger re-render with updated data", terrain_id.x, terrain_id.y);
+                            info!(
+                                "Despawning terrain entity for chunk ({},{}) to trigger re-render with updated data",
+                                terrain_id.x, terrain_id.y
+                            );
                             commands.entity(entity).despawn();
                             break;
                         }
@@ -114,9 +140,13 @@ pub fn handle_server_message(
                     units_cache.add_unit(cell, unit_id);
 
                     // If unit has a slot position, add it to slot occupancy
-                    if let Some(slot_pos) = db_to_slot_position(unit.slot_type.clone(), unit.slot_index) {
-                        info!("Loading unit {} at cell ({},{}) slot {:?}:{}",
-                            unit_id, cell.q, cell.r, slot_pos.slot_type, slot_pos.index);
+                    if let Some(slot_pos) =
+                        db_to_slot_position(unit.slot_type.clone(), unit.slot_index)
+                    {
+                        info!(
+                            "Loading unit {} at cell ({},{}) slot {:?}:{}",
+                            unit_id, cell.q, cell.r, slot_pos.slot_type, slot_pos.index
+                        );
                         units_cache.set_unit_slot(cell, slot_pos, unit_id);
                     }
 
@@ -133,14 +163,23 @@ pub fn handle_server_message(
                 chunk_id,
                 road_sdf_data,
             } => {
-                info!("✓ Received road SDF update for chunk ({},{}) in terrain {}", chunk_id.x, chunk_id.y, terrain_name);
+                info!(
+                    "✓ Received road SDF update for chunk ({},{}) in terrain {}",
+                    chunk_id.x, chunk_id.y, terrain_name
+                );
 
                 // Find the terrain chunk in cache and clone it (ends immutable borrow)
-                let storage_key = format!("{}_{}_{}",  terrain_name, chunk_id.x, chunk_id.y);
-                let terrain_chunk_opt = cache.loaded_terrains().find(|t| t.get_storage_key() == storage_key).cloned();
+                let storage_key = format!("{}_{}_{}", terrain_name, chunk_id.x, chunk_id.y);
+                let terrain_chunk_opt = cache
+                    .loaded_terrains()
+                    .find(|t| t.get_storage_key() == storage_key)
+                    .cloned();
 
                 if let Some(mut updated_terrain) = terrain_chunk_opt {
-                    info!("Updating road SDF for terrain chunk ({},{}) in {}", chunk_id.x, chunk_id.y, terrain_name);
+                    info!(
+                        "Updating road SDF for terrain chunk ({},{}) in {}",
+                        chunk_id.x, chunk_id.y, terrain_name
+                    );
 
                     updated_terrain.road_sdf_data = Some(road_sdf_data);
 
@@ -151,8 +190,11 @@ pub fn handle_server_message(
                     let terrain_id = updated_terrain.id;
                     let mut despawned = false;
                     for (entity, terrain) in terrain_query.iter() {
-                        if &terrain.name == &terrain_name && terrain.id == terrain_id {
-                            info!("Despawning terrain entity for chunk ({},{}) to re-render with updated roads", terrain_id.x, terrain_id.y);
+                        if terrain.name == terrain_name && terrain.id == terrain_id {
+                            info!(
+                                "Despawning terrain entity for chunk ({},{}) to re-render with updated roads",
+                                terrain_id.x, terrain_id.y
+                            );
                             commands.entity(entity).despawn();
                             despawned = true;
                             break;
@@ -160,10 +202,16 @@ pub fn handle_server_message(
                     }
 
                     if !despawned {
-                        warn!("Could not find terrain entity to despawn for chunk ({},{})", chunk_id.x, chunk_id.y);
+                        warn!(
+                            "Could not find terrain entity to despawn for chunk ({},{})",
+                            chunk_id.x, chunk_id.y
+                        );
                     }
                 } else {
-                    warn!("Received road SDF for non-loaded chunk ({},{}) in terrain {}", chunk_id.x, chunk_id.y, terrain_name);
+                    warn!(
+                        "Received road SDF for non-loaded chunk ({},{}) in terrain {}",
+                        chunk_id.x, chunk_id.y, terrain_name
+                    );
                 }
             }
             shared::protocol::ServerMessage::ActionStatusUpdate {
@@ -205,36 +253,64 @@ pub fn handle_server_message(
 
                 // L'action est terminée, demander au serveur de rafraîchir les données du chunk
                 // pour voir le nouveau bâtiment construit (ou autre résultat de l'action)
-                info!("Requesting chunk data refresh for ({}, {})", chunk_id.x, chunk_id.y);
+                info!(
+                    "Requesting chunk data refresh for ({}, {})",
+                    chunk_id.x, chunk_id.y
+                );
 
-                network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
-                    terrain_name: "Gaulyia".to_string(), // TODO: utiliser le vrai nom du terrain
-                    terrain_chunk_ids: vec![chunk_id],
-                });
+                network_client.send_message(
+                    shared::protocol::ClientMessage::RequestTerrainChunks {
+                        terrain_name: "Gaulyia".to_string(), // TODO: utiliser le vrai nom du terrain
+                        terrain_chunk_ids: vec![chunk_id],
+                    },
+                );
             }
             // Debug organization messages
             shared::protocol::ServerMessage::DebugOrganizationCreated {
                 organization_id,
                 name,
             } => {
-                info!("✓ Organization '{}' created with ID {}", name, organization_id);
+                info!(
+                    "✓ Organization '{}' created with ID {}",
+                    name, organization_id
+                );
             }
             shared::protocol::ServerMessage::DebugOrganizationDeleted { organization_id } => {
                 info!("✓ Organization {} deleted", organization_id);
             }
-            shared::protocol::ServerMessage::DebugUnitSpawned { unit_id, cell } => {
-                info!("✓ Unit {} spawned at {:?}", unit_id, cell);
-                units_cache.add_unit(cell, unit_id);
+            shared::protocol::ServerMessage::DebugUnitSpawned { unit_data } => {
+                info!("✓ Unit {} spawned at {:?} with slot {:?} {}",
+                    unit_data.id,
+                    unit_data.current_cell,
+                    unit_data.slot_type,
+                    unit_data.slot_index.unwrap_or(-1)
+                );
 
-                // Request chunk data refresh to get full unit data including slot positions
-                // Assuming cell is at chunk (0, 0) - TODO: get actual chunk from cell position
-                let chunk_id = shared::TerrainChunkId { x: 0, y: 0 };
-                info!("Requesting chunk data refresh for unit spawn at ({}, {})", chunk_id.x, chunk_id.y);
+                // Add unit to cache
+                units_cache.add_unit(unit_data.current_cell, unit_data.id);
 
-                network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
-                    terrain_name: "Gaulyia".to_string(),
-                    terrain_chunk_ids: vec![chunk_id],
-                });
+                // Store full unit data in units_data_cache
+                units_data_cache.insert_unit(unit_data.clone());
+
+                // If we have a slot position, update the slot occupancy
+                if let (Some(slot_type_str), Some(slot_index)) = (&unit_data.slot_type, unit_data.slot_index) {
+                    let slot_type = match slot_type_str.as_str() {
+                        "interior" => shared::SlotType::Interior,
+                        "exterior" => shared::SlotType::Exterior,
+                        _ => {
+                            warn!("Unknown slot type: {}", slot_type_str);
+                            return;
+                        }
+                    };
+
+                    let slot_position = shared::SlotPosition {
+                        slot_type,
+                        index: slot_index as usize,
+                    };
+
+                    units_cache.set_unit_slot(unit_data.current_cell, slot_position, unit_data.id);
+                    info!("Set slot {:?} {} for unit {}", slot_type_str, slot_index, unit_data.id);
+                }
             }
             shared::protocol::ServerMessage::OrganizationAtCell { cell, organization } => {
                 current_organization.update(cell, organization);
@@ -243,8 +319,15 @@ pub fn handle_server_message(
                 warn!("Debug error: {}", reason);
             }
 
-            shared::protocol::ServerMessage::UnitSlotUpdated { unit_id, cell, slot_position } => {
-                info!("Unit {} slot updated at cell {:?}: {:?}", unit_id, cell, slot_position);
+            shared::protocol::ServerMessage::UnitSlotUpdated {
+                unit_id,
+                cell,
+                slot_position,
+            } => {
+                info!(
+                    "Unit {} slot updated at cell {:?}: {:?}",
+                    unit_id, cell, slot_position
+                );
 
                 // Clear old slot for this unit if it exists
                 if let Some(old_slot) = units_cache.get_unit_slot(&cell, unit_id) {
@@ -254,6 +337,23 @@ pub fn handle_server_message(
                 // Set new slot position if provided
                 if let Some(new_slot) = slot_position {
                     units_cache.set_unit_slot(cell, new_slot, unit_id);
+
+                    // Find the UI entity de the unit (if spawned)
+                    let unit_entity = unit_query
+                        .iter()
+                        .find(|(_, _, portrait)| portrait.unit_id == unit_id)
+                        .map(|(entity, _, _)| entity);
+
+                    // Find the entity of the target slot
+                    let slot_entity = slot_query
+                        .iter()
+                        .find(|(_, indicator)| indicator.position == new_slot)
+                        .map(|(entity, _)| entity);
+
+                    // update the relation between both entity
+                    if let (Some(unit_entity), Some(slot_entity)) = (unit_entity, slot_entity) {
+                        commands.entity(unit_entity).insert(InSlot(slot_entity));
+                    }
                 }
             }
 

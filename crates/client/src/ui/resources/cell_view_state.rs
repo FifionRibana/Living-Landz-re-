@@ -12,6 +12,8 @@ pub struct CellViewState {
     pub selected_slot: Option<SlotPosition>,
     /// The currently selected unit (for details panel)
     pub selected_unit: Option<u64>,
+    /// Information about a potential drag (mouse pressed but not confirmed yet)
+    pub potential_drag: Option<PotentialDrag>,
     /// Information about a unit being dragged (if any)
     pub dragging_unit: Option<DraggingUnit>,
 }
@@ -23,12 +25,21 @@ pub struct DraggingUnit {
     pub from_slot: SlotPosition,
 }
 
+/// Information about a potential drag (mouse pressed but not yet moved enough)
+#[derive(Debug, Clone)]
+pub struct PotentialDrag {
+    pub unit_id: u64,
+    pub from_slot: SlotPosition,
+    pub start_position: Vec2,
+}
+
 impl CellViewState {
     /// Enter cell view mode for a specific cell
     pub fn enter_view(&mut self, cell: GridCell) {
         self.is_active = true;
         self.viewed_cell = Some(cell);
         self.selected_slot = None;
+        self.potential_drag = None;
         self.dragging_unit = None;
     }
 
@@ -37,22 +48,53 @@ impl CellViewState {
         self.is_active = false;
         self.viewed_cell = None;
         self.selected_slot = None;
+        self.potential_drag = None;
         self.dragging_unit = None;
     }
 
-    /// Start dragging a unit from a slot
+    /// Start a potential drag (mouse pressed on unit)
+    pub fn start_potential_drag(&mut self, unit_id: u64, from_slot: SlotPosition, mouse_pos: Vec2) {
+        self.potential_drag = Some(PotentialDrag {
+            unit_id,
+            from_slot,
+            start_position: mouse_pos,
+        });
+    }
+
+    /// Confirm potential drag as actual drag (mouse moved enough)
+    pub fn confirm_drag(&mut self) {
+        if let Some(potential) = self.potential_drag.take() {
+            self.dragging_unit = Some(DraggingUnit {
+                unit_id: potential.unit_id,
+                from_slot: potential.from_slot,
+            });
+        }
+    }
+
+    /// Cancel potential drag (mouse released without moving enough)
+    pub fn cancel_potential_drag(&mut self) {
+        self.potential_drag = None;
+    }
+
+    /// Start dragging a unit from a slot (legacy method for compatibility)
     pub fn start_dragging(&mut self, unit_id: u64, from_slot: SlotPosition) {
         self.dragging_unit = Some(DraggingUnit { unit_id, from_slot });
     }
 
     /// Stop dragging (cancel drag)
     pub fn stop_dragging(&mut self) {
+        self.potential_drag = None;
         self.dragging_unit = None;
     }
 
     /// Check if currently dragging a unit
     pub fn is_dragging(&self) -> bool {
         self.dragging_unit.is_some()
+    }
+
+    /// Check if there's a potential drag in progress
+    pub fn has_potential_drag(&self) -> bool {
+        self.potential_drag.is_some()
     }
 
     /// Select a slot

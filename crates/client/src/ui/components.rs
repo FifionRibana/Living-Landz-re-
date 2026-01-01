@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use shared::SlotPosition;
 
+use crate::ui::resources::{ActionModeEnum, PanelEnum};
+
 #[derive(Component)]
 pub struct ClockText;
 
@@ -20,8 +22,24 @@ pub struct PlayerNameText;
 pub struct CharacterNameText;
 
 #[derive(Component)]
+pub struct PanelContainer {
+    pub panel: PanelEnum,
+}
+
+#[derive(Component)]
 pub struct MenuButton {
     pub button_id: usize,
+    pub panel: PanelEnum,
+}
+
+#[derive(Component)]
+pub struct ActionModeMenuButton {
+    pub action_mode: ActionModeEnum,
+}
+
+#[derive(Component)]
+pub struct ActionModeMenuIcon {
+    pub action_mode: ActionModeEnum,
 }
 
 // Action bar components (left sidebar)
@@ -112,6 +130,9 @@ pub struct CellDetailsOrganizationText;
 #[derive(Component)]
 pub struct TopBarMarker;
 
+#[derive(Component)]
+pub struct ActionMenuMarker;
+
 // Chat components
 #[derive(Component)]
 pub struct ChatPanelMarker;
@@ -148,14 +169,145 @@ pub struct CellViewContainer;
 pub struct CellViewBackgroundImage;
 
 #[derive(Component)]
+pub struct InteriorSlotContainer;
+
+#[derive(Component)]
+pub struct ExteriorSlotContainer;
+
+#[derive(Component)]
 pub struct SlotGridContainer {
     pub slot_type: shared::SlotType,
 }
 
-#[derive(Component)]
+/// Visual state of a slot
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SlotState {
+    #[default]
+    Normal,
+    Selected,
+    Disabled,
+    Blocked,
+    Full,
+    Flooded,
+    Burning,
+    Invalid,
+}
+
+impl SlotState {
+    /// Get the sprite path for this state
+    pub fn get_sprite_path(&self, is_occupied: bool) -> String {
+        let base = match self {
+            SlotState::Normal => "ui/ui_hex_normal",
+            SlotState::Selected => "ui/ui_hex_selected",
+            SlotState::Disabled => "ui/ui_hex_disabled",
+            SlotState::Blocked => "ui/ui_hex_disabled", // Reuse disabled for now
+            SlotState::Full => "ui/ui_hex_full",
+            SlotState::Flooded => "ui/ui_hex_invalid_crippled", // Reuse for now
+            SlotState::Burning => "ui/ui_hex_invalid_crippled", // Reuse for now
+            SlotState::Invalid => "ui/ui_hex_invalid_crippled",
+        };
+
+        // Use _empty suffix when slot is occupied
+        if is_occupied
+            && matches!(
+                self,
+                SlotState::Normal | SlotState::Selected | SlotState::Disabled
+            )
+        {
+            format!("{}_empty.png", base)
+        } else {
+            format!("{}.png", base)
+        }
+    }
+
+    /// Get the opacity/alpha value for this state
+    pub fn get_opacity(&self, is_occupied: bool) -> f32 {
+        match self {
+            SlotState::Normal => {
+                if is_occupied {
+                    0.6
+                } else {
+                    0.1
+                }
+            }
+            SlotState::Selected => 1.0,
+            SlotState::Disabled => 0.1,
+            SlotState::Blocked => 0.1,
+            SlotState::Full => 0.1,
+            SlotState::Flooded => 0.1,
+            SlotState::Burning => 0.1,
+            SlotState::Invalid => 0.1,
+        }
+    }
+
+    /// Get the opacity when hovering over this state
+    pub fn get_hover_opacity(&self, is_occupied: bool) -> f32 {
+        match self {
+            SlotState::Normal => {
+                if is_occupied {
+                    1.0
+                } else {
+                    0.2
+                }
+            }
+            SlotState::Selected => 1.0, // Selected stays at 100%
+            SlotState::Disabled => 0.1, // Disabled doesn't change
+            SlotState::Blocked => 0.1,  // Blocked doesn't change
+            SlotState::Full => 0.2,
+            SlotState::Flooded => 0.2,
+            SlotState::Burning => 0.2,
+            SlotState::Invalid => 0.1, // Invalid doesn't change
+        }
+    }
+}
+
+#[derive(Component, Debug, Clone)]
 pub struct SlotIndicator {
     pub position: SlotPosition,
     pub occupied_by: Option<u64>, // unit_id if occupied
+    pub state: SlotState,
+    pub hovered: bool,
+    pub is_dragging: bool,
+}
+
+impl SlotIndicator {
+    pub fn new(position: SlotPosition) -> Self {
+        Self {
+            position,
+            occupied_by: None,
+            state: SlotState::Normal,
+            hovered: false,
+            is_dragging: false,
+        }
+    }
+
+    pub fn with_state(mut self, state: SlotState) -> Self {
+        self.state = state;
+        self
+    }
+
+    pub fn is_occupied(&self) -> bool {
+        self.occupied_by.is_some()
+    }
+
+    pub fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    pub fn is_dragging(&self) -> bool {
+        self.is_dragging
+    }
+}
+
+#[derive(Component)]
+pub struct Slot {
+    pub slot_position: SlotPosition,
+}
+
+#[derive(Component)]
+pub struct SlotUnitPortrait {
+    pub unit_id: u64,
+    pub slot_position: SlotPosition,
 }
 
 #[derive(Component)]
@@ -163,6 +315,20 @@ pub struct SlotUnitSprite {
     pub unit_id: u64,
     pub slot_position: SlotPosition,
 }
+
+/// Component to mark border overlays that should be displayed on top of portraits
+#[derive(Component)]
+pub struct SlotBorderOverlay {
+    pub slot_position: shared::SlotPosition,
+}
+
+/// Component to mark portraits that need hex masking
+#[derive(Component)]
+pub struct PendingHexMask {
+    pub portrait_handle: Handle<Image>,
+    pub mask_handle: Handle<Image>,
+}
+
 
 #[derive(Component)]
 pub struct CellViewBackButton;

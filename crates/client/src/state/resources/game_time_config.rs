@@ -9,7 +9,7 @@ pub struct GameTimeConfig {
 impl Default for GameTimeConfig {
     fn default() -> Self {
         Self {
-            months: vec![
+            months: [
                 "January",
                 "February",
                 "March",
