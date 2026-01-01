@@ -120,7 +120,7 @@ impl BuildingCache {
     pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
         info!("Inserting {} buildings into cache", buildings.len());
         buildings.iter().for_each(|building_data| {
-            self.loaded.insert(building_data.base_data.cell, building_data);
+            self.loaded.insert(building_data.base_data.cell, *building_data);
         });
     }
 
