@@ -7,6 +7,10 @@ edition.workspace = true
 name = "client"
 path = "src/main.rs"
 
+[[bin]]
+name = "territory"
+path = "src/bin/territory_contour.rs"
+
 [dependencies]
 shared = { path = "../shared" }
 
@@ -19,6 +23,7 @@ rand = { workspace = true }
 rayon = { workspace = true }
 tungstenite = { workspace = true }
 url = { workspace = true }
+i_triangle = { workspace = true }
 
 chrono = { workspace = true }
 
