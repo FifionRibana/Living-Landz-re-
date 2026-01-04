@@ -37,6 +37,7 @@ fn main() {
             networking::NetworkingPlugin,
             rendering::terrain::TerrainPlugin,
             rendering::ocean::OceanPlugin,
+            rendering::territory::TerritoryBorderPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
         ))

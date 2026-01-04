@@ -6,7 +6,6 @@ use i_triangle::float::{triangulatable::Triangulatable, triangulation::Triangula
 use image::{DynamicImage, ImageBuffer, Luma};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 use shared::{CoastalSkirtData, MeshData as SharedMeshData, TerrainChunkData, TerrainChunkId};
 use shared::{TerrainChunkSdfData, constants};
 

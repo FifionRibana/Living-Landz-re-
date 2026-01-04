@@ -7,6 +7,8 @@ mod road_segments_table;
 mod units_table;
 mod resources_table;
 mod organizations_table;
+mod voronoi_zones_table;
+mod territory_contours_table;
 pub mod types;
 
 pub use buildings_table::*;
@@ -18,3 +20,5 @@ pub use road_segments_table::*;
 pub use units_table::*;
 // pub use resources_table::*;
 pub use organizations_table::*;
+pub use voronoi_zones_table::*;
+pub use territory_contours_table::*;

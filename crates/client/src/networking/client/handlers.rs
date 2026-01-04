@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use super::NetworkClient;
 use crate::rendering::terrain::components::Terrain;
+use crate::rendering::territory::{TerritoryContourCache, TerritoryBorderSdfCache, TerritoryBorderCellsDebug};
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache, WorldCache,
@@ -37,6 +38,8 @@ pub fn handle_server_message(
     mut current_organization: ResMut<CurrentOrganization>,
     mut units_cache: ResMut<UnitsCache>,
     mut units_data_cache: ResMut<UnitsDataCache>,
+    mut territory_border_cache: ResMut<TerritoryBorderSdfCache>,
+    mut territory_contour_cache: ResMut<TerritoryContourCache>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     // time: Res<Time>,
     mut commands: Commands,
@@ -213,6 +216,60 @@ pub fn handle_server_message(
                         chunk_id.x, chunk_id.y, terrain_name
                     );
                 }
+            }
+            shared::protocol::ServerMessage::TerritoryContourUpdate {
+                chunk_id,
+                contours,
+            } => {
+                info!(
+                    "✓ Received {} territory contours for chunk ({},{})",
+                    contours.len(),
+                    chunk_id.x,
+                    chunk_id.y
+                );
+
+                // Add each contour to the cache
+                for contour_data in contours {
+                    territory_contour_cache.add_contour(
+                        chunk_id,
+                        contour_data.organization_id,
+                        contour_data.contour_points,
+                        contour_data.border_color,
+                        contour_data.fill_color,
+                    );
+                }
+            }
+            shared::protocol::ServerMessage::TerritoryBorderSdfUpdate {
+                chunk_id,
+                border_sdf_data_list,
+            } => {
+                info!(
+                    "✓ Received territory border SDF for chunk ({},{}) [DEPRECATED]",
+                    chunk_id.x, chunk_id.y
+                );
+
+                // Insert into territory border cache
+                // The process_territory_border_sdf_data system will pick it up and spawn the layers
+                territory_border_cache.chunks.insert(
+                    (chunk_id.x, chunk_id.y),
+                    border_sdf_data_list,
+                );
+            }
+            shared::protocol::ServerMessage::TerritoryBorderCells {
+                organization_id,
+                border_cells,
+            } => {
+                info!(
+                    "✓ Received {} border cells for organization {}",
+                    border_cells.len(),
+                    organization_id
+                );
+
+                // Store border cells for visualization
+                commands.insert_resource(TerritoryBorderCellsDebug {
+                    organization_id,
+                    border_cells,
+                });
             }
             shared::protocol::ServerMessage::ActionStatusUpdate {
                 action_id,

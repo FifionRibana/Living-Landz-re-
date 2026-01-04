@@ -118,6 +118,18 @@ pub async fn handle_connection(
                         tracing::info!("Sending RoadChunkSdfUpdate to session {} for chunk ({},{})", session_id, chunk_id.x, chunk_id.y);
                         "RoadChunkSdfUpdate"
                     },
+                    ServerMessage::TerritoryBorderSdfUpdate { chunk_id, .. } => {
+                        tracing::info!("Sending TerritoryBorderSdfUpdate to session {} for chunk ({},{})", session_id, chunk_id.x, chunk_id.y);
+                        "TerritoryBorderSdfUpdate"
+                    },
+                    ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
+                        tracing::info!("Sending TerritoryContourUpdate to session {} for chunk ({},{}) with {} contours", session_id, chunk_id.x, chunk_id.y, contours.len());
+                        "TerritoryContourUpdate"
+                    },
+                    ServerMessage::TerritoryBorderCells { organization_id, border_cells } => {
+                        tracing::info!("Sending TerritoryBorderCells to session {} for org {} ({} cells)", session_id, organization_id, border_cells.len());
+                        "TerritoryBorderCells"
+                    },
                     ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
                     ServerMessage::ActionCompleted { .. } => "ActionCompleted",
                     ServerMessage::ActionSuccess { .. } => "ActionSuccess",
@@ -367,6 +379,53 @@ async fn handle_client_message(
                     Err(e) => {
                         tracing::warn!(
                             "Failed to load road segments for chunk ({},{}): {}",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            e
+                        );
+                    }
+                }
+
+                // Load and send territory contours for this chunk (sent separately)
+                tracing::info!("Loading territory contours for chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
+
+                match db_tables.territory_contours.load_chunk_contours(
+                    terrain_chunk_id.x,
+                    terrain_chunk_id.y,
+                ).await {
+                    Ok(contours) if !contours.is_empty() => {
+                        tracing::info!("✓ Found {} organization contours in chunk ({},{})",
+                            contours.len(), terrain_chunk_id.x, terrain_chunk_id.y);
+
+                        let mut contour_data = Vec::new();
+                        for (org_id, points) in contours {
+                            // Generate colors for this organization
+                            let (border_color, fill_color) = crate::world::territory::generate_org_colors(org_id);
+
+                            contour_data.push(shared::protocol::TerritoryContourChunkData {
+                                organization_id: org_id,
+                                chunk_x: terrain_chunk_id.x,
+                                chunk_y: terrain_chunk_id.y,
+                                contour_points: points.iter().map(|p| (p.x, p.y)).collect(),
+                                border_color,
+                                fill_color,
+                            });
+
+                            tracing::debug!("Added contour for org {} ({} points)", org_id, points.len());
+                        }
+
+                        // Send contours update
+                        responses.push(ServerMessage::TerritoryContourUpdate {
+                            chunk_id: *terrain_chunk_id,
+                            contours: contour_data,
+                        });
+                    }
+                    Ok(_) => {
+                        tracing::debug!("No territory contours in chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to load territory contours for chunk ({},{}): {}",
                             terrain_chunk_id.x,
                             terrain_chunk_id.y,
                             e
@@ -959,16 +1018,184 @@ async fn handle_client_message(
                         Ok(org_id) => {
                             tracing::info!("✓ Organization created with ID {}", org_id);
 
-                            // Add some territory cells around headquarters
-                            for neighbor in cell.neighbors() {
-                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
-                            }
-                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                            // Try to claim entire Voronoi zone
+                            let mut claimed_count = 0;
 
-                            vec![ServerMessage::DebugOrganizationCreated {
+                            match db_tables.voronoi_zones.get_zone_at_cell(cell).await {
+                                Ok(Some(zone_id)) => {
+                                    tracing::info!("Found Voronoi zone {} at cell {:?}", zone_id, cell);
+
+                                    // Check if zone is available
+                                    match db_tables.voronoi_zones.is_zone_available(zone_id).await {
+                                        Ok(true) => {
+                                            // Zone is available, claim all cells
+                                            match db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                                                Ok(zone_cells) => {
+                                                    tracing::info!("Claiming {} cells from Voronoi zone {}", zone_cells.len(), zone_id);
+
+                                                    // Add all cells to territory
+                                                    for zone_cell in &zone_cells {
+                                                        if let Err(e) = db_tables.organizations.add_territory_cell(org_id, zone_cell).await {
+                                                            tracing::warn!("Failed to add cell {:?}: {}", zone_cell, e);
+                                                        } else {
+                                                            claimed_count += 1;
+                                                        }
+                                                    }
+
+                                                    // Link organization to zone
+                                                    let link_result = sqlx::query(
+                                                        "UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2"
+                                                    )
+                                                    .bind(zone_id)
+                                                    .bind(org_id as i64)
+                                                    .execute(&db_tables.pool)
+                                                    .await;
+
+                                                    if let Err(e) = link_result {
+                                                        tracing::warn!("Failed to link zone to organization: {}", e);
+                                                    }
+
+                                                    tracing::info!("✓ Organization {} claimed {} cells from Voronoi zone {}", org_id, claimed_count, zone_id);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("Failed to get zone cells: {}", e);
+                                                }
+                                            }
+                                        }
+                                        Ok(false) => {
+                                            tracing::warn!("Voronoi zone {} already claimed, using fallback", zone_id);
+                                            // Fallback: just claim HQ and neighbors
+                                            for neighbor in cell.neighbors() {
+                                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                                claimed_count += 1;
+                                            }
+                                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                            claimed_count += 1;
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Failed to check zone availability: {}", e);
+                                            // Fallback
+                                            for neighbor in cell.neighbors() {
+                                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                                claimed_count += 1;
+                                            }
+                                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                            claimed_count += 1;
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    tracing::warn!("No Voronoi zone found at cell {:?}, using fallback", cell);
+                                    // Fallback: just claim HQ and neighbors
+                                    for neighbor in cell.neighbors() {
+                                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                        claimed_count += 1;
+                                    }
+                                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                    claimed_count += 1;
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to query Voronoi zone: {}", e);
+                                    // Fallback
+                                    for neighbor in cell.neighbors() {
+                                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                        claimed_count += 1;
+                                    }
+                                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                    claimed_count += 1;
+                                }
+                            }
+
+                            tracing::info!("✓ Organization {} claimed {} total cells", org_id, claimed_count);
+                            
+                            // Generate territory contours and split by chunks
+                            tracing::info!("Generating territory contours for organization {}...", org_id);
+                            match db_tables.organizations.load_territory_cells(org_id).await {
+                                Ok(territory_cells) if !territory_cells.is_empty() => {
+                                    tracing::info!("Loaded {} territory cells for organization {}", territory_cells.len(), org_id);
+
+                                    // Convert GridCell to Hex
+                                    use hexx::Hex;
+                                    let territory_hex: std::collections::HashSet<Hex> = territory_cells
+                                        .iter()
+                                        .map(|cell| cell.to_hex())
+                                        .collect();
+
+                                    // Use grid config for layout
+                                    use shared::grid::GridConfig;
+                                    let grid_config = GridConfig::new(
+                                        shared::constants::HEX_SIZE,
+                                        hexx::HexOrientation::Flat,
+                                        bevy::math::Vec2::new(shared::constants::HEX_RATIO.x, shared::constants::HEX_RATIO.y),
+                                        3,
+                                    );
+
+                                    // Generate and split contours
+                                    let contour_chunks = crate::world::territory::generate_and_split_contour(
+                                        &territory_hex,
+                                        &grid_config.layout,
+                                        2.0,    // jitter amplitude
+                                        org_id, // jitter seed (ensures consistency)
+                                    );
+
+                                    tracing::info!("Generated {} contour chunks for organization {}", contour_chunks.len(), org_id);
+
+                                    // Store contours in database
+                                    let mut stored_count = 0;
+                                    for (chunk_id, contour_points) in contour_chunks {
+                                        match db_tables.territory_contours.store_contour(
+                                            org_id,
+                                            chunk_id.x,
+                                            chunk_id.y,
+                                            &contour_points,
+                                        ).await {
+                                            Ok(_) => {
+                                                stored_count += 1;
+                                                tracing::debug!("Stored contour for org {} in chunk ({},{})", org_id, chunk_id.x, chunk_id.y);
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("Failed to store contour for chunk ({},{}): {}", chunk_id.x, chunk_id.y, e);
+                                            }
+                                        }
+                                    }
+
+                                    tracing::info!("✓ Stored {} territory contour chunks for organization {}", stored_count, org_id);
+                                }
+                                Ok(_) => {
+                                    tracing::warn!("No territory cells found for organization {}", org_id);
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to load territory cells for organization {}: {}", org_id, e);
+                                }
+                            }
+
+                            // Get territory border cells for debugging
+                            let mut response_messages = vec![ServerMessage::DebugOrganizationCreated {
                                 organization_id: org_id,
-                                name,
-                            }]
+                                name: name.clone(),
+                            }];
+
+                            // Get border cells (cells at the frontier of the territory)
+                            tracing::info!("Getting territory border cells for organization {}...", org_id);
+                            match crate::world::territory::get_territory_border_cells(
+                                &db_tables.pool,
+                                org_id,
+                            ).await {
+                                Ok(border_cells) => {
+                                    tracing::info!("Organization {}: {} border cells identified", org_id, border_cells.len());
+
+                                    // Send border cells to client for debug visualization
+                                    response_messages.push(ServerMessage::TerritoryBorderCells {
+                                        organization_id: org_id,
+                                        border_cells,
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to get territory border cells: {}", e);
+                                }
+                            }
+
+                            response_messages
                         }
                         Err(e) => {
                             tracing::error!("✗ Failed to create organization: {}", e);
