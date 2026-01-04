@@ -1213,6 +1213,18 @@ impl ActionProcessor {
                 tracing::info!("Sending RoadChunkSdfUpdate to player {} for chunk ({},{})", player_id, chunk_id.x, chunk_id.y);
                 "RoadChunkSdfUpdate"
             },
+            ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
+                tracing::info!("Sending TerritoryContourUpdate to player {} for chunk ({},{}) with {} contours", player_id, chunk_id.x, chunk_id.y, contours.len());
+                "TerritoryContourUpdate"
+            },
+            ServerMessage::TerritoryBorderSdfUpdate { chunk_id, .. } => {
+                tracing::info!("Sending TerritoryBorderSdfUpdate to player {} for chunk ({},{})", player_id, chunk_id.x, chunk_id.y);
+                "TerritoryBorderSdfUpdate"
+            },
+            ServerMessage::TerritoryBorderCells { organization_id, border_cells } => {
+                tracing::info!("Sending TerritoryBorderCells to player {} for org {} ({} cells)", player_id, organization_id, border_cells.len());
+                "TerritoryBorderCells"
+            },
             ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
             ServerMessage::ActionCompleted { .. } => "ActionCompleted",
             ServerMessage::ActionSuccess { .. } => "ActionSuccess",

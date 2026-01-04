@@ -91,8 +91,8 @@ impl CellsTable {
         .map_err(|e| format!("Failed to get biome at cell: {}", e))?;
 
         if let Some(row) = result {
-            let biome_id = row.get::<i32, _>("biome_id");
-            Ok(BiomeTypeEnum::from_id(biome_id as i16))
+            let biome_id = row.get::<i16, _>("biome_id");
+            Ok(BiomeTypeEnum::from_id(biome_id))
         } else {
             Ok(None)
         }

@@ -1,9 +1,8 @@
 use i_triangle::float::{triangulation::Triangulation};
-use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 use bincode::{Encode, Decode};
 
-#[derive(Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Default, Clone, Encode, Decode)]
 pub struct MeshData {
     pub triangles: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,

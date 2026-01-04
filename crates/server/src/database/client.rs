@@ -23,6 +23,8 @@ pub struct DatabaseTables {
     pub road_segments: tables::RoadSegmentsTable,
     pub units: tables::UnitsTable,
     pub organizations: tables::OrganizationsTable,
+    pub voronoi_zones: tables::VoronoiZonesTable,
+    pub territory_contours: tables::TerritoryContoursTable,
 }
 
 impl DatabaseClient {
@@ -64,7 +66,10 @@ impl DatabaseClient {
 
         // ===== GAME STATE =====
         let mut game_state = GameState::new(pool.clone());
-        game_state.initialize_caches().await.expect("Failed to initialize game cache");
+        game_state
+            .initialize_caches()
+            .await
+            .expect("Failed to initialize game cache");
         tracing::info!("✓ Game state cache initialized");
 
         (
@@ -78,6 +83,8 @@ impl DatabaseClient {
                 road_segments: tables::RoadSegmentsTable::new(pool.clone()),
                 units: tables::UnitsTable::new(pool.clone()),
                 organizations: tables::OrganizationsTable::new(pool.clone()),
+                voronoi_zones: tables::VoronoiZonesTable::new(pool.clone()),
+                territory_contours: tables::TerritoryContoursTable::new(pool.clone()),
             },
             game_state,
         )

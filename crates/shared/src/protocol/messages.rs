@@ -1,4 +1,3 @@
-// use serde::{Deserialize, Serialize};
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
@@ -32,6 +31,20 @@ pub struct CharacterData {
     pub coat_of_arms_id: Option<i64>,
     pub image_id: Option<i64>,
     pub motto: Option<String>,
+}
+
+/// Territory contour data for a specific organization in a specific chunk
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct TerritoryContourChunkData {
+    pub organization_id: u64,
+    pub chunk_x: i32,
+    pub chunk_y: i32,
+    /// Contour points as Vec2 tuples (f32, f32)
+    pub contour_points: Vec<(f32, f32)>,
+    /// Border color (RGBA)
+    pub border_color: (f32, f32, f32, f32),
+    /// Fill color (RGBA)
+    pub fill_color: (f32, f32, f32, f32),
 }
 
 /// Messages Client → Server
@@ -156,6 +169,10 @@ pub enum ServerMessage {
         unit_data: Vec<UnitData>,
     },
 
+    // OrganizationData {
+    //     organization_data: OrganizationData,
+    // },
+
     OceanData {
         ocean_data: OceanData,
     },
@@ -165,6 +182,25 @@ pub enum ServerMessage {
         terrain_name: String,
         chunk_id: TerrainChunkId,
         road_sdf_data: RoadChunkSdfData,
+    },
+
+    /// Territory contour data update for a specific chunk (contains all organizations with borders in this chunk)
+    TerritoryContourUpdate {
+        chunk_id: TerrainChunkId,
+        contours: Vec<TerritoryContourChunkData>,
+    },
+
+    /// [DEPRECATED] Territory border SDF data update - replaced by TerritoryContourUpdate
+    TerritoryBorderSdfUpdate {
+        chunk_id: TerrainChunkId,
+        /// Multiple SDFs, one per organization in this chunk
+        border_sdf_data_list: Vec<crate::TerritoryBorderChunkSdfData>,
+    },
+
+    /// Territory border cells for debugging (cells at the frontier of territories)
+    TerritoryBorderCells {
+        organization_id: u64,
+        border_cells: Vec<GridCell>,
     },
 
     ActionSuccess {

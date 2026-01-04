@@ -182,6 +182,40 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         .await
         .expect("Failed to save cell data");
 
+    // === GENERATING VORONOI ZONES ===
+    tracing::info!("=== GENERATING VORONOI ZONES ===");
+
+    // Prepare cells with biome information for Voronoi generation
+    let cells_with_biomes: Vec<(shared::grid::GridCell, shared::BiomeTypeEnum)> = sampled_cells
+        .iter()
+        .map(|cell_data| (cell_data.cell, cell_data.biome))
+        .collect();
+
+    // Calculate world bounds from sampled cells
+    let min_q = cells_with_biomes.iter().map(|(c, _)| c.q).min().unwrap_or(0);
+    let max_q = cells_with_biomes.iter().map(|(c, _)| c.q).max().unwrap_or(0) + 1;
+    let min_r = cells_with_biomes.iter().map(|(c, _)| c.r).min().unwrap_or(0);
+    let max_r = cells_with_biomes.iter().map(|(c, _)| c.r).max().unwrap_or(0) + 1;
+
+    let voronoi_seed = 12345u64; // Could be from config or derived from map seed
+    let bounds = (min_q, max_q, min_r, max_r);
+
+    match crate::world::voronoi::generate_and_save_zones(
+        &db_tables.voronoi_zones,
+        &cells_with_biomes,
+        bounds,
+        voronoi_seed,
+    )
+    .await
+    {
+        Ok(zone_count) => {
+            tracing::info!("✓ Generated {} Voronoi zones", zone_count);
+        }
+        Err(e) => {
+            tracing::error!("Failed to generate Voronoi zones: {}", e);
+        }
+    }
+
     let trees = NaturalBuildingGenerator::generate(&sampled_cells, game_state);
 
     building_db

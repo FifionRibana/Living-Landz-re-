@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub struct BiomeTriangulation {
     /// Identifiant du biome (couleur RGB)
     biome_color: (u8, u8, u8),
