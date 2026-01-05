@@ -54,121 +54,496 @@ impl HexMesh {
 
 #[derive(Resource)]
 pub struct TerritorySettings {
-    pub cells: HashSet<Hex>,
+    pub cells: HashMap<u64, HashSet<Hex>>,
 }
 
 impl Default for TerritorySettings {
     fn default() -> Self {
         Self {
-            cells: [
-                Hex::new(42, 41),
-                Hex::new(43, 40),
-                Hex::new(43, 41),
-                Hex::new(44, 39),
-                Hex::new(44, 40),
-                Hex::new(44, 41),
-                Hex::new(45, 38),
-                Hex::new(45, 39),
-                Hex::new(45, 40),
-                Hex::new(45, 41),
-                Hex::new(46, 37),
-                Hex::new(46, 38),
-                Hex::new(46, 39),
-                Hex::new(46, 40),
-                Hex::new(46, 41),
-                Hex::new(47, 36),
-                Hex::new(47, 37),
-                Hex::new(47, 38),
-                Hex::new(47, 39),
-                Hex::new(47, 40),
-                Hex::new(47, 41),
-                Hex::new(48, 35),
-                Hex::new(48, 36),
-                Hex::new(48, 37),
-                Hex::new(48, 38),
-                Hex::new(48, 39),
-                Hex::new(48, 40),
-                Hex::new(48, 41),
-                Hex::new(48, 42),
-                Hex::new(49, 34),
-                Hex::new(49, 35),
-                Hex::new(49, 36),
-                Hex::new(49, 37),
-                Hex::new(49, 38),
-                Hex::new(49, 39),
-                Hex::new(49, 40),
-                Hex::new(49, 41),
-                Hex::new(49, 42),
-                Hex::new(50, 33),
-                Hex::new(50, 34),
-                Hex::new(50, 35),
-                Hex::new(50, 36),
-                Hex::new(50, 37),
-                Hex::new(50, 38),
-                Hex::new(50, 39),
-                Hex::new(50, 40),
-                Hex::new(50, 41),
-                Hex::new(50, 42),
-                Hex::new(51, 32),
-                Hex::new(51, 33),
-                Hex::new(51, 34),
-                Hex::new(51, 35),
-                Hex::new(51, 36),
-                Hex::new(51, 37),
-                Hex::new(51, 38),
-                Hex::new(51, 39),
-                Hex::new(51, 40),
-                Hex::new(51, 41),
-                Hex::new(51, 42),
-                Hex::new(51, 43),
-                Hex::new(52, 31),
-                Hex::new(52, 32),
-                Hex::new(52, 33),
-                Hex::new(52, 34),
-                Hex::new(52, 35),
-                Hex::new(52, 36),
-                Hex::new(52, 37),
-                Hex::new(52, 38),
-                Hex::new(52, 39),
-                Hex::new(52, 40),
-                Hex::new(52, 41),
-                Hex::new(52, 42),
-                Hex::new(52, 43),
-                Hex::new(53, 32),
-                Hex::new(53, 33),
-                Hex::new(53, 34),
-                Hex::new(53, 35),
-                Hex::new(53, 36),
-                Hex::new(53, 37),
-                Hex::new(53, 38),
-                Hex::new(53, 39),
-                Hex::new(53, 40),
-                Hex::new(53, 41),
-                Hex::new(53, 42),
-                Hex::new(54, 33),
-                Hex::new(54, 34),
-                Hex::new(54, 35),
-                Hex::new(54, 36),
-                Hex::new(54, 37),
-                Hex::new(54, 38),
-                Hex::new(54, 39),
-                Hex::new(54, 40),
-                Hex::new(55, 34),
-                Hex::new(55, 35),
-                Hex::new(55, 36),
-                Hex::new(55, 37),
-                Hex::new(55, 38),
-                Hex::new(55, 39),
-                Hex::new(56, 34),
-                Hex::new(56, 35),
-                Hex::new(56, 36),
-                Hex::new(56, 37),
-                Hex::new(56, 38),
-                Hex::new(57, 35),
-                Hex::new(57, 36),
-            ]
-            .into_iter()
-            .collect(),
+            cells: HashMap::from([
+                // (2, {
+                //     [
+                //         Hex::new(53, 24),
+                //         Hex::new(53, 25),
+                //         Hex::new(53, 26),
+                //         Hex::new(53, 27),
+                //         Hex::new(53, 28),
+                //         Hex::new(53, 29),
+                //         Hex::new(54, 22),
+                //         Hex::new(54, 23),
+                //         Hex::new(54, 24),
+                //         Hex::new(54, 25),
+                //         Hex::new(54, 26),
+                //         Hex::new(54, 27),
+                //         Hex::new(54, 28),
+                //         Hex::new(55, 21),
+                //         Hex::new(55, 22),
+                //         Hex::new(55, 23),
+                //         Hex::new(55, 24),
+                //         Hex::new(55, 25),
+                //         Hex::new(55, 26),
+                //         Hex::new(55, 27),
+                //         Hex::new(56, 20),
+                //         Hex::new(56, 21),
+                //         Hex::new(56, 22),
+                //         Hex::new(56, 23),
+                //         Hex::new(56, 24),
+                //         Hex::new(56, 25),
+                //         Hex::new(56, 26),
+                //         Hex::new(56, 27),
+                //         Hex::new(57, 19),
+                //         Hex::new(57, 20),
+                //         Hex::new(57, 21),
+                //         Hex::new(57, 22),
+                //         Hex::new(57, 23),
+                //         Hex::new(57, 24),
+                //         Hex::new(57, 25),
+                //         Hex::new(57, 26),
+                //         Hex::new(58, 19),
+                //         Hex::new(58, 20),
+                //         Hex::new(58, 21),
+                //         Hex::new(58, 22),
+                //         Hex::new(58, 23),
+                //         Hex::new(58, 24),
+                //         Hex::new(58, 25),
+                //         Hex::new(58, 26),
+                //         Hex::new(59, 18),
+                //         Hex::new(59, 19),
+                //         Hex::new(59, 20),
+                //         Hex::new(59, 21),
+                //         Hex::new(59, 22),
+                //         Hex::new(59, 23),
+                //         Hex::new(59, 24),
+                //         Hex::new(59, 25),
+                //         Hex::new(60, 18),
+                //         Hex::new(60, 19),
+                //         Hex::new(60, 20),
+                //         Hex::new(60, 21),
+                //         Hex::new(60, 22),
+                //         Hex::new(60, 23),
+                //         Hex::new(60, 24),
+                //         Hex::new(60, 25),
+                //         Hex::new(61, 17),
+                //         Hex::new(61, 18),
+                //         Hex::new(61, 19),
+                //         Hex::new(61, 20),
+                //         Hex::new(61, 21),
+                //         Hex::new(61, 22),
+                //         Hex::new(61, 23),
+                //         Hex::new(61, 24),
+                //         Hex::new(62, 17),
+                //         Hex::new(62, 18),
+                //         Hex::new(62, 19),
+                //         Hex::new(62, 20),
+                //         Hex::new(62, 21),
+                //         Hex::new(62, 22),
+                //         Hex::new(62, 23),
+                //         Hex::new(62, 24),
+                //         Hex::new(63, 17),
+                //         Hex::new(63, 18),
+                //         Hex::new(63, 19),
+                //         Hex::new(63, 20),
+                //         Hex::new(63, 21),
+                //         Hex::new(63, 22),
+                //         Hex::new(63, 23),
+                //         Hex::new(64, 16),
+                //         Hex::new(64, 17),
+                //         Hex::new(64, 18),
+                //         Hex::new(64, 19),
+                //         Hex::new(64, 20),
+                //         Hex::new(64, 21),
+                //         Hex::new(64, 22),
+                //         Hex::new(64, 23),
+                //         Hex::new(65, 16),
+                //         Hex::new(65, 17),
+                //         Hex::new(65, 18),
+                //         Hex::new(65, 19),
+                //         Hex::new(65, 20),
+                //         Hex::new(65, 21),
+                //         Hex::new(65, 22),
+                //         Hex::new(66, 16),
+                //         Hex::new(66, 17),
+                //         Hex::new(66, 18),
+                //         Hex::new(66, 19),
+                //         Hex::new(66, 20),
+                //         Hex::new(67, 16),
+                //         Hex::new(67, 17),
+                //         Hex::new(67, 18),
+                //     ]
+                //     .into_iter()
+                //     .collect()
+                // }),
+                // (8, {
+                //     [
+                //         Hex::new(65, 42),
+                //         Hex::new(65, 43),
+                //         Hex::new(66, 41),
+                //         Hex::new(66, 42),
+                //         Hex::new(66, 43),
+                //         Hex::new(66, 44),
+                //         Hex::new(67, 40),
+                //         Hex::new(67, 41),
+                //         Hex::new(67, 42),
+                //         Hex::new(67, 43),
+                //         Hex::new(67, 44),
+                //         Hex::new(67, 45),
+                //         Hex::new(67, 46),
+                //         Hex::new(67, 47),
+                //         Hex::new(67, 48),
+                //         Hex::new(68, 39),
+                //         Hex::new(68, 40),
+                //         Hex::new(68, 41),
+                //         Hex::new(68, 42),
+                //         Hex::new(68, 43),
+                //         Hex::new(68, 44),
+                //         Hex::new(68, 45),
+                //         Hex::new(68, 46),
+                //         Hex::new(68, 47),
+                //         Hex::new(68, 48),
+                //         Hex::new(69, 39),
+                //         Hex::new(69, 40),
+                //         Hex::new(69, 41),
+                //         Hex::new(69, 42),
+                //         Hex::new(69, 43),
+                //         Hex::new(69, 44),
+                //         Hex::new(69, 45),
+                //         Hex::new(69, 46),
+                //         Hex::new(69, 47),
+                //         Hex::new(70, 38),
+                //         Hex::new(70, 39),
+                //         Hex::new(70, 40),
+                //         Hex::new(70, 41),
+                //         Hex::new(70, 42),
+                //         Hex::new(70, 43),
+                //         Hex::new(70, 44),
+                //         Hex::new(70, 45),
+                //         Hex::new(70, 46),
+                //         Hex::new(70, 47),
+                //         Hex::new(71, 38),
+                //         Hex::new(71, 39),
+                //         Hex::new(71, 40),
+                //         Hex::new(71, 41),
+                //         Hex::new(71, 42),
+                //         Hex::new(71, 43),
+                //         Hex::new(71, 44),
+                //         Hex::new(71, 45),
+                //         Hex::new(71, 46),
+                //         Hex::new(72, 37),
+                //         Hex::new(72, 38),
+                //         Hex::new(72, 39),
+                //         Hex::new(72, 40),
+                //         Hex::new(72, 41),
+                //         Hex::new(72, 42),
+                //         Hex::new(72, 43),
+                //         Hex::new(72, 44),
+                //         Hex::new(72, 45),
+                //         Hex::new(72, 46),
+                //         Hex::new(73, 37),
+                //         Hex::new(73, 38),
+                //         Hex::new(73, 39),
+                //         Hex::new(73, 40),
+                //         Hex::new(73, 41),
+                //         Hex::new(73, 42),
+                //         Hex::new(73, 43),
+                //         Hex::new(73, 44),
+                //         Hex::new(73, 45),
+                //         Hex::new(73, 46),
+                //         Hex::new(74, 36),
+                //         Hex::new(74, 37),
+                //         Hex::new(74, 38),
+                //         Hex::new(74, 39),
+                //         Hex::new(74, 40),
+                //         Hex::new(74, 41),
+                //         Hex::new(74, 42),
+                //         Hex::new(74, 43),
+                //         Hex::new(74, 44),
+                //         Hex::new(74, 45),
+                //         Hex::new(74, 46),
+                //         Hex::new(75, 36),
+                //         Hex::new(75, 37),
+                //         Hex::new(75, 38),
+                //         Hex::new(75, 39),
+                //         Hex::new(75, 40),
+                //         Hex::new(75, 41),
+                //         Hex::new(75, 42),
+                //         Hex::new(75, 43),
+                //         Hex::new(75, 44),
+                //         Hex::new(75, 45),
+                //         Hex::new(76, 35),
+                //         Hex::new(76, 36),
+                //         Hex::new(76, 37),
+                //         Hex::new(76, 38),
+                //         Hex::new(76, 39),
+                //         Hex::new(76, 40),
+                //         Hex::new(76, 41),
+                //         Hex::new(76, 42),
+                //         Hex::new(76, 43),
+                //         Hex::new(76, 44),
+                //         Hex::new(76, 45),
+                //         Hex::new(77, 35),
+                //         Hex::new(77, 36),
+                //         Hex::new(77, 37),
+                //         Hex::new(77, 38),
+                //         Hex::new(77, 39),
+                //         Hex::new(77, 40),
+                //         Hex::new(77, 41),
+                //         Hex::new(77, 42),
+                //         Hex::new(77, 43),
+                //         Hex::new(77, 44),
+                //         Hex::new(78, 34),
+                //         Hex::new(78, 35),
+                //         Hex::new(78, 36),
+                //         Hex::new(78, 37),
+                //         Hex::new(78, 38),
+                //         Hex::new(78, 39),
+                //         Hex::new(78, 40),
+                //         Hex::new(78, 41),
+                //         Hex::new(78, 42),
+                //         Hex::new(78, 43),
+                //         Hex::new(79, 34),
+                //         Hex::new(79, 35),
+                //         Hex::new(79, 36),
+                //         Hex::new(79, 37),
+                //         Hex::new(79, 38),
+                //         Hex::new(79, 39),
+                //         Hex::new(79, 40),
+                //         Hex::new(79, 41),
+                //         Hex::new(79, 42),
+                //         Hex::new(80, 34),
+                //         Hex::new(80, 35),
+                //         Hex::new(80, 36),
+                //         Hex::new(80, 37),
+                //         Hex::new(80, 38),
+                //         Hex::new(80, 39),
+                //         Hex::new(80, 40),
+                //         Hex::new(80, 41),
+                //         Hex::new(80, 42),
+                //         Hex::new(81, 34),
+                //         Hex::new(81, 35),
+                //         Hex::new(81, 36),
+                //         Hex::new(81, 37),
+                //         Hex::new(81, 38),
+                //         Hex::new(81, 39),
+                //     ]
+                //     .into_iter()
+                //     .collect()
+                // }),
+                (11, {
+                    [
+                        Hex::new(42, 41),
+                        Hex::new(43, 40),
+                        Hex::new(43, 41),
+                        Hex::new(44, 39),
+                        Hex::new(44, 40),
+                        Hex::new(44, 41),
+                        Hex::new(45, 38),
+                        Hex::new(45, 39),
+                        Hex::new(45, 40),
+                        Hex::new(45, 41),
+                        Hex::new(46, 37),
+                        Hex::new(46, 38),
+                        Hex::new(46, 39),
+                        Hex::new(46, 40),
+                        Hex::new(46, 41),
+                        Hex::new(47, 36),
+                        Hex::new(47, 37),
+                        Hex::new(47, 38),
+                        Hex::new(47, 39),
+                        Hex::new(47, 40),
+                        Hex::new(47, 41),
+                        Hex::new(48, 35),
+                        Hex::new(48, 36),
+                        Hex::new(48, 37),
+                        Hex::new(48, 38),
+                        Hex::new(48, 39),
+                        Hex::new(48, 40),
+                        Hex::new(48, 41),
+                        Hex::new(48, 42),
+                        Hex::new(49, 34),
+                        Hex::new(49, 35),
+                        Hex::new(49, 36),
+                        Hex::new(49, 37),
+                        Hex::new(49, 38),
+                        Hex::new(49, 39),
+                        Hex::new(49, 40),
+                        Hex::new(49, 41),
+                        Hex::new(49, 42),
+                        Hex::new(50, 33),
+                        Hex::new(50, 34),
+                        Hex::new(50, 35),
+                        Hex::new(50, 36),
+                        Hex::new(50, 37),
+                        Hex::new(50, 38),
+                        Hex::new(50, 39),
+                        Hex::new(50, 40),
+                        Hex::new(50, 41),
+                        Hex::new(50, 42),
+                        Hex::new(51, 32),
+                        Hex::new(51, 33),
+                        Hex::new(51, 34),
+                        Hex::new(51, 35),
+                        Hex::new(51, 36),
+                        Hex::new(51, 37),
+                        Hex::new(51, 38),
+                        Hex::new(51, 39),
+                        Hex::new(51, 40),
+                        Hex::new(51, 41),
+                        Hex::new(51, 42),
+                        Hex::new(51, 43),
+                        Hex::new(52, 31),
+                        Hex::new(52, 32),
+                        Hex::new(52, 33),
+                        Hex::new(52, 34),
+                        Hex::new(52, 35),
+                        Hex::new(52, 36),
+                        Hex::new(52, 37),
+                        Hex::new(52, 38),
+                        Hex::new(52, 39),
+                        Hex::new(52, 40),
+                        Hex::new(52, 41),
+                        Hex::new(52, 42),
+                        Hex::new(52, 43),
+                        Hex::new(53, 32),
+                        Hex::new(53, 33),
+                        Hex::new(53, 34),
+                        Hex::new(53, 35),
+                        Hex::new(53, 36),
+                        Hex::new(53, 37),
+                        Hex::new(53, 38),
+                        Hex::new(53, 39),
+                        Hex::new(53, 40),
+                        Hex::new(53, 41),
+                        Hex::new(53, 42),
+                        Hex::new(54, 33),
+                        Hex::new(54, 34),
+                        Hex::new(54, 35),
+                        Hex::new(54, 36),
+                        Hex::new(54, 37),
+                        Hex::new(54, 38),
+                        Hex::new(54, 39),
+                        Hex::new(54, 40),
+                        Hex::new(55, 34),
+                        Hex::new(55, 35),
+                        Hex::new(55, 36),
+                        Hex::new(55, 37),
+                        Hex::new(55, 38),
+                        Hex::new(55, 39),
+                        Hex::new(56, 34),
+                        Hex::new(56, 35),
+                        Hex::new(56, 36),
+                        Hex::new(56, 37),
+                        Hex::new(56, 38),
+                        Hex::new(57, 35),
+                        Hex::new(57, 36),
+                    ]
+                    .into_iter()
+                    .collect()
+                }),
+                // (15, {
+                //     [
+                //         Hex::new(61, 5),
+                //         Hex::new(61, 6),
+                //         Hex::new(62, 3),
+                //         Hex::new(62, 4),
+                //         Hex::new(62, 5),
+                //         Hex::new(62, 6),
+                //         Hex::new(63, 1),
+                //         Hex::new(63, 2),
+                //         Hex::new(63, 3),
+                //         Hex::new(63, 4),
+                //         Hex::new(63, 5),
+                //         Hex::new(63, 6),
+                //         Hex::new(64, 0),
+                //         Hex::new(64, 1),
+                //         Hex::new(64, 2),
+                //         Hex::new(64, 3),
+                //         Hex::new(64, 4),
+                //         Hex::new(64, 5),
+                //         Hex::new(64, 6),
+                //         Hex::new(65, -2),
+                //         Hex::new(65, -1),
+                //         Hex::new(65, 0),
+                //         Hex::new(65, 1),
+                //         Hex::new(65, 2),
+                //         Hex::new(65, 3),
+                //         Hex::new(65, 4),
+                //         Hex::new(65, 5),
+                //         Hex::new(65, 6),
+                //         Hex::new(66, -2),
+                //         Hex::new(66, -1),
+                //         Hex::new(66, 0),
+                //         Hex::new(66, 1),
+                //         Hex::new(66, 2),
+                //         Hex::new(66, 3),
+                //         Hex::new(66, 4),
+                //         Hex::new(66, 5),
+                //         Hex::new(66, 6),
+                //         Hex::new(67, -3),
+                //         Hex::new(67, -2),
+                //         Hex::new(67, -1),
+                //         Hex::new(67, 0),
+                //         Hex::new(67, 1),
+                //         Hex::new(67, 2),
+                //         Hex::new(67, 3),
+                //         Hex::new(67, 4),
+                //         Hex::new(67, 5),
+                //         Hex::new(67, 6),
+                //         Hex::new(68, -3),
+                //         Hex::new(68, -2),
+                //         Hex::new(68, -1),
+                //         Hex::new(68, 0),
+                //         Hex::new(68, 1),
+                //         Hex::new(68, 2),
+                //         Hex::new(68, 3),
+                //         Hex::new(68, 4),
+                //         Hex::new(68, 5),
+                //         Hex::new(68, 6),
+                //         Hex::new(69, -3),
+                //         Hex::new(69, -2),
+                //         Hex::new(69, -1),
+                //         Hex::new(69, 0),
+                //         Hex::new(69, 1),
+                //         Hex::new(69, 2),
+                //         Hex::new(69, 3),
+                //         Hex::new(69, 4),
+                //         Hex::new(69, 5),
+                //         Hex::new(70, -4),
+                //         Hex::new(70, -3),
+                //         Hex::new(70, -2),
+                //         Hex::new(70, -1),
+                //         Hex::new(70, 0),
+                //         Hex::new(70, 1),
+                //         Hex::new(70, 2),
+                //         Hex::new(70, 3),
+                //         Hex::new(70, 4),
+                //         Hex::new(71, -4),
+                //         Hex::new(71, -3),
+                //         Hex::new(71, -2),
+                //         Hex::new(71, -1),
+                //         Hex::new(71, 0),
+                //         Hex::new(71, 1),
+                //         Hex::new(71, 2),
+                //         Hex::new(71, 3),
+                //         Hex::new(72, -5),
+                //         Hex::new(72, -4),
+                //         Hex::new(72, -3),
+                //         Hex::new(72, -2),
+                //         Hex::new(72, -1),
+                //         Hex::new(72, 0),
+                //         Hex::new(72, 1),
+                //         Hex::new(72, 2),
+                //         Hex::new(72, 3),
+                //         Hex::new(73, -4),
+                //         Hex::new(73, -3),
+                //         Hex::new(73, -2),
+                //         Hex::new(73, -1),
+                //         Hex::new(73, 0),
+                //         Hex::new(73, 1),
+                //     ]
+                //     .into_iter()
+                //     .collect()
+                // }),
+            ]),
         }
     }
 }
@@ -393,16 +768,24 @@ pub fn simplify_contour_with_diagonals(
     let mut vertex_diag_index: Vec<Option<usize>> = vec![None; n];
 
     for i in 0..n {
+        let prev2_idx = (i + n - 2) % n;
         let prev_idx = (i + n - 1) % n;
         let next_idx = (i + 1) % n;
+        let next2_idx = (i + 2) % n;
 
+        let hex_prev2 = edges[prev2_idx].hex;
         let hex_prev = edges[prev_idx].hex;
         let hex_curr = edges[i].hex;
         let hex_next = edges[next_idx].hex;
+        let hex_next2 = edges[next2_idx].hex;
+
+        // info!("Transition: ({},{}) -> ({},{}) | ({},{})", hex_prev.x, hex_prev.y, hex_next.x, hex_next.y, hex_curr.x, hex_curr.y);
 
         // Vérifier si c'est une transition diagonale
+        // Concave case
         if let Some(diag_info) = detect_diagonal_transition(hex_prev, hex_curr, hex_next, territory)
         {
+            // info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev.x, hex_prev.y, hex_next.x, hex_next.y);
             // edges[i] est une jonction : ne génère pas de point
             is_junction[i] = true;
             is_junction[(i + 2) % n] = true;
@@ -410,6 +793,16 @@ pub fn simplify_contour_with_diagonals(
             // edges[prev_idx] doit générer un sommet diagonal
             // On stocke l'index de la diagonale pour savoir quel sommet générer
             vertex_diag_index[prev_idx] = Some(diag_info.diag_index);
+        }
+
+        // Convex case
+        if let Some(diag_info) = detect_diagonal_transition(hex_prev2, hex_curr, hex_next2, territory)
+        {
+            // info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev2.x, hex_prev2.y, hex_next2.x, hex_next2.y);
+            // edges[i] est une jonction : ne génère pas de point
+            is_junction[i] = true;
+
+            // vertex_diag_index[pre]
         }
     }
 
@@ -434,9 +827,15 @@ pub fn simplify_contour_with_diagonals(
     points
 }
 
+#[derive(Debug)]
+pub enum DiagonalTransitionCurvature {
+    Convexe,
+    Concave,
+}
 /// Information sur une transition diagonale
 struct DiagonalTransitionInfo {
     diag_index: usize,
+    curvature: DiagonalTransitionCurvature
 }
 
 /// Détecte si le triplet (hex_prev, hex_curr, hex_next) forme une transition diagonale.
@@ -475,10 +874,10 @@ fn detect_diagonal_transition(
             };
 
             if territory.contains(&other_junction) {
-                return None;
+                return Some(DiagonalTransitionInfo { diag_index, curvature: DiagonalTransitionCurvature::Convexe });
             }
-
-            Some(DiagonalTransitionInfo { diag_index })
+            
+            Some(DiagonalTransitionInfo { diag_index, curvature: DiagonalTransitionCurvature::Concave })
         }
         _ => None,
     }
@@ -513,78 +912,92 @@ pub fn compute_contour(
 ) {
     let hex_material = &materials.add(ColorMaterial::from_color(Color::srgba(0.2, 0.7, 0.4, 0.1)));
 
-    // let ordered_border = trace_border_hexes(&territory_settings.cells);
-    let contour_points = &build_contour(&grid_config.layout, &territory_settings.cells, 4.0, 12345);
+    for (id, cells) in &territory_settings.cells {
+        // let ordered_border = trace_border_hexes(&territory_settings.cells);
+        let contour_points = &build_contour(&grid_config.layout, cells, 4.0, 12345);
 
-    let hex_mesh_handle = hex_mesh.mesh.clone(); // Taille unitaire
+        let hex_mesh_handle = hex_mesh.mesh.clone(); // Taille unitaire
 
-    commands.spawn((
-        Mesh2d(hex_mesh_handle.clone()),
-        MeshMaterial2d(hex_material.clone()),
-        Transform::default(),
-        TerritoryHex, // Caché au démarrage
-    ));
+        commands.spawn((
+            Mesh2d(hex_mesh_handle.clone()),
+            MeshMaterial2d(hex_material.clone()),
+            Transform::default(),
+            TerritoryHex, // Caché au démarrage
+        ));
 
-    let chunk_contours = split_contour_into_chunks(contour_points);
+        let chunk_contours = split_contour_into_chunks(contour_points);
 
-    for (i, (chunk, segments)) in chunk_contours.iter().enumerate() {
-        if let Some((mesh_handle, material_handle)) = create_chunk_contour_material(
-            *chunk,
-            segments,
-            &mut meshes,
-            &mut territory_chunk_materials,
-            &mut buffers,
-            Color::srgba(0.0, 0.0, 0.0, 0.7), // border
-            Color::srgba(
-                0.8 * (i as f32) / (chunk_contours.len() as f32),
-                0.2,
-                0.3,
-                0.3,
-            ), // fill
-            2.0,                              // border_width
-            30.0,                             // fade_distance
-        ) {
-            let (chunk_min, chunk_max) = chunk.bounds();
-            let chunk_center = (chunk_min + chunk_max) * 0.5;
+        for (i, (chunk, segments)) in chunk_contours.iter().enumerate() {
+            if let Some((mesh_handle, material_handle)) = create_chunk_contour_material(
+                *chunk,
+                segments,
+                &mut meshes,
+                &mut territory_chunk_materials,
+                &mut buffers,
+                Color::srgba(0.0, 0.0, 0.0, 0.7), // border
+                Color::srgba(
+                    0.8 * (i as f32) / (chunk_contours.len() as f32),
+                    (*id as f32) / 15.,
+                    0.3,
+                    0.3,
+                ), // fill
+                2.0,                              // border_width
+                30.0,                             // fade_distance
+            ) {
+                let (chunk_min, chunk_max) = chunk.bounds();
+                let chunk_center = (chunk_min + chunk_max) * 0.5;
+
+                commands
+                    .spawn((
+                        Mesh2d(mesh_handle),
+                        MeshMaterial2d(material_handle),
+                        Transform::from_translation(chunk_center.extend(0.0)),
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Text2d(format!("Area: {}", *id)),
+                            TextColor(Color::srgba(
+                                0.8 * (i as f32) / (chunk_contours.len() as f32),
+                                (*id as f32) / 15.,
+                                0.3,
+                                0.3,
+                            )), // Yellow
+                        ));
+                    });
+            }
+        }
+
+        for hex in cells {
+            let position = grid_config.layout.hex_to_world_pos(*hex).extend(0.5);
 
             commands.spawn((
-                Mesh2d(mesh_handle),
-                MeshMaterial2d(material_handle),
-                Transform::from_translation(chunk_center.extend(0.0)),
+                Mesh2d(hex_mesh_handle.clone()),
+                MeshMaterial2d(hex_material.clone()),
+                Transform::from_translation(position),
+                TerritoryHex, // Caché au démarrage
             ));
+            // .observe(recolor_on::<Pointer<Over>>(Color::srgba(0.2, 0.7, 0.4, 0.75)))
+            // .observe(recolor_on::<Pointer<Out>>(Color::srgba(0.2, 0.7, 0.4, 0.5)));
         }
+
+        // let (min, max) = materials::compute_bounds(&contour_points);
+        // let center = (min + max) * 0.5;
+
+        // let (mesh_handle, material_handle) = materials::create_territory_material(
+        //     &contour_points,
+        //     &mut meshes,
+        //     &mut territory_materials,
+        //     &mut buffers,
+        //     Color::srgba(0.0, 0.0, 0.0, 0.7), // border
+        //     Color::srgba(0.8, 0.2, 0.3, 0.3), // fill
+        // );
+
+        // commands.spawn((
+        //     Mesh2d(mesh_handle),
+        //     MeshMaterial2d(material_handle),
+        //     Transform::from_translation(center.extend(0.0)),
+        // ));
     }
-
-    // for hex in &territory_settings.cells {
-    //     let position = grid_config.layout.hex_to_world_pos(*hex).extend(0.5);
-
-    //     commands.spawn((
-    //         Mesh2d(hex_mesh_handle.clone()),
-    //         MeshMaterial2d(hex_material.clone()),
-    //         Transform::from_translation(position),
-    //         TerritoryHex, // Caché au démarrage
-    //     ));
-    //     // .observe(recolor_on::<Pointer<Over>>(Color::srgba(0.2, 0.7, 0.4, 0.75)))
-    //     // .observe(recolor_on::<Pointer<Out>>(Color::srgba(0.2, 0.7, 0.4, 0.5)));
-    // }
-
-    // let (min, max) = materials::compute_bounds(&contour_points);
-    // let center = (min + max) * 0.5;
-
-    // let (mesh_handle, material_handle) = materials::create_territory_material(
-    //     &contour_points,
-    //     &mut meshes,
-    //     &mut territory_materials,
-    //     &mut buffers,
-    //     Color::srgba(0.0, 0.0, 0.0, 0.7), // border
-    //     Color::srgba(0.8, 0.2, 0.3, 0.3), // fill
-    // );
-
-    // commands.spawn((
-    //     Mesh2d(mesh_handle),
-    //     MeshMaterial2d(material_handle),
-    //     Transform::from_translation(center.extend(0.0)),
-    // ));
 }
 
 pub fn draw_countour(
@@ -596,21 +1009,21 @@ pub fn draw_countour(
     //     build_contour(&grid_config.layout, &territory_settings.cells, 4.0, 12345);
     // contour_points.push(contour_points.first().copied().unwrap());
 
-    let contour_points = &build_contour(&grid_config.layout, &territory_settings.cells, 4.0, 12345);
+    // let contour_points = &build_contour(&grid_config.layout, &territory_settings.cells, 4.0, 12345);
 
-    let chunk_contours = split_contour_into_chunks(contour_points);
+    // let chunk_contours = split_contour_into_chunks(contour_points);
 
-    for (chunk, _segments) in chunk_contours {
-        // info!("Drawing chunk {:?}", chunk);
-        gizmos.rect_2d(
-            Vec2::new(
-                ((chunk.x as f32) + 0.5) * CHUNK_WIDTH,
-                ((chunk.y as f32) + 0.5) * CHUNK_HEIGHT,
-            ),
-            Vec2::new(CHUNK_WIDTH, CHUNK_HEIGHT),
-            Color::srgba(1.0, 1.0, 0.0, 1.0),
-        );
-    }
+    // for (chunk, _segments) in chunk_contours {
+    //     // info!("Drawing chunk {:?}", chunk);
+    //     gizmos.rect_2d(
+    //         Vec2::new(
+    //             ((chunk.x as f32) + 0.5) * CHUNK_WIDTH,
+    //             ((chunk.y as f32) + 0.5) * CHUNK_HEIGHT,
+    //         ),
+    //         Vec2::new(CHUNK_WIDTH, CHUNK_HEIGHT),
+    //         Color::srgba(1.0, 1.0, 0.0, 1.0),
+    //     );
+    // }
 
     // for (i, point) in contour_points.iter().enumerate() {
     //     gizmos.circle_2d(
