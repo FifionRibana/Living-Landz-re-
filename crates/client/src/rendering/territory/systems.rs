@@ -1,12 +1,15 @@
+use super::materials::{BorderParams, TerritoryBorderMaterial};
+use bevy::prelude::{Mesh2d, MeshMaterial2d};
 use bevy::{
     asset::RenderAssetUsages,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use bevy::prelude::{Mesh2d, MeshMaterial2d};
-use super::materials::{TerritoryBorderMaterial, BorderParams};
-use shared::{TerritoryBorderChunkSdfData, grid::{GridCell, GridConfig}};
-use std::collections::HashMap;
+use shared::{
+    TerritoryBorderChunkSdfData,
+    grid::{GridCell, GridConfig},
+};
+use std::collections::{HashMap, HashSet};
 
 /// Resource to store territory border SDF data
 /// Each chunk can have multiple SDFs (one per organization)
@@ -148,12 +151,16 @@ pub fn debug_territory_borders(
     mut gizmos: Gizmos,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut debug_enabled: Local<bool>,
+    cache: Res<TerritoryContourCache>,
     sdf_cache: Res<TerritoryBorderSdfCache>,
 ) {
     // Toggle with F10
     if keyboard.just_pressed(KeyCode::F10) {
         *debug_enabled = !*debug_enabled;
-        info!("Territory border debug: {}", if *debug_enabled { "ON" } else { "OFF" });
+        info!(
+            "Territory border debug: {}",
+            if *debug_enabled { "ON" } else { "OFF" }
+        );
     }
 
     if !*debug_enabled {
@@ -161,6 +168,36 @@ pub fn debug_territory_borders(
     }
 
     let chunk_size = Vec2::new(600.0, 503.0);
+
+    for (chunk_id, contours) in cache.contours.iter() {
+        for contour in contours {
+            let mut points: Vec<Vec2> = contour
+                .segments
+                .iter()
+                .flat_map(|s| [s.start, s.end])
+                .collect();
+
+            // Dédupliquer via les bits (car Vec2 n'implémente pas Ord)
+            points.sort_by_key(|v| (v.x.to_bits(), v.y.to_bits()));
+            points.dedup();
+
+            let mut border_color = contour.border_color;
+            // border_color.set_alpha(0.3);
+
+            for point in points {
+                gizmos.circle_2d(point, 3., border_color);
+            }
+
+            gizmos.rect_2d(
+                Vec2::new(
+                    (chunk_id.x as f32 + 0.5) * constants::CHUNK_SIZE.x,
+                    (chunk_id.y as f32 + 0.5) * constants::CHUNK_SIZE.y,
+                ),
+                constants::CHUNK_SIZE,
+                Color::srgba(1.0, 0.0, 0.0, 0.3),
+            );
+        }
+    }
 
     // Visualize actual border pixels from SDF data (for all organizations)
     for ((chunk_x, chunk_y), sdf_data_list) in sdf_cache.chunks.iter() {
@@ -182,10 +219,11 @@ pub fn debug_territory_borders(
                     // Draw pixels close to border (distance < 15 pixels)
                     if sdf_value < 15 {
                         // Calculate world position
-                        let pixel_pos = chunk_offset + Vec2::new(
-                            (x as f32 / sdf_data.width as f32) * chunk_size.x,
-                            (y as f32 / sdf_data.height as f32) * chunk_size.y,
-                        );
+                        let pixel_pos = chunk_offset
+                            + Vec2::new(
+                                (x as f32 / sdf_data.width as f32) * chunk_size.x,
+                                (y as f32 / sdf_data.height as f32) * chunk_size.y,
+                            );
 
                         // Use organization color
                         let base_color = Color::linear_rgba(
@@ -262,108 +300,99 @@ pub fn visualize_border_cells(
     // );
 }
 
-
 // ===========================================================================================
 // NEW CONTOUR-BASED RENDERING SYSTEM
 // ===========================================================================================
 
-use super::cache::{TerritoryContourCache, OrganizationContour};
-use super::materials::{TerritoryMaterial, create_territory_material};
+use super::cache::{OrganizationContour, TerritoryContourCache};
+use super::materials::{TerritoryChunkMaterial, create_chunk_contour_material};
 use bevy::render::storage::ShaderStorageBuffer;
+use shared::{ContourSegment, TerrainChunkId, constants};
 
 /// Component to mark territory contour entities
 #[derive(Component)]
 pub struct TerritoryContourEntity {
-    pub chunk_x: i32,
-    pub chunk_y: i32,
+    pub chunk_id: TerrainChunkId,
     pub organization_id: u64,
 }
 
 /// System to render territory contours from cache
 ///
-/// This system reads the TerritoryContourCache and spawns entities with TerritoryMaterial
+/// This system reads the TerritoryContourCache and spawns entities with TerritoryChunkMaterial
 /// for each contour that hasn't been rendered yet.
 pub fn render_territory_contours(
     mut commands: Commands,
     cache: Res<TerritoryContourCache>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<TerritoryMaterial>>,
+    mut materials: ResMut<Assets<TerritoryChunkMaterial>>,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     existing_query: Query<(Entity, &TerritoryContourEntity)>,
 ) {
     // Track which (chunk, org) pairs exist
-    let mut existing_entities: std::collections::HashMap<((i32, i32), u64), Entity> =
+    let mut existing_entities: std::collections::HashMap<(TerrainChunkId, u64), Entity> =
         std::collections::HashMap::new();
 
     for (entity, contour_entity) in existing_query.iter() {
         existing_entities.insert(
-            ((contour_entity.chunk_x, contour_entity.chunk_y), contour_entity.organization_id),
+            (contour_entity.chunk_id, contour_entity.organization_id),
             entity,
         );
     }
 
     // Render contours from cache
-    for ((chunk_x, chunk_y), contours) in cache.contours.iter() {
+    for (chunk_id, contours) in cache.contours.iter() {
         for contour in contours {
-            let key = ((*chunk_x, *chunk_y), contour.organization_id);
+            let key = (*chunk_id, contour.organization_id);
 
             // Skip if already rendered
             if existing_entities.contains_key(&key) {
                 continue;
             }
 
-            // Skip if no points
-            if contour.points.is_empty() {
+            // Skip if no segments
+            if contour.segments.is_empty() {
                 warn!(
-                    "Skipping contour for org {} in chunk ({},{}) - no points",
-                    contour.organization_id, chunk_x, chunk_y
+                    "Skipping contour for org {} in chunk ({},{}) - no segments",
+                    contour.organization_id, chunk_id.x, chunk_id.y
                 );
                 continue;
             }
 
-            // Create material and mesh
-            let (mesh_handle, material_handle) = create_territory_material(
-                &contour.points,
+            // Create material and mesh using TerritoryChunkMaterial
+            if let Some((mesh_handle, material_handle)) = create_chunk_contour_material(
+                *chunk_id,
+                &contour.segments,
                 &mut meshes,
                 &mut materials,
                 &mut buffers,
                 contour.border_color,
                 contour.fill_color,
-            );
+                2.0,  // border_width
+                30.0, // fade_distance
+            ) {
+                // Calculate chunk center position
+                let (chunk_min, chunk_max) = chunk_id.bounds();
+                let chunk_center = (chunk_min + chunk_max) * 0.5;
 
-            // Calculate center position
-            let (min, max) = compute_contour_bounds(&contour.points);
-            let center = (min + max) * 0.5;
+                // Spawn entity at Z=10 (above terrain at Z=0)
+                commands.spawn((
+                    Mesh2d(mesh_handle),
+                    MeshMaterial2d(material_handle),
+                    Transform::from_xyz(chunk_center.x, chunk_center.y, 10.0),
+                    TerritoryContourEntity {
+                        chunk_id: *chunk_id,
+                        organization_id: contour.organization_id,
+                    },
+                ));
 
-            // Spawn entity at Z=10 (above terrain at Z=0)
-            commands.spawn((
-                Mesh2d(mesh_handle),
-                MeshMaterial2d(material_handle),
-                Transform::from_xyz(center.x, center.y, 10.0),
-                TerritoryContourEntity {
-                    chunk_x: *chunk_x,
-                    chunk_y: *chunk_y,
-                    organization_id: contour.organization_id,
-                },
-            ));
-
-            info!(
-                "✓ Spawned territory contour for org {} in chunk ({},{})",
-                contour.organization_id, chunk_x, chunk_y
-            );
+                info!(
+                    "✓ Spawned territory contour for org {} in chunk ({},{}) with {} segments",
+                    contour.organization_id,
+                    chunk_id.x,
+                    chunk_id.y,
+                    contour.segments.len()
+                );
+            }
         }
     }
-}
-
-/// Helper to compute bounds from contour points
-fn compute_contour_bounds(points: &[Vec2]) -> (Vec2, Vec2) {
-    let mut min = Vec2::splat(f32::MAX);
-    let mut max = Vec2::splat(f32::MIN);
-
-    for p in points {
-        min = min.min(*p);
-        max = max.max(*p);
-    }
-
-    (min, max)
 }

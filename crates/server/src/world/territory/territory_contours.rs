@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use hexx::*;
 
-use crate::world::components::{BorderEdge, DiagonalTransitionInfo, HexRelation, hex_relation};
+use crate::world::components::{BorderEdge, DiagonalTransitionCurvature, DiagonalTransitionInfo, HexRelation, hex_relation};
 use crate::utils;
 
 /// Parcourt le contour et retourne les arêtes extérieures dans l'ordre
@@ -67,16 +67,22 @@ pub fn simplify_contour_with_diagonals(
     let mut vertex_diag_index: Vec<Option<usize>> = vec![None; n];
 
     for i in 0..n {
+        let prev2_idx = (i + n - 2) % n;
         let prev_idx = (i + n - 1) % n;
         let next_idx = (i + 1) % n;
+        let next2_idx = (i + 2) % n;
 
+        let hex_prev2 = edges[prev2_idx].hex;
         let hex_prev = edges[prev_idx].hex;
         let hex_curr = edges[i].hex;
         let hex_next = edges[next_idx].hex;
+        let hex_next2 = edges[next2_idx].hex;
 
         // Vérifier si c'est une transition diagonale
+        // Concave case
         if let Some(diag_info) = detect_diagonal_transition(hex_prev, hex_curr, hex_next, territory)
         {
+            // tracing::info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev.x, hex_prev.y, hex_next.x, hex_next.y);
             // edges[i] est une jonction : ne génère pas de point
             is_junction[i] = true;
             is_junction[(i + 2) % n] = true;
@@ -84,6 +90,16 @@ pub fn simplify_contour_with_diagonals(
             // edges[prev_idx] doit générer un sommet diagonal
             // On stocke l'index de la diagonale pour savoir quel sommet générer
             vertex_diag_index[prev_idx] = Some(diag_info.diag_index);
+        }
+
+        // Convex case
+        if let Some(diag_info) = detect_diagonal_transition(hex_prev2, hex_curr, hex_next2, territory)
+        {
+            // tracing::info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev2.x, hex_prev2.y, hex_next2.x, hex_next2.y);
+            // edges[i] est une jonction : ne génère pas de point
+            is_junction[i] = true;
+
+            // vertex_diag_index[pre]
         }
     }
 
@@ -144,10 +160,10 @@ pub fn detect_diagonal_transition(
             };
 
             if territory.contains(&other_junction) {
-                return None;
+                return Some(DiagonalTransitionInfo { diag_index, curvature: DiagonalTransitionCurvature::Convexe });
             }
-
-            Some(DiagonalTransitionInfo { diag_index })
+            
+            Some(DiagonalTransitionInfo { diag_index, curvature: DiagonalTransitionCurvature::Concave })
         }
         _ => None,
     }

@@ -26,6 +26,7 @@ async fn main() {
         || args.contains(&"--generate-world".to_string())
         || args.contains(&"--clear".to_string())
         || args.contains(&"--save-png".to_string())
+        || args.contains(&"--regen-territory".to_string())
     {
         let result = args
             .iter()
@@ -58,10 +59,16 @@ async fn main() {
         return;
     }
     else if args.contains(&"--generate-world".to_string()) {
-        tracing::info!("=== Starting World Generation ===");        
+        tracing::info!("=== Starting World Generation ===");
         // World generation
         world::systems::generate_world(map_name, &db_tables, &game_state).await;
         tracing::info!("=== Generation Complete - Exiting ===");
+        return;
+    }
+    else if args.contains(&"--regen-territory".to_string()) {
+        tracing::info!("=== Starting Territory Contours Regeneration ===");
+        world::systems::regenerate_territory_contours(&db_tables).await;
+        tracing::info!("=== Regeneration Complete - Exiting ===");
         return;
     }
 

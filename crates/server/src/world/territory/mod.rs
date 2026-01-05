@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 
 /// Generate pseudo-random colors for an organization based on its ID
 /// Returns (border_color, fill_color) as RGBA tuples
-pub fn generate_org_colors(org_id: u64) -> ((f32, f32, f32, f32), (f32, f32, f32, f32)) {
+pub fn generate_org_colors(org_id: u64) -> ([f32; 4], [f32; 4]) {
     // Use a simple hash function to generate deterministic pseudo-random colors
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     org_id.hash(&mut hasher);
@@ -23,11 +23,11 @@ pub fn generate_org_colors(org_id: u64) -> ((f32, f32, f32, f32), (f32, f32, f32
 
     // Convert HSL to RGB for border (dark, saturated)
     let border_rgb = hsl_to_rgb(hue, saturation, lightness * 0.4);
-    let border_color = (border_rgb.0, border_rgb.1, border_rgb.2, 1.0);
+    let border_color = [border_rgb.0, border_rgb.1, border_rgb.2, 1.0f32];
 
     // Fill color (lighter, semi-transparent)
     let fill_rgb = hsl_to_rgb(hue, saturation * 0.6, lightness * 1.2);
-    let fill_color = (fill_rgb.0, fill_rgb.1, fill_rgb.2, 0.3);
+    let fill_color = [fill_rgb.0, fill_rgb.1, fill_rgb.2, 0.3f32];
 
     (border_color, fill_color)
 }

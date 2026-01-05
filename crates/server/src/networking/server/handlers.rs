@@ -1,6 +1,9 @@
 use futures::{SinkExt, StreamExt};
 use shared::{
-    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData
+    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
+    ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction,
+    HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData,
+    TerrainChunkData,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
@@ -9,7 +12,8 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::database::client::DatabaseTables;
 use crate::units::NameGenerator;
-use shared::protocol::{ClientMessage, ServerMessage};
+use crate::{utils, world};
+use shared::protocol::{ClientMessage, ColorData, ServerMessage};
 
 use super::super::Sessions;
 
@@ -24,18 +28,21 @@ async fn add_action_and_cache(
     let action_id = action_table.add_scheduled_action(action_data).await?;
 
     // Add to cache
-    let completion_time = action_data.base_data.start_time + (action_data.base_data.duration_ms / 1000);
-    action_processor.add_action(ActionInfo {
-        action_id,
-        player_id: action_data.base_data.player_id,
-        chunk_id: action_data.base_data.chunk.clone(),
-        cell: action_data.base_data.cell.clone(),
-        action_type,
-        status: ActionStatusEnum::Pending,
-        start_time: action_data.base_data.start_time,
-        duration_ms: action_data.base_data.duration_ms,
-        completion_time,
-    }).await;
+    let completion_time =
+        action_data.base_data.start_time + (action_data.base_data.duration_ms / 1000);
+    action_processor
+        .add_action(ActionInfo {
+            action_id,
+            player_id: action_data.base_data.player_id,
+            chunk_id: action_data.base_data.chunk.clone(),
+            cell: action_data.base_data.cell.clone(),
+            action_type,
+            status: ActionStatusEnum::Pending,
+            start_time: action_data.base_data.start_time,
+            duration_ms: action_data.base_data.duration_ms,
+            completion_time,
+        })
+        .await;
 
     Ok(action_id)
 }
@@ -170,30 +177,48 @@ async fn handle_client_message(
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
-            tracing::info!("Session {} attempting to log in as {}", session_id, username);
+            tracing::info!(
+                "Session {} attempting to log in as {}",
+                session_id,
+                username
+            );
 
             // Try to get or create the player in the database
             match shared::types::game::methods::get_or_create_player(
                 &db_tables.pool,
                 &username,
-                1, // Default language_id (could be configurable)
+                1,                  // Default language_id (could be configurable)
                 "default_location", // Default origin location
-                None, // No motto by default
-            ).await {
+                None,               // No motto by default
+            )
+            .await
+            {
                 Ok(player) => {
-                    tracing::info!("Player {} logged in successfully with DB ID {}", username, player.id);
+                    tracing::info!(
+                        "Player {} logged in successfully with DB ID {}",
+                        username,
+                        player.id
+                    );
 
                     // Associate session with player_id
-                    sessions.authenticate_session(session_id, player.id as u64).await;
+                    sessions
+                        .authenticate_session(session_id, player.id as u64)
+                        .await;
 
                     // Get or create a default character
                     match shared::types::game::methods::get_or_create_default_character(
                         &db_tables.pool,
                         player.id,
                         &player.family_name,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(character) => {
-                            tracing::info!("Character {} {} loaded/created", character.first_name, character.family_name);
+                            tracing::info!(
+                                "Character {} {} loaded/created",
+                                character.first_name,
+                                character.family_name
+                            );
 
                             // Convert to protocol types (without timestamps)
                             let player_data = shared::protocol::PlayerData {
@@ -225,7 +250,7 @@ async fn handle_client_message(
                         Err(e) => {
                             tracing::error!("Failed to get/create character: {}", e);
                             vec![ServerMessage::LoginError {
-                                reason: format!("Character creation error: {}", e)
+                                reason: format!("Character creation error: {}", e),
                             }]
                         }
                     }
@@ -233,7 +258,7 @@ async fn handle_client_message(
                 Err(e) => {
                     tracing::error!("Failed to get/create player {}: {}", username, e);
                     vec![ServerMessage::LoginError {
-                        reason: format!("Database error: {}", e)
+                        reason: format!("Database error: {}", e),
                     }]
                 }
             }
@@ -261,17 +286,23 @@ async fn handle_client_message(
                         vec![]
                     }
                 };
-                let unit_data = match db_tables
-                    .units
-                    .load_chunk_units(*terrain_chunk_id)
-                    .await
-                {
+                let unit_data = match db_tables.units.load_chunk_units(*terrain_chunk_id).await {
                     Ok(units) => {
-                        tracing::info!("Loaded {} units for chunk ({},{})", units.len(), terrain_chunk_id.x, terrain_chunk_id.y);
+                        tracing::info!(
+                            "Loaded {} units for chunk ({},{})",
+                            units.len(),
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y
+                        );
                         units
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to load units for chunk ({},{}): {}", terrain_chunk_id.x, terrain_chunk_id.y, e);
+                        tracing::warn!(
+                            "Failed to load units for chunk ({},{}): {}",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            e
+                        );
                         vec![]
                     }
                 };
@@ -340,8 +371,13 @@ async fn handle_client_message(
 
                 // Charger et générer les routes pour ce chunk (envoyé séparément)
                 // Utilise la table de visibilité pour charger tous les segments qui traversent ce chunk
-                tracing::info!("Attempting to load road segments for chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
-                match db_tables.road_segments
+                tracing::info!(
+                    "Attempting to load road segments for chunk ({},{})",
+                    terrain_chunk_id.x,
+                    terrain_chunk_id.y
+                );
+                match db_tables
+                    .road_segments
                     .load_road_segments_by_chunk_new(terrain_chunk_id.x, terrain_chunk_id.y)
                     .await
                 {
@@ -357,7 +393,13 @@ async fn handle_client_message(
 
                         let config = RoadConfig::default();
                         let intersections = compute_intersections(&road_segments, &config);
-                        let road_sdf = generate_road_sdf(&road_segments, &intersections, &config, terrain_chunk_id.x, terrain_chunk_id.y);
+                        let road_sdf = generate_road_sdf(
+                            &road_segments,
+                            &intersections,
+                            &config,
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                        );
 
                         tracing::info!(
                             "✓ Road SDF generated: {}x{} with {} intersections",
@@ -374,7 +416,12 @@ async fn handle_client_message(
                         });
                     }
                     Ok(road_segments) => {
-                        tracing::info!("No road segments found for chunk ({},{}) (loaded {} segments)", terrain_chunk_id.x, terrain_chunk_id.y, road_segments.len());
+                        tracing::info!(
+                            "No road segments found for chunk ({},{}) (loaded {} segments)",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            road_segments.len()
+                        );
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -387,31 +434,47 @@ async fn handle_client_message(
                 }
 
                 // Load and send territory contours for this chunk (sent separately)
-                tracing::info!("Loading territory contours for chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
-
-                match db_tables.territory_contours.load_chunk_contours(
+                tracing::info!(
+                    "Loading territory contours for chunk ({},{})",
                     terrain_chunk_id.x,
-                    terrain_chunk_id.y,
-                ).await {
-                    Ok(contours) if !contours.is_empty() => {
-                        tracing::info!("✓ Found {} organization contours in chunk ({},{})",
-                            contours.len(), terrain_chunk_id.x, terrain_chunk_id.y);
+                    terrain_chunk_id.y
+                );
+
+                match db_tables
+                    .territory_contours
+                    .load_chunk_contours(&terrain_chunk_id)
+                    .await
+                {
+                    Ok(territories_chunk_data) if !territories_chunk_data.is_empty() => {
+                        tracing::info!(
+                            "✓ Found {} organization contours in chunk ({},{})",
+                            territories_chunk_data.len(),
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y
+                        );
 
                         let mut contour_data = Vec::new();
-                        for (org_id, points) in contours {
+                        for territory_chunk_data in territories_chunk_data {
                             // Generate colors for this organization
-                            let (border_color, fill_color) = crate::world::territory::generate_org_colors(org_id);
+                            let (border_color, fill_color) = world::territory::generate_org_colors(
+                                territory_chunk_data.organization_id,
+                            );
+
+                            let segment_count = territory_chunk_data.segments.len();
 
                             contour_data.push(shared::protocol::TerritoryContourChunkData {
-                                organization_id: org_id,
-                                chunk_x: terrain_chunk_id.x,
-                                chunk_y: terrain_chunk_id.y,
-                                contour_points: points.iter().map(|p| (p.x, p.y)).collect(),
-                                border_color,
-                                fill_color,
+                                organization_id: territory_chunk_data.organization_id,
+                                chunk_id: *terrain_chunk_id,
+                                segments: territory_chunk_data.segments,
+                                border_color: ColorData::from_array(border_color),
+                                fill_color: ColorData::from_array(fill_color),
                             });
 
-                            tracing::debug!("Added contour for org {} ({} points)", org_id, points.len());
+                            tracing::debug!(
+                                "Added contour for org {} ({} segments)",
+                                territory_chunk_data.organization_id,
+                                segment_count
+                            );
                         }
 
                         // Send contours update
@@ -421,7 +484,11 @@ async fn handle_client_message(
                         });
                     }
                     Ok(_) => {
-                        tracing::debug!("No territory contours in chunk ({},{})", terrain_chunk_id.x, terrain_chunk_id.y);
+                        tracing::debug!(
+                            "No territory contours in chunk ({},{})",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y
+                        );
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -488,7 +555,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::BuildBuilding).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::BuildBuilding,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     tracing::info!("Scheduled build building action with ID {}", action_id);
 
@@ -561,7 +635,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::BuildRoad).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::BuildRoad,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     tracing::info!("Scheduled build road action {}", action_id);
 
@@ -626,7 +707,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::CraftResource).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::CraftResource,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -687,7 +775,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::HarvestResource).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::HarvestResource,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -748,7 +843,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::MoveUnit).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::MoveUnit,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -794,11 +896,11 @@ async fn handle_client_message(
             let slot_index = to_slot.index as i32;
 
             // Update database
-            match db_tables.units.update_slot_position(
-                unit_id,
-                Some(slot_type_str.to_string()),
-                Some(slot_index),
-            ).await {
+            match db_tables
+                .units
+                .update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(slot_index))
+                .await
+            {
                 Ok(_) => {
                     tracing::info!("Unit {} slot updated in database", unit_id);
 
@@ -842,11 +944,11 @@ async fn handle_client_message(
             let slot_index = slot.index as i32;
 
             // Update database
-            match db_tables.units.update_slot_position(
-                unit_id,
-                Some(slot_type_str.to_string()),
-                Some(slot_index),
-            ).await {
+            match db_tables
+                .units
+                .update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(slot_index))
+                .await
+            {
                 Ok(_) => {
                     tracing::info!("Unit {} slot assigned in database", unit_id);
 
@@ -906,7 +1008,14 @@ async fn handle_client_message(
                 specific_data,
             };
 
-            match add_action_and_cache(action_table, action_processor, &action_data, ActionTypeEnum::SendMessage).await {
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::SendMessage,
+            )
+            .await
+            {
                 Ok(action_id) => {
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -938,13 +1047,21 @@ async fn handle_client_message(
                     tracing::info!("  - width: {}", ocean_data.width);
                     tracing::info!("  - height: {}", ocean_data.height);
                     tracing::info!("  - sdf_values: {} bytes", ocean_data.sdf_values.len());
-                    tracing::info!("  - heightmap_values: {} bytes", ocean_data.heightmap_values.len());
+                    tracing::info!(
+                        "  - heightmap_values: {} bytes",
+                        ocean_data.heightmap_values.len()
+                    );
 
                     tracing::info!("Encoding ocean data with bincode for network transmission...");
-                    let encoded_size = bincode::encode_to_vec(&ocean_data, bincode::config::standard())
-                        .map(|v| v.len())
-                        .unwrap_or(0);
-                    tracing::info!("Encoded size: {} bytes ({:.2} MB)", encoded_size, encoded_size as f64 / 1_000_000.0);
+                    let encoded_size =
+                        bincode::encode_to_vec(&ocean_data, bincode::config::standard())
+                            .map(|v| v.len())
+                            .unwrap_or(0);
+                    tracing::info!(
+                        "Encoded size: {} bytes ({:.2} MB)",
+                        encoded_size,
+                        encoded_size as f64 / 1_000_000.0
+                    );
 
                     tracing::info!("✓ Sending ocean data to client");
                     vec![ServerMessage::OceanData { ocean_data }]
@@ -963,19 +1080,23 @@ async fn handle_client_message(
         // ====================================================================
         // DEBUG COMMANDS
         // ====================================================================
-
         ClientMessage::DebugCreateOrganization {
             name,
             organization_type,
             cell,
             parent_organization_id,
         } => {
-            tracing::info!("DEBUG: Creating organization '{}' of type {:?} at {:?}", name, organization_type, cell);
+            tracing::info!(
+                "DEBUG: Creating organization '{}' of type {:?} at {:?}",
+                name,
+                organization_type,
+                cell
+            );
 
             // First, create a leader unit for the organization
             let (first_name, last_name, gender, portrait_variant_id, avatar_url) = {
-                use rand::Rng;
                 use crate::units::PortraitGenerator;
+                use rand::Rng;
                 let mut rng = rand::rng();
 
                 // Generate random gender
@@ -986,23 +1107,35 @@ async fn handle_client_message(
                 let (first_name, last_name) = name_generator.generate_random_name(Some(is_male));
 
                 // Generate portrait for Merchant profession
-                let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url(gender_str, shared::ProfessionEnum::Merchant);
+                let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url(
+                    gender_str,
+                    shared::ProfessionEnum::Merchant,
+                );
 
-                (first_name, last_name, gender_str.to_string(), variant_id, avatar_url)
+                (
+                    first_name,
+                    last_name,
+                    gender_str.to_string(),
+                    variant_id,
+                    avatar_url,
+                )
             };
 
             // Create the leader unit
-            let founder_unit_result = db_tables.units.create_unit(
-                None,
-                first_name.clone(),
-                last_name.clone(),
-                gender.clone(),
-                portrait_variant_id,
-                avatar_url,
-                cell,
-                shared::TerrainChunkId { x: 0, y: 0 },
-                shared::ProfessionEnum::Merchant,
-            ).await;
+            let founder_unit_result = db_tables
+                .units
+                .create_unit(
+                    None,
+                    first_name.clone(),
+                    last_name.clone(),
+                    gender.clone(),
+                    portrait_variant_id,
+                    avatar_url,
+                    cell,
+                    shared::TerrainChunkId { x: 0, y: 0 },
+                    shared::ProfessionEnum::Merchant,
+                )
+                .await;
 
             match founder_unit_result {
                 Ok(founder_unit_id) => {
@@ -1023,20 +1156,40 @@ async fn handle_client_message(
 
                             match db_tables.voronoi_zones.get_zone_at_cell(cell).await {
                                 Ok(Some(zone_id)) => {
-                                    tracing::info!("Found Voronoi zone {} at cell {:?}", zone_id, cell);
+                                    tracing::info!(
+                                        "Found Voronoi zone {} at cell {:?}",
+                                        zone_id,
+                                        cell
+                                    );
 
                                     // Check if zone is available
                                     match db_tables.voronoi_zones.is_zone_available(zone_id).await {
                                         Ok(true) => {
                                             // Zone is available, claim all cells
-                                            match db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                                            match db_tables
+                                                .voronoi_zones
+                                                .get_zone_cells(zone_id)
+                                                .await
+                                            {
                                                 Ok(zone_cells) => {
-                                                    tracing::info!("Claiming {} cells from Voronoi zone {}", zone_cells.len(), zone_id);
+                                                    tracing::info!(
+                                                        "Claiming {} cells from Voronoi zone {}",
+                                                        zone_cells.len(),
+                                                        zone_id
+                                                    );
 
                                                     // Add all cells to territory
                                                     for zone_cell in &zone_cells {
-                                                        if let Err(e) = db_tables.organizations.add_territory_cell(org_id, zone_cell).await {
-                                                            tracing::warn!("Failed to add cell {:?}: {}", zone_cell, e);
+                                                        if let Err(e) = db_tables
+                                                            .organizations
+                                                            .add_territory_cell(org_id, zone_cell)
+                                                            .await
+                                                        {
+                                                            tracing::warn!(
+                                                                "Failed to add cell {:?}: {}",
+                                                                zone_cell,
+                                                                e
+                                                            );
                                                         } else {
                                                             claimed_count += 1;
                                                         }
@@ -1052,137 +1205,241 @@ async fn handle_client_message(
                                                     .await;
 
                                                     if let Err(e) = link_result {
-                                                        tracing::warn!("Failed to link zone to organization: {}", e);
+                                                        tracing::warn!(
+                                                            "Failed to link zone to organization: {}",
+                                                            e
+                                                        );
                                                     }
 
-                                                    tracing::info!("✓ Organization {} claimed {} cells from Voronoi zone {}", org_id, claimed_count, zone_id);
+                                                    tracing::info!(
+                                                        "✓ Organization {} claimed {} cells from Voronoi zone {}",
+                                                        org_id,
+                                                        claimed_count,
+                                                        zone_id
+                                                    );
                                                 }
                                                 Err(e) => {
-                                                    tracing::error!("Failed to get zone cells: {}", e);
+                                                    tracing::error!(
+                                                        "Failed to get zone cells: {}",
+                                                        e
+                                                    );
                                                 }
                                             }
                                         }
                                         Ok(false) => {
-                                            tracing::warn!("Voronoi zone {} already claimed, using fallback", zone_id);
+                                            tracing::warn!(
+                                                "Voronoi zone {} already claimed, using fallback",
+                                                zone_id
+                                            );
                                             // Fallback: just claim HQ and neighbors
                                             for neighbor in cell.neighbors() {
-                                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                                let _ = db_tables
+                                                    .organizations
+                                                    .add_territory_cell(org_id, &neighbor)
+                                                    .await;
                                                 claimed_count += 1;
                                             }
-                                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                            let _ = db_tables
+                                                .organizations
+                                                .add_territory_cell(org_id, &cell)
+                                                .await;
                                             claimed_count += 1;
                                         }
                                         Err(e) => {
-                                            tracing::error!("Failed to check zone availability: {}", e);
+                                            tracing::error!(
+                                                "Failed to check zone availability: {}",
+                                                e
+                                            );
                                             // Fallback
                                             for neighbor in cell.neighbors() {
-                                                let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                                let _ = db_tables
+                                                    .organizations
+                                                    .add_territory_cell(org_id, &neighbor)
+                                                    .await;
                                                 claimed_count += 1;
                                             }
-                                            let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                            let _ = db_tables
+                                                .organizations
+                                                .add_territory_cell(org_id, &cell)
+                                                .await;
                                             claimed_count += 1;
                                         }
                                     }
                                 }
                                 Ok(None) => {
-                                    tracing::warn!("No Voronoi zone found at cell {:?}, using fallback", cell);
+                                    tracing::warn!(
+                                        "No Voronoi zone found at cell {:?}, using fallback",
+                                        cell
+                                    );
                                     // Fallback: just claim HQ and neighbors
                                     for neighbor in cell.neighbors() {
-                                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                        let _ = db_tables
+                                            .organizations
+                                            .add_territory_cell(org_id, &neighbor)
+                                            .await;
                                         claimed_count += 1;
                                     }
-                                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                    let _ = db_tables
+                                        .organizations
+                                        .add_territory_cell(org_id, &cell)
+                                        .await;
                                     claimed_count += 1;
                                 }
                                 Err(e) => {
                                     tracing::error!("Failed to query Voronoi zone: {}", e);
                                     // Fallback
                                     for neighbor in cell.neighbors() {
-                                        let _ = db_tables.organizations.add_territory_cell(org_id, &neighbor).await;
+                                        let _ = db_tables
+                                            .organizations
+                                            .add_territory_cell(org_id, &neighbor)
+                                            .await;
                                         claimed_count += 1;
                                     }
-                                    let _ = db_tables.organizations.add_territory_cell(org_id, &cell).await;
+                                    let _ = db_tables
+                                        .organizations
+                                        .add_territory_cell(org_id, &cell)
+                                        .await;
                                     claimed_count += 1;
                                 }
                             }
 
-                            tracing::info!("✓ Organization {} claimed {} total cells", org_id, claimed_count);
-                            
+                            tracing::info!(
+                                "✓ Organization {} claimed {} total cells",
+                                org_id,
+                                claimed_count
+                            );
+
                             // Generate territory contours and split by chunks
-                            tracing::info!("Generating territory contours for organization {}...", org_id);
+                            tracing::info!(
+                                "Generating territory contours for organization {}...",
+                                org_id
+                            );
                             match db_tables.organizations.load_territory_cells(org_id).await {
                                 Ok(territory_cells) if !territory_cells.is_empty() => {
-                                    tracing::info!("Loaded {} territory cells for organization {}", territory_cells.len(), org_id);
+                                    tracing::info!(
+                                        "Loaded {} territory cells for organization {}",
+                                        territory_cells.len(),
+                                        org_id
+                                    );
 
                                     // Convert GridCell to Hex
                                     use hexx::Hex;
-                                    let territory_hex: std::collections::HashSet<Hex> = territory_cells
-                                        .iter()
-                                        .map(|cell| cell.to_hex())
-                                        .collect();
+                                    let territory_hex: std::collections::HashSet<Hex> =
+                                        territory_cells.iter().map(|cell| cell.to_hex()).collect();
 
                                     // Use grid config for layout
                                     use shared::grid::GridConfig;
                                     let grid_config = GridConfig::new(
                                         shared::constants::HEX_SIZE,
                                         hexx::HexOrientation::Flat,
-                                        bevy::math::Vec2::new(shared::constants::HEX_RATIO.x, shared::constants::HEX_RATIO.y),
+                                        bevy::math::Vec2::new(
+                                            shared::constants::HEX_RATIO.x,
+                                            shared::constants::HEX_RATIO.y,
+                                        ),
                                         3,
                                     );
 
-                                    // Generate and split contours
-                                    let contour_chunks = crate::world::territory::generate_and_split_contour(
-                                        &territory_hex,
+                                    let contour_points = &world::territory::build_contour(
                                         &grid_config.layout,
-                                        2.0,    // jitter amplitude
-                                        org_id, // jitter seed (ensures consistency)
+                                        &territory_hex,
+                                        0.0,
+                                        12345,
                                     );
 
-                                    tracing::info!("Generated {} contour chunks for organization {}", contour_chunks.len(), org_id);
+                                    // Generate and split contours
+                                    let contour_chunks =
+                                        utils::chunks::split_contour_into_chunks(contour_points);
+                                    // let contour_chunks = crate::world::territory::generate_and_split_contour(
+                                    //     &territory_hex,
+                                    //     &grid_config.layout,
+                                    //     2.0,    // jitter amplitude
+                                    //     org_id, // jitter seed (ensures consistency)
+                                    // );
+
+                                    tracing::info!(
+                                        "Generated {} contour chunks for organization {}",
+                                        contour_chunks.len(),
+                                        org_id
+                                    );
 
                                     // Store contours in database
                                     let mut stored_count = 0;
-                                    for (chunk_id, contour_points) in contour_chunks {
-                                        match db_tables.territory_contours.store_contour(
-                                            org_id,
-                                            chunk_id.x,
-                                            chunk_id.y,
-                                            &contour_points,
-                                        ).await {
+                                    for (chunk_id, contour_segments) in contour_chunks {
+                                        match db_tables
+                                            .territory_contours
+                                            .store_contour(
+                                                org_id,
+                                                chunk_id.x,
+                                                chunk_id.y,
+                                                &contour_segments,
+                                            )
+                                            .await
+                                        {
                                             Ok(_) => {
                                                 stored_count += 1;
-                                                tracing::debug!("Stored contour for org {} in chunk ({},{})", org_id, chunk_id.x, chunk_id.y);
+                                                tracing::debug!(
+                                                    "Stored contour for org {} in chunk ({},{})",
+                                                    org_id,
+                                                    chunk_id.x,
+                                                    chunk_id.y
+                                                );
                                             }
                                             Err(e) => {
-                                                tracing::warn!("Failed to store contour for chunk ({},{}): {}", chunk_id.x, chunk_id.y, e);
+                                                tracing::warn!(
+                                                    "Failed to store contour for chunk ({},{}): {}",
+                                                    chunk_id.x,
+                                                    chunk_id.y,
+                                                    e
+                                                );
                                             }
                                         }
                                     }
 
-                                    tracing::info!("✓ Stored {} territory contour chunks for organization {}", stored_count, org_id);
+                                    tracing::info!(
+                                        "✓ Stored {} territory contour chunks for organization {}",
+                                        stored_count,
+                                        org_id
+                                    );
                                 }
                                 Ok(_) => {
-                                    tracing::warn!("No territory cells found for organization {}", org_id);
+                                    tracing::warn!(
+                                        "No territory cells found for organization {}",
+                                        org_id
+                                    );
                                 }
                                 Err(e) => {
-                                    tracing::error!("Failed to load territory cells for organization {}: {}", org_id, e);
+                                    tracing::error!(
+                                        "Failed to load territory cells for organization {}: {}",
+                                        org_id,
+                                        e
+                                    );
                                 }
                             }
 
                             // Get territory border cells for debugging
-                            let mut response_messages = vec![ServerMessage::DebugOrganizationCreated {
-                                organization_id: org_id,
-                                name: name.clone(),
-                            }];
+                            let mut response_messages =
+                                vec![ServerMessage::DebugOrganizationCreated {
+                                    organization_id: org_id,
+                                    name: name.clone(),
+                                }];
 
                             // Get border cells (cells at the frontier of the territory)
-                            tracing::info!("Getting territory border cells for organization {}...", org_id);
+                            tracing::info!(
+                                "Getting territory border cells for organization {}...",
+                                org_id
+                            );
                             match crate::world::territory::get_territory_border_cells(
                                 &db_tables.pool,
                                 org_id,
-                            ).await {
+                            )
+                            .await
+                            {
                                 Ok(border_cells) => {
-                                    tracing::info!("Organization {}: {} border cells identified", org_id, border_cells.len());
+                                    tracing::info!(
+                                        "Organization {}: {} border cells identified",
+                                        org_id,
+                                        border_cells.len()
+                                    );
 
                                     // Send border cells to client for debug visualization
                                     response_messages.push(ServerMessage::TerritoryBorderCells {
@@ -1242,7 +1499,11 @@ async fn handle_client_message(
             let default_chunk = shared::TerrainChunkId { x: 0, y: 0 };
 
             // Get occupied slots on the cell
-            let occupied_slots = match db_tables.units.get_occupied_slots_on_cell(&cell, &default_chunk).await {
+            let occupied_slots = match db_tables
+                .units
+                .get_occupied_slots_on_cell(&cell, &default_chunk)
+                .await
+            {
                 Ok(slots) => slots,
                 Err(e) => {
                     tracing::error!("✗ Failed to get occupied slots: {}", e);
@@ -1258,15 +1519,16 @@ async fn handle_client_message(
 
                 // Try to get building type first
                 match db_tables.buildings.get_building_type_at_cell(&cell).await {
-                    Ok(Some(building_type)) => {
-                        SlotConfiguration::for_building_type(building_type)
-                    }
+                    Ok(Some(building_type)) => SlotConfiguration::for_building_type(building_type),
                     Ok(None) => {
                         // No building, check terrain biome
                         match db_tables.cells.get_biome_at_cell(&cell).await {
                             Ok(Some(biome)) => SlotConfiguration::for_terrain_type(biome),
                             Ok(None) => {
-                                tracing::warn!("No biome found for cell {:?}, using default config", cell);
+                                tracing::warn!(
+                                    "No biome found for cell {:?}, using default config",
+                                    cell
+                                );
                                 SlotConfiguration::default()
                             }
                             Err(e) => {
@@ -1315,19 +1577,31 @@ async fn handle_client_message(
 
             // Check if there's space available
             if available_slots.is_empty() {
-                tracing::warn!("✗ Cannot spawn unit: cell {:?} is full ({}/{} slots occupied)",
-                    cell, occupied_slots.len(), total_slots);
+                tracing::warn!(
+                    "✗ Cannot spawn unit: cell {:?} is full ({}/{} slots occupied)",
+                    cell,
+                    occupied_slots.len(),
+                    total_slots
+                );
                 return vec![ServerMessage::DebugError {
-                    reason: format!("Cell is full ({}/{} slots occupied)", occupied_slots.len(), total_slots),
+                    reason: format!(
+                        "Cell is full ({}/{} slots occupied)",
+                        occupied_slots.len(),
+                        total_slots
+                    ),
                 }];
             }
 
-            tracing::info!("Cell has available slots: {}/{} occupied", occupied_slots.len(), total_slots);
+            tracing::info!(
+                "Cell has available slots: {}/{} occupied",
+                occupied_slots.len(),
+                total_slots
+            );
 
             // Generate random unit data using NameGenerator and PortraitGenerator
             let (first_name, last_name, gender, profession, portrait_variant_id, avatar_url) = {
-                use rand::Rng;
                 use crate::units::PortraitGenerator;
+                use rand::Rng;
                 let mut rng = rand::rng();
 
                 // Generate random gender (true = male, false = female)
@@ -1343,9 +1617,17 @@ async fn handle_client_message(
                     .unwrap_or(shared::ProfessionEnum::Farmer);
 
                 // Generate portrait variant and avatar URL
-                let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url(gender_str, profession);
+                let (variant_id, avatar_url) =
+                    PortraitGenerator::generate_variant_and_url(gender_str, profession);
 
-                (first_name, last_name, gender_str.to_string(), profession, variant_id, avatar_url)
+                (
+                    first_name,
+                    last_name,
+                    gender_str.to_string(),
+                    profession,
+                    variant_id,
+                    avatar_url,
+                )
             };
 
             // Choose a random available slot
@@ -1356,17 +1638,21 @@ async fn handle_client_message(
                 available_slots[index]
             };
 
-            match db_tables.units.create_unit(
-                None, // No player
-                first_name.clone(),
-                last_name.clone(),
-                gender.clone(),
-                portrait_variant_id.clone(),
-                avatar_url.clone(),
-                cell,
-                default_chunk,
-                profession,
-            ).await {
+            match db_tables
+                .units
+                .create_unit(
+                    None, // No player
+                    first_name.clone(),
+                    last_name.clone(),
+                    gender.clone(),
+                    portrait_variant_id.clone(),
+                    avatar_url.clone(),
+                    cell,
+                    default_chunk,
+                    profession,
+                )
+                .await
+            {
                 Ok(unit_id) => {
                     // Assign the chosen slot to the unit
                     let slot_type_str = match chosen_slot.slot_type {
@@ -1374,27 +1660,44 @@ async fn handle_client_message(
                         shared::SlotType::Exterior => "exterior",
                     };
 
-                    match db_tables.units.update_slot_position(
-                        unit_id,
-                        Some(slot_type_str.to_string()),
-                        Some(chosen_slot.index as i32),
-                    ).await {
+                    match db_tables
+                        .units
+                        .update_slot_position(
+                            unit_id,
+                            Some(slot_type_str.to_string()),
+                            Some(chosen_slot.index as i32),
+                        )
+                        .await
+                    {
                         Ok(_) => {
-                            tracing::info!("✓ Unit spawned: {} {} ({}, {}, ID: {}) - Assigned to slot {:?} {} - {}/{} slots occupied",
-                                first_name, last_name, gender, avatar_url, unit_id, slot_type_str, chosen_slot.index,
-                                occupied_slots.len() + 1, total_slots);
+                            tracing::info!(
+                                "✓ Unit spawned: {} {} ({}, {}, ID: {}) - Assigned to slot {:?} {} - {}/{} slots occupied",
+                                first_name,
+                                last_name,
+                                gender,
+                                avatar_url,
+                                unit_id,
+                                slot_type_str,
+                                chosen_slot.index,
+                                occupied_slots.len() + 1,
+                                total_slots
+                            );
 
                             // Load the full unit data to send to the client
                             match db_tables.units.load_unit(unit_id).await {
                                 Ok(unit_data) => {
-                                    vec![ServerMessage::DebugUnitSpawned {
-                                        unit_data,
-                                    }]
+                                    vec![ServerMessage::DebugUnitSpawned { unit_data }]
                                 }
                                 Err(e) => {
-                                    tracing::error!("✗ Failed to load unit data after spawn: {}", e);
+                                    tracing::error!(
+                                        "✗ Failed to load unit data after spawn: {}",
+                                        e
+                                    );
                                     vec![ServerMessage::DebugError {
-                                        reason: format!("Unit created but failed to load data: {}", e),
+                                        reason: format!(
+                                            "Unit created but failed to load data: {}",
+                                            e
+                                        ),
                                     }]
                                 }
                             }

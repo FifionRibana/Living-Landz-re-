@@ -1,20 +1,21 @@
 use bevy::prelude::*;
 use hexx::*;
 use std::collections::HashSet;
-use shared::{constants, TerrainChunkId};
+use shared::{constants, TerrainChunkId, ContourSegment};
 
 use crate::world::territory::territory_contours::build_contour;
+use crate::utils::chunks::split_contour_into_chunks;
 
 /// Generate territory contour and split into chunks using geometric clipping
 ///
-/// Returns a Vec of (TerrainChunkId, Vec<Vec2>) where each chunk contains only
-/// the contour points that intersect with that chunk's boundaries
+/// Returns a Vec of (TerrainChunkId, Vec<ContourSegment>) where each chunk contains only
+/// the contour segments that intersect with that chunk's boundaries
 pub fn generate_and_split_contour(
     territory_cells: &HashSet<Hex>,
     layout: &HexLayout,
     jitter_amplitude: f32,
     jitter_seed: u64,
-) -> Vec<(TerrainChunkId, Vec<Vec2>)> {
+) -> Vec<(TerrainChunkId, Vec<ContourSegment>)> {
     if territory_cells.is_empty() {
         return Vec::new();
     }
@@ -33,30 +34,14 @@ pub fn generate_and_split_contour(
         territory_cells.len()
     );
 
-    // Find all chunks that this contour might intersect
-    let affected_chunks = find_affected_chunks(&full_contour);
-    tracing::info!(
-        "Contour affects {} chunks (with buffer)",
-        affected_chunks.len()
-    );
+    // Use split_contour_into_chunks to split and convert to segments
+    let chunks_map = split_contour_into_chunks(&full_contour);
 
-    // For each chunk, clip the contour to only segments that intersect
-    let mut result = Vec::new();
-    for chunk_id in affected_chunks {
-        let chunk_segments = clip_contour_to_chunk(&full_contour, chunk_id);
-        if !chunk_segments.is_empty() {
-            tracing::debug!(
-                "Chunk ({},{}) has {} contour points",
-                chunk_id.x,
-                chunk_id.y,
-                chunk_segments.len()
-            );
-            result.push((chunk_id, chunk_segments));
-        }
-    }
+    // Convert HashMap to Vec for compatibility
+    let result: Vec<(TerrainChunkId, Vec<ContourSegment>)> = chunks_map.into_iter().collect();
 
     tracing::info!(
-        "Split contour into {} chunk segments (some chunks had no intersecting points)",
+        "Split contour into {} chunk segments",
         result.len()
     );
     result
