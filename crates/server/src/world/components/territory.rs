@@ -7,9 +7,16 @@ pub struct BorderEdge {
     pub dir: usize,
 }
 
+#[derive(Debug)]
+pub enum DiagonalTransitionCurvature {
+    Convexe,
+    Concave,
+}
+
 /// Information sur une transition diagonale
 pub struct DiagonalTransitionInfo {
     pub diag_index: usize,
+    pub curvature: DiagonalTransitionCurvature
 }
 
 #[derive(Debug, Clone, PartialEq)]

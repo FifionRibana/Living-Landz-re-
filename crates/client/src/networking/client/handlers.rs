@@ -2,7 +2,9 @@ use bevy::prelude::*;
 
 use super::NetworkClient;
 use crate::rendering::terrain::components::Terrain;
-use crate::rendering::territory::{TerritoryContourCache, TerritoryBorderSdfCache, TerritoryBorderCellsDebug};
+use crate::rendering::territory::{
+    TerritoryBorderCellsDebug, TerritoryBorderSdfCache, TerritoryContourCache,
+};
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache, WorldCache,
@@ -217,10 +219,7 @@ pub fn handle_server_message(
                     );
                 }
             }
-            shared::protocol::ServerMessage::TerritoryContourUpdate {
-                chunk_id,
-                contours,
-            } => {
+            shared::protocol::ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
                 info!(
                     "✓ Received {} territory contours for chunk ({},{})",
                     contours.len(),
@@ -233,9 +232,23 @@ pub fn handle_server_message(
                     territory_contour_cache.add_contour(
                         chunk_id,
                         contour_data.organization_id,
-                        contour_data.contour_points,
-                        contour_data.border_color,
-                        contour_data.fill_color,
+                        contour_data
+                            .segments
+                            .iter()
+                            .map(|s| s.to_contour_segment())
+                            .collect(),
+                        Color::linear_rgba(
+                            contour_data.border_color.r,
+                            contour_data.border_color.g,
+                            contour_data.border_color.b,
+                            contour_data.border_color.a,
+                        ),
+                        Color::linear_rgba(
+                            contour_data.fill_color.r,
+                            contour_data.fill_color.g,
+                            contour_data.fill_color.b,
+                            contour_data.fill_color.a,
+                        ),
                     );
                 }
             }
@@ -250,10 +263,9 @@ pub fn handle_server_message(
 
                 // Insert into territory border cache
                 // The process_territory_border_sdf_data system will pick it up and spawn the layers
-                territory_border_cache.chunks.insert(
-                    (chunk_id.x, chunk_id.y),
-                    border_sdf_data_list,
-                );
+                territory_border_cache
+                    .chunks
+                    .insert((chunk_id.x, chunk_id.y), border_sdf_data_list);
             }
             shared::protocol::ServerMessage::TerritoryBorderCells {
                 organization_id,
@@ -336,7 +348,8 @@ pub fn handle_server_message(
                 info!("✓ Organization {} deleted", organization_id);
             }
             shared::protocol::ServerMessage::DebugUnitSpawned { unit_data } => {
-                info!("✓ Unit {} spawned at {:?} with slot {:?} {}",
+                info!(
+                    "✓ Unit {} spawned at {:?} with slot {:?} {}",
                     unit_data.id,
                     unit_data.current_cell,
                     unit_data.slot_type,
@@ -350,7 +363,9 @@ pub fn handle_server_message(
                 units_data_cache.insert_unit(unit_data.clone());
 
                 // If we have a slot position, update the slot occupancy
-                if let (Some(slot_type_str), Some(slot_index)) = (&unit_data.slot_type, unit_data.slot_index) {
+                if let (Some(slot_type_str), Some(slot_index)) =
+                    (&unit_data.slot_type, unit_data.slot_index)
+                {
                     let slot_type = match slot_type_str.as_str() {
                         "interior" => shared::SlotType::Interior,
                         "exterior" => shared::SlotType::Exterior,
@@ -366,7 +381,10 @@ pub fn handle_server_message(
                     };
 
                     units_cache.set_unit_slot(unit_data.current_cell, slot_position, unit_data.id);
-                    info!("Set slot {:?} {} for unit {}", slot_type_str, slot_index, unit_data.id);
+                    info!(
+                        "Set slot {:?} {} for unit {}",
+                        slot_type_str, slot_index, unit_data.id
+                    );
                 }
             }
             shared::protocol::ServerMessage::OrganizationAtCell { cell, organization } => {

@@ -1,5 +1,6 @@
 use crate::database::client::DatabaseTables;
 use crate::database::tables;
+use crate::world;
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
@@ -11,6 +12,7 @@ use shared::BuildingData;
 use shared::GameState;
 use shared::constants;
 use shared::grid::GridConfig;
+use sqlx::Row;
 
 pub fn setup_grid_config() -> GridConfig {
     let radius = constants::HEX_SIZE;
@@ -192,10 +194,28 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         .collect();
 
     // Calculate world bounds from sampled cells
-    let min_q = cells_with_biomes.iter().map(|(c, _)| c.q).min().unwrap_or(0);
-    let max_q = cells_with_biomes.iter().map(|(c, _)| c.q).max().unwrap_or(0) + 1;
-    let min_r = cells_with_biomes.iter().map(|(c, _)| c.r).min().unwrap_or(0);
-    let max_r = cells_with_biomes.iter().map(|(c, _)| c.r).max().unwrap_or(0) + 1;
+    let min_q = cells_with_biomes
+        .iter()
+        .map(|(c, _)| c.q)
+        .min()
+        .unwrap_or(0);
+    let max_q = cells_with_biomes
+        .iter()
+        .map(|(c, _)| c.q)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let min_r = cells_with_biomes
+        .iter()
+        .map(|(c, _)| c.r)
+        .min()
+        .unwrap_or(0);
+    let max_r = cells_with_biomes
+        .iter()
+        .map(|(c, _)| c.r)
+        .max()
+        .unwrap_or(0)
+        + 1;
 
     let voronoi_seed = 12345u64; // Could be from config or derived from map seed
     let bounds = (min_q, max_q, min_r, max_r);
@@ -255,7 +275,114 @@ pub async fn clear_world(map_name: &str, terrain_db: &tables::TerrainsTable) {
 pub async fn save_world_to_png(map_name: &str) {
     tracing::info!("Starting saving...");
     let start = std::time::Instant::now();
-    let _ = TerrainMeshData::save_png_image(map_name, &format!("assets/maps/{}_binarymap.bin", map_name));
+    let _ = TerrainMeshData::save_png_image(
+        map_name,
+        &format!("assets/maps/{}_binarymap.bin", map_name),
+    );
     let _ = BiomeMeshData::save_png_image(map_name, "assets/maps/");
     tracing::info!("✓ Saving {} map in {:?}", map_name, start.elapsed());
+}
+
+/// Regenerate territory contours for all existing organizations
+pub async fn regenerate_territory_contours(db_tables: &DatabaseTables) {
+    tracing::info!("=== Starting Territory Contours Regeneration ===");
+    let start = std::time::Instant::now();
+
+    // Setup grid config
+    let grid_config = setup_grid_config();
+
+    // Get all organizations
+    let organizations = match sqlx::query("SELECT id, name FROM organizations.organizations")
+        .fetch_all(&db_tables.pool)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("Failed to fetch organizations: {}", e);
+            return;
+        }
+    };
+
+    tracing::info!("Found {} organizations to process", organizations.len());
+
+    let mut total_contours = 0;
+    let mut processed_orgs = 0;
+
+    for org_row in organizations {
+        let org_id: i64 = org_row.get("id");
+        let org_name: String = org_row.get("name");
+
+        tracing::info!("Processing organization {} ({})", org_id, org_name);
+
+        // Get territory cells for this organization
+        let territory_cells_result = db_tables
+            .organizations
+            .load_territory_cells(org_id as u64)
+            .await;
+
+        match territory_cells_result {
+            Ok(cells) if !cells.is_empty() => {
+                tracing::info!("  Found {} territory cells", cells.len());
+
+                // Convert GridCells to Hex
+                let territory_hex: std::collections::HashSet<hexx::Hex> =
+                    cells.iter().map(|cell| cell.to_hex()).collect();
+
+                // Generate and split contours
+                let contour_chunks = world::territory::generate_and_split_contour(
+                    &territory_hex,
+                    &grid_config.layout,
+                    4.0,   // jitter amplitude
+                    12345, //org_id as u64, // jitter seed (ensures consistency)
+                );
+
+                tracing::info!("  Generated {} contour chunks", contour_chunks.len());
+
+                // Store contours in database
+                let mut stored_count = 0;
+                for (chunk_id, contour_segments) in contour_chunks {
+                    match db_tables
+                        .territory_contours
+                        .store_contour(org_id as u64, chunk_id.x, chunk_id.y, &contour_segments)
+                        .await
+                    {
+                        Ok(_) => {
+                            stored_count += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "  Failed to store contour for chunk ({},{}): {}",
+                                chunk_id.x,
+                                chunk_id.y,
+                                e
+                            );
+                        }
+                    }
+                }
+
+                tracing::info!(
+                    "  ✓ Stored {} territory contour chunks for organization {}",
+                    stored_count,
+                    org_name
+                );
+                total_contours += stored_count;
+                processed_orgs += 1;
+            }
+            Ok(_) => {
+                tracing::warn!("  Organization {} has no territory cells", org_name);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "  Failed to load territory cells for organization {}: {}",
+                    org_name,
+                    e
+                );
+            }
+        }
+    }
+
+    tracing::info!("=== Territory Contours Regeneration Complete ===");
+    tracing::info!("Processed {} organizations", processed_orgs);
+    tracing::info!("Generated {} total contour chunks", total_contours);
+    tracing::info!("Completed in {:?}", start.elapsed());
 }

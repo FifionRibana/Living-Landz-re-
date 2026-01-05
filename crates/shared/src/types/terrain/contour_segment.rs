@@ -1,4 +1,30 @@
 use bevy::prelude::*;
+use bincode::{Encode, Decode};
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct ContourSegmentData {
+    pub start: [f32; 2],
+    pub end: [f32; 2],
+    pub normal: [f32; 2],
+}
+
+impl ContourSegmentData {
+    pub fn to_contour_segment(&self) -> ContourSegment {
+        ContourSegment {
+            start: Vec2::from_array(self.start),
+            end: Vec2::from_array(self.end),
+            normal: Vec2::from_array(self.normal),
+        }
+    }
+
+    pub fn from_contour_segment(segment: &ContourSegment) -> Self {
+        Self {
+            start: segment.start.into(),
+            end: segment.end.into(),
+            normal: segment.normal.into(),
+        }
+    }
+}
 
 /// Un segment du contour avec sa normale (pointant vers l'intérieur)
 #[derive(Clone, Copy, Debug)]

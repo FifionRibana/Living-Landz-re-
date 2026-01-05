@@ -1,5 +1,6 @@
-use sqlx::{PgPool, Row};
 use bevy::math::Vec2;
+use shared::{ContourSegment, ContourSegmentData, TerrainChunkId, TerritoryChunkData};
+use sqlx::{PgPool, Row};
 
 /// Handler for the territory_contours table in the organizations schema
 pub struct TerritoryContoursTable {
@@ -11,22 +12,32 @@ impl TerritoryContoursTable {
         Self { pool }
     }
 
-    /// Store contour points for an organization in a specific chunk
+    /// Store contour segments for an organization in a specific chunk
     pub async fn store_contour(
         &self,
         organization_id: u64,
         chunk_x: i32,
         chunk_y: i32,
-        contour_points: &[Vec2],
+        contour_segments: &[ContourSegment],
     ) -> Result<(), String> {
-        // Flatten Vec2 points into a flat array of f32 for PostgreSQL
-        let points_flat: Vec<f32> = contour_points
+        // Flatten ContourSegment into a flat array of f32 for PostgreSQL
+        // Format: [start.x, start.y, end.x, end.y, normal.x, normal.y, ...]
+        let segments_flat: Vec<f32> = contour_segments
             .iter()
-            .flat_map(|p| vec![p.x, p.y])
+            .flat_map(|seg| {
+                vec![
+                    seg.start.x,
+                    seg.start.y,
+                    seg.end.x,
+                    seg.end.y,
+                    seg.normal.x,
+                    seg.normal.y,
+                ]
+            })
             .collect();
 
-        // Calculate bounding box
-        let (min_x, max_x, min_y, max_y) = if contour_points.is_empty() {
+        // Calculate bounding box from all segment points
+        let (min_x, max_x, min_y, max_y) = if contour_segments.is_empty() {
             (0.0, 0.0, 0.0, 0.0)
         } else {
             let mut min_x = f32::MAX;
@@ -34,43 +45,43 @@ impl TerritoryContoursTable {
             let mut min_y = f32::MAX;
             let mut max_y = f32::MIN;
 
-            for p in contour_points {
-                min_x = min_x.min(p.x);
-                max_x = max_x.max(p.x);
-                min_y = min_y.min(p.y);
-                max_y = max_y.max(p.y);
+            for seg in contour_segments {
+                min_x = min_x.min(seg.start.x).min(seg.end.x);
+                max_x = max_x.max(seg.start.x).max(seg.end.x);
+                min_y = min_y.min(seg.start.y).min(seg.end.y);
+                max_y = max_y.max(seg.start.y).max(seg.end.y);
             }
 
             (min_x, max_x, min_y, max_y)
         };
 
-        let point_count = contour_points.len() as i32;
+        let segment_count = contour_segments.len() as i32;
 
         sqlx::query(
             r#"
             INSERT INTO organizations.territory_contours
-                (organization_id, chunk_x, chunk_y, contour_points, bbox_min_x, bbox_max_x, bbox_min_y, bbox_max_y, point_count)
+                (organization_id, chunk_x, chunk_y, contour_segments, bbox_min_x, bbox_max_x, bbox_min_y, bbox_max_y, segment_count)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (organization_id, chunk_x, chunk_y)
             DO UPDATE SET
-                contour_points = EXCLUDED.contour_points,
+                contour_segments = EXCLUDED.contour_segments,
                 bbox_min_x = EXCLUDED.bbox_min_x,
                 bbox_max_x = EXCLUDED.bbox_max_x,
                 bbox_min_y = EXCLUDED.bbox_min_y,
                 bbox_max_y = EXCLUDED.bbox_max_y,
-                point_count = EXCLUDED.point_count,
+                segment_count = EXCLUDED.segment_count,
                 updated_at = NOW()
             "#,
         )
         .bind(organization_id as i64)
         .bind(chunk_x)
         .bind(chunk_y)
-        .bind(&points_flat)
+        .bind(&segments_flat)
         .bind(min_x)
         .bind(max_x)
         .bind(min_y)
         .bind(max_y)
-        .bind(point_count)
+        .bind(segment_count)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to store territory contour: {}", e))?;
@@ -78,22 +89,22 @@ impl TerritoryContoursTable {
         Ok(())
     }
 
-    /// Load all contours for a specific chunk
-    /// Returns a Vec of (organization_id, contour_points)
+    /// Load all contours for a specific chunk as raw segment data
+    /// Returns a Vec of (organization_id, segments_flat)
+    /// Format: [start.x, start.y, end.x, end.y, normal.x, normal.y, ...]
     pub async fn load_chunk_contours(
         &self,
-        chunk_x: i32,
-        chunk_y: i32,
-    ) -> Result<Vec<(u64, Vec<Vec2>)>, String> {
+        chunk_id: &TerrainChunkId,
+    ) -> Result<Vec<TerritoryChunkData>, String> {
         let rows = sqlx::query(
             r#"
-            SELECT organization_id, contour_points
+            SELECT organization_id, contour_segments
             FROM organizations.territory_contours
             WHERE chunk_x = $1 AND chunk_y = $2
             "#,
         )
-        .bind(chunk_x)
-        .bind(chunk_y)
+        .bind(chunk_id.x)
+        .bind(chunk_id.y)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("Failed to load chunk contours: {}", e))?;
@@ -102,27 +113,26 @@ impl TerritoryContoursTable {
 
         for row in rows {
             let organization_id: i64 = row.get("organization_id");
-            let points_flat: Vec<f32> = row.get("contour_points");
+            let segments_flat: Vec<f32> = row.get("contour_segments");
 
-            // Convert flat array back to Vec2 points
-            let mut contour_points = Vec::new();
-            for i in (0..points_flat.len()).step_by(2) {
-                if i + 1 < points_flat.len() {
-                    contour_points.push(Vec2::new(points_flat[i], points_flat[i + 1]));
-                }
-            }
-
-            result.push((organization_id as u64, contour_points));
+            result.push(TerritoryChunkData {
+                organization_id: organization_id as u64,
+                segments: segments_flat
+                    .chunks_exact(6)
+                    .map(|chunk| ContourSegmentData {
+                        start: [chunk[0], chunk[1]],
+                        end: [chunk[2], chunk[3]],
+                        normal: [chunk[4], chunk[5]],
+                    })
+                    .collect(),
+            });
         }
 
         Ok(result)
     }
 
     /// Delete all contours for a specific organization
-    pub async fn delete_organization_contours(
-        &self,
-        organization_id: u64,
-    ) -> Result<(), String> {
+    pub async fn delete_organization_contours(&self, organization_id: u64) -> Result<(), String> {
         sqlx::query(
             r#"
             DELETE FROM organizations.territory_contours

@@ -1,11 +1,7 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingTypeEnum, OceanData, OrganizationSummary,
-    OrganizationType, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId,
-    UnitData,
-    grid::{CellData, GridCell},
-    types::TerrainChunkData,
+    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData, OrganizationSummary, OrganizationType, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -33,18 +29,41 @@ pub struct CharacterData {
     pub motto: Option<String>,
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct ColorData {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl ColorData {
+    pub fn from_array(color: [f32; 4]) -> Self {
+        Self {
+            r: color[0],
+            g: color[1],
+            b: color[2],
+            a: color[3],
+        }
+    }
+
+    pub fn to_array(&self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+}
+
 /// Territory contour data for a specific organization in a specific chunk
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct TerritoryContourChunkData {
     pub organization_id: u64,
-    pub chunk_x: i32,
-    pub chunk_y: i32,
-    /// Contour points as Vec2 tuples (f32, f32)
-    pub contour_points: Vec<(f32, f32)>,
+    pub chunk_id: TerrainChunkId,
+    /// Contour segments: [start.x, start.y, end.x, end.y, normal.x, normal.y, ...]
+    /// Flattened array of ContourSegment data (6 floats per segment)
+    pub segments: Vec<ContourSegmentData>,
     /// Border color (RGBA)
-    pub border_color: (f32, f32, f32, f32),
+    pub border_color: ColorData,
     /// Fill color (RGBA)
-    pub fill_color: (f32, f32, f32, f32),
+    pub fill_color: ColorData,
 }
 
 /// Messages Client → Server
@@ -138,6 +157,9 @@ pub enum ClientMessage {
         cell: GridCell,
     },
 
+    /// Debug: Regenerate territory contours for all organizations
+    DebugRegenerateAllContours,
+
     /// Request organization info for a cell
     RequestOrganizationAtCell {
         cell: GridCell,
@@ -172,7 +194,6 @@ pub enum ServerMessage {
     // OrganizationData {
     //     organization_data: OrganizationData,
     // },
-
     OceanData {
         ocean_data: OceanData,
     },
