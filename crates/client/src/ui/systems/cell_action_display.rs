@@ -74,7 +74,6 @@ pub fn update_cell_action_display(
         let action_type_text = &format!("{:?}", action.action_type);
 
         // Mettre à jour les textes du panneau
-        // TODO: Identifier et mettre à jour les bons composants de texte
         // Pour l'instant, on log juste l'info
         // info!(
         //     "Action sur la cellule: {} - {}",
@@ -112,10 +111,8 @@ pub fn has_active_action_on_selected_cell(
         r: selected_cell.y,
     };
 
-    // TODO: Obtenir le chunk_id de la cellule sélectionnée
     let world_pos = grid_config.layout.hex_to_world_pos(*selected_cell);
 
-    // Pour l'instant, on utilise un chunk par défaut
     let chunk_id = TerrainChunkId {
         x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
         y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,

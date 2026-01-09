@@ -21,10 +21,10 @@ fn create_ocean_mesh(width: f32, height: f32) -> Mesh {
     // Vertices du rectangle (4 coins)
     // Format: [x, y, z]
     let vertices = vec![
-        [0.0, 0.0, 0.0], // Bottom-left
-        [width, 0.0, 0.0],  // Bottom-right
-        [width, height, 0.0],   // Top-right
-        [0.0, height, 0.0],  // Top-left
+        [0.0, 0.0, 0.0],      // Bottom-left
+        [width, 0.0, 0.0],    // Bottom-right
+        [width, height, 0.0], // Top-right
+        [0.0, height, 0.0],   // Top-left
     ];
 
     // UVs: (0,0) en bas à gauche, (1,1) en haut à droite
@@ -143,6 +143,8 @@ pub fn spawn_ocean(
                 max_depth: ocean_data.max_distance,
                 ..default()
             },
+            // shallow_color: LinearRgba::new(0.352, 0.415, 0.459, 1.0),
+            // deep_color: LinearRgba::new(0.227, 0.29, 0.352, 1.0),
             ..default()
         })),
         Transform::from_translation(Vec3::new(0.0, 0.0, -500.0)),

@@ -15,11 +15,11 @@ pub fn update_action_menu_visual(
     >,
 ) {
     let sub_tab_normal_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_normal.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_normal.png");
     let sub_tab_selected_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_selected.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_selected.png");
     let sub_tab_hovered_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_hovered.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_hovered.png");
 
     for (menu_button, mut image_node) in menu_button_query {
         // Selected mode

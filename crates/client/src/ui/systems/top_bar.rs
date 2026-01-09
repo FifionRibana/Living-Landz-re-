@@ -3,24 +3,28 @@ use shared::atlas::MoonAtlas;
 
 use crate::ui::{
     components::{
-        ActionMenuMarker, ActionModeMenuButton, ActionModeMenuIcon, CharacterNameText, ClockText, DateText, MenuButton, MoonPhaseImage, PlayerNameText, TopBarMarker
+        ActionMenuMarker, ActionModeMenuButton, ActionModeMenuIcon, CharacterNameText, ClockText,
+        DateText, MenuButton, MoonPhaseImage, PlayerNameText, TopBarMarker,
     },
     resources::{ActionModeEnum, PanelEnum, UIState},
     systems::{CLICK_COLOR, HOVER_COLOR, NORMAL_COLOR},
 };
+
+const TEXT_LIGHT_PRIMARY: Color = Color::srgb_u8(243, 217, 175);
+const TEXT_LIGHT_SECONDARY: Color = Color::srgb_u8(152, 121, 94);
 
 pub fn setup_top_bar(
     parent: &mut RelatedSpawnerCommands<ChildOf>,
     asset_server: &Res<AssetServer>,
     moon_atlas: &Res<MoonAtlas>,
 ) {
-    let top_bar_image = asset_server.load("ui/ui_top_bar_2.png");
+    let top_bar_image = asset_server.load("ui/ui_top_bar_3.png");
     let top_bar_slicer = TextureSlicer {
         border: BorderRect {
             left: 24.,
             right: 24.,
-            top: 24.,
-            bottom: 24.,
+            top: 19.,
+            bottom: 49.,
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
@@ -38,13 +42,13 @@ pub fn setup_top_bar(
     let village_image = asset_server.load("ui/icons/village.png");
 
     let sub_tab_normal_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_normal.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_normal.png");
     let sub_tab_hovered_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_hovered.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_hovered.png");
     let sub_tab_selected_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_selected.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_selected.png");
     let sub_tab_disabled_image: Handle<Image> =
-        asset_server.load("ui/ui_sub_top_bar_button_disabled.png");
+        asset_server.load("ui/ui_sub_top_bar_button_2_disabled.png");
 
     let road_image = asset_server.load("ui/icons/stone-path.png");
     let training_image = asset_server.load("ui/icons/graduate-cap.png");
@@ -79,7 +83,7 @@ pub fn setup_top_bar(
             },
             Node {
                 width: percent(100),
-                height: px(64.),
+                height: px(91.),
                 position_type: PositionType::Absolute,
                 top: px(0.0),
                 left: px(0.0),
@@ -95,72 +99,11 @@ pub fn setup_top_bar(
             },
         ))
         .with_children(|top_bar_parent| {
-            // Menu buttons
             top_bar_parent
                 .spawn((
                     Node {
-                        flex_direction: FlexDirection::Row,
-                        align_items: AlignItems::Center,
-                        padding: UiRect::all(px(16.)),
-                        ..default()
-                    },
-                    Pickable {
-                        should_block_lower: true,
-                        is_hoverable: true,
-                    },
-                ))
-                .with_children(|menu_bar_parent| {
-                    for (index, (menu_image, panel)) in menu_images.iter().enumerate() {
-                        menu_bar_parent
-                            .spawn((
-                                Button,
-                                Node {
-                                    width: px(32.),
-                                    height: px(32.),
-                                    margin: UiRect::horizontal(px(8.)),
-                                    ..default()
-                                },
-                                ImageNode {
-                                    image: menu_image.clone(),
-                                    image_mode: NodeImageMode::Auto,
-                                    color: Color::srgb_u8(157, 136, 93),
-                                    ..default()
-                                },
-                                Pickable {
-                                    should_block_lower: true,
-                                    is_hoverable: true,
-                                },
-                                MenuButton {
-                                    button_id: index,
-                                    panel: *panel,
-                                },
-                            ))
-                            .observe(recolor_menu_button_on::<Pointer<Over>>(HOVER_COLOR))
-                            .observe(recolor_menu_button_on::<Pointer<Out>>(NORMAL_COLOR))
-                            .observe(recolor_menu_button_on::<Pointer<Click>>(CLICK_COLOR))
-                            .observe(on_menu_button_click);
-                    }
-                });
-
-            // Spacer
-            top_bar_parent.spawn((
-                Node {
-                    flex_grow: 1.,
-                    ..default()
-                },
-                Pickable {
-                    should_block_lower: true,
-                    is_hoverable: false,
-                },
-            ));
-
-            // Date display
-            top_bar_parent
-                .spawn((
-                    Node {
-                        flex_direction: FlexDirection::Column,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
+                        width: Val::Percent(100.),
+                        height: Val::Px(61.),
                         ..default()
                     },
                     Pickable {
@@ -168,114 +111,151 @@ pub fn setup_top_bar(
                         is_hoverable: false,
                     },
                 ))
-                .with_children(|date_node| {
-                    date_node.spawn((
-                        Text::new("Year 24 AF"),
-                        TextFont {
-                            font_size: 13.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb_u8(223, 210, 194)),
-                        Node { ..default() },
-                        Pickable {
-                            should_block_lower: true,
-                            is_hoverable: false,
-                        },
-                    ));
-                    date_node.spawn((
-                        Text::new("November 14th"),
-                        TextFont {
-                            font_size: 10.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb_u8(223, 210, 194)),
-                        DateText,
-                        Node { ..default() },
-                        Pickable {
-                            should_block_lower: true,
-                            is_hoverable: false,
-                        },
-                    ));
-                    date_node.spawn((
-                        Text::new("13:37:23"),
-                        TextFont {
-                            font_size: 12.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb_u8(223, 210, 194)),
-                        ClockText,
-                        Node { ..default() },
-                        Pickable {
-                            should_block_lower: true,
-                            is_hoverable: false,
-                        },
-                    ));
-                });
-
-            // Spacer
-            top_bar_parent.spawn((
-                Node {
-                    flex_grow: 1.,
-                    ..default()
-                },
-                Pickable {
-                    should_block_lower: true,
-                    is_hoverable: false,
-                },
-            ));
-
-            // Moon phase display
-            top_bar_parent
-                .spawn((
-                    Node {
-                        width: px(48.),
-                        height: px(48.),
-                        align_self: AlignSelf::Center,
-                        position_type: PositionType::Relative,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    Pickable {
-                        should_block_lower: true,
-                        is_hoverable: false,
-                    },
-                ))
-                .with_children(|moon_container| {
-                    // Moon phase image
-                    if let Some(moon_image) = moon_atlas.get_handle(3) {
-                        moon_container.spawn((
-                            ImageNode {
-                                image: moon_image.clone(),
-                                ..default()
-                            },
+                .with_children(|top_bar_content| {
+                    // Menu buttons
+                    top_bar_content
+                        .spawn((
                             Node {
-                                width: px(28.),
-                                height: px(28.),
-                                position_type: PositionType::Absolute,
-                                left: px(10.),
-                                top: px(10.),
+                                flex_direction: FlexDirection::Row,
+                                align_items: AlignItems::Center,
+                                padding: UiRect::all(px(16.)),
                                 ..default()
                             },
-                            MoonPhaseImage,
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: true,
+                            },
+                        ))
+                        .with_children(|menu_bar_parent| {
+                            for (index, (menu_image, panel)) in menu_images.iter().enumerate() {
+                                menu_bar_parent
+                                    .spawn((
+                                        Button,
+                                        Node {
+                                            width: px(32.),
+                                            height: px(32.),
+                                            margin: UiRect::horizontal(px(8.)),
+                                            ..default()
+                                        },
+                                        ImageNode {
+                                            image: menu_image.clone(),
+                                            image_mode: NodeImageMode::Auto,
+                                            color: Color::srgb_u8(157, 136, 93),
+                                            ..default()
+                                        },
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: true,
+                                        },
+                                        MenuButton {
+                                            button_id: index,
+                                            panel: *panel,
+                                        },
+                                    ))
+                                    .observe(recolor_menu_button_on::<Pointer<Over>>(HOVER_COLOR))
+                                    .observe(recolor_menu_button_on::<Pointer<Out>>(NORMAL_COLOR))
+                                    .observe(recolor_menu_button_on::<Pointer<Click>>(CLICK_COLOR))
+                                    .observe(on_menu_button_click);
+                            }
+                        });
+
+                    // Spacer
+                    top_bar_content.spawn((
+                        Node {
+                            flex_grow: 1.,
+                            ..default()
+                        },
+                        Pickable {
+                            should_block_lower: true,
+                            is_hoverable: false,
+                        },
+                    ));
+
+                    // Date display
+                    top_bar_content
+                        .spawn((
+                            Node {
+                                width: Val::Px(246.),
+                                flex_direction: FlexDirection::Row,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
                             Pickable {
                                 should_block_lower: true,
                                 is_hoverable: false,
                             },
-                        ));
-                    }
-                    // UI overlay (moon ring)
-                    moon_container.spawn((
-                        ImageNode {
-                            image: asset_server.load("ui/moon_ring_brass.png"),
-                            ..default()
-                        },
+                        ))
+                        .with_children(|middle_content| {
+                            middle_content.spawn(Node {
+                                width: Val::Px(108.),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            });
+                            middle_content
+                                .spawn((
+                                    Node {
+                                        flex_grow: 1.,
+                                        flex_direction: FlexDirection::Column,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    },
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: false,
+                                    },
+                                ))
+                                .with_children(|date_node| {
+                                    date_node.spawn((
+                                        Text::new("Year 24 AF"),
+                                        TextFont {
+                                            font_size: 13.0,
+                                            ..default()
+                                        },
+                                        TextColor(TEXT_LIGHT_PRIMARY),
+                                        Node { ..default() },
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                    date_node.spawn((
+                                        Text::new("November 14th"),
+                                        TextFont {
+                                            font_size: 10.0,
+                                            ..default()
+                                        },
+                                        TextColor(TEXT_LIGHT_PRIMARY),
+                                        DateText,
+                                        Node { ..default() },
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                    date_node.spawn((
+                                        Text::new("13:37:23"),
+                                        TextFont {
+                                            font_size: 12.0,
+                                            ..default()
+                                        },
+                                        TextColor(TEXT_LIGHT_PRIMARY),
+                                        ClockText,
+                                        Node { ..default() },
+                                        Pickable {
+                                            should_block_lower: true,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                });
+                        });
+
+                    // Spacer
+                    top_bar_content.spawn((
                         Node {
-                            width: px(48.),
-                            height: px(48.),
-                            position_type: PositionType::Absolute,
-                            left: px(0.),
-                            top: px(0.),
+                            flex_grow: 1.,
                             ..default()
                         },
                         Pickable {
@@ -283,64 +263,125 @@ pub fn setup_top_bar(
                             is_hoverable: false,
                         },
                     ));
-                });
 
-            // Spacer
-            top_bar_parent.spawn((
-                Node {
-                    width: px(32.),
-                    ..default()
-                },
-                Pickable {
-                    should_block_lower: true,
-                    is_hoverable: false,
-                },
-            ));
+                    // Moon phase display
+                    top_bar_content
+                        .spawn((
+                            Node {
+                                width: px(48.),
+                                height: px(48.),
+                                align_self: AlignSelf::Center,
+                                position_type: PositionType::Relative,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|moon_container| {
+                            // Moon phase image
+                            if let Some(moon_image) = moon_atlas.get_handle(3) {
+                                moon_container.spawn((
+                                    ImageNode {
+                                        image: moon_image.clone(),
+                                        ..default()
+                                    },
+                                    Node {
+                                        width: px(28.),
+                                        height: px(28.),
+                                        position_type: PositionType::Absolute,
+                                        left: px(10.),
+                                        top: px(10.),
+                                        ..default()
+                                    },
+                                    MoonPhaseImage,
+                                    Pickable {
+                                        should_block_lower: true,
+                                        is_hoverable: false,
+                                    },
+                                ));
+                            }
+                            // UI overlay (moon ring)
+                            moon_container.spawn((
+                                ImageNode {
+                                    image: asset_server.load("ui/moon_ring_brass.png"),
+                                    ..default()
+                                },
+                                Node {
+                                    width: px(48.),
+                                    height: px(48.),
+                                    position_type: PositionType::Absolute,
+                                    left: px(0.),
+                                    top: px(0.),
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
 
-            // Player and Character info
-            top_bar_parent
-                .spawn((
-                    Node {
-                        flex_direction: FlexDirection::Column,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::End,
-                        padding: UiRect::horizontal(px(16.)),
-                        ..default()
-                    },
-                    Pickable {
-                        should_block_lower: true,
-                        is_hoverable: false,
-                    },
-                ))
-                .with_children(|player_info_parent| {
-                    player_info_parent.spawn((
-                        Text::new("--"),
-                        TextFont {
-                            font_size: 13.0,
+                    // Spacer
+                    top_bar_content.spawn((
+                        Node {
+                            width: px(32.),
                             ..default()
                         },
-                        TextColor(Color::srgb_u8(223, 210, 194)),
-                        PlayerNameText,
-                        Node { ..default() },
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: false,
                         },
                     ));
-                    player_info_parent.spawn((
-                        Text::new("--"),
-                        TextFont {
-                            font_size: 11.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb_u8(200, 187, 171)),
-                        CharacterNameText,
-                        Node { ..default() },
-                        Pickable {
-                            should_block_lower: true,
-                            is_hoverable: false,
-                        },
-                    ));
+
+                    // Player and Character info
+                    top_bar_content
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::End,
+                                padding: UiRect::horizontal(px(16.)),
+                                ..default()
+                            },
+                            Pickable {
+                                should_block_lower: true,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|player_info_parent| {
+                            player_info_parent.spawn((
+                                Text::new("--"),
+                                TextFont {
+                                    font_size: 13.0,
+                                    ..default()
+                                },
+                                TextColor(TEXT_LIGHT_PRIMARY),
+                                PlayerNameText,
+                                Node { ..default() },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                            player_info_parent.spawn((
+                                Text::new("--"),
+                                TextFont {
+                                    font_size: 11.0,
+                                    ..default()
+                                },
+                                TextColor(TEXT_LIGHT_SECONDARY),
+                                CharacterNameText,
+                                Node { ..default() },
+                                Pickable {
+                                    should_block_lower: true,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
                 });
         });
 
