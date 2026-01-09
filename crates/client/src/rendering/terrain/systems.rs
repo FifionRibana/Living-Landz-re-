@@ -177,9 +177,11 @@ pub fn spawn_terrain(
 
             info!("Creating material WITH SDF for chunk {:?}", terrain.id);
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
-                sdf_texture,
+                sdf_texture, // rgba(168, 176, 119, 1) // rgba(196, 180, 144, 1)
                 sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
+                // sand_color: LinearRgba::new(0.77, 0.71, 0.56, 1.0), //LinearRgba::new(0.76, 0.70, 0.50, 1.0),
                 grass_color: LinearRgba::new(0.36, 0.52, 0.28, 1.0),
+                // grass_color: LinearRgba::new(0.66, 0.69, 0.47, 1.0),//LinearRgba::new(0.36, 0.52, 0.28, 1.0),
                 sdf_params: SdfParams {
                     beach_start: -0.15,
                     beach_end: 0.6,
@@ -187,8 +189,8 @@ pub fn spawn_terrain(
                     _padding: 0.0,
                 },
                 road_sdf_texture: road_texture,
-                road_params,
-                road_color_light: LinearRgba::new(0.76, 0.70, 0.55, 1.0),
+                road_params, // rgba(160, 136, 104, 1)
+                road_color_light: LinearRgba::new(0.62, 0.53, 0.41, 1.0), //LinearRgba::new(0.76, 0.70, 0.55, 1.0),
                 road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
                 road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
             }))

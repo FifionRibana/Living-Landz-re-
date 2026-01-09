@@ -3,7 +3,8 @@ use bevy::{prelude::*};
 
 use crate::ui::components::MenuButton;
 
-pub const NORMAL_COLOR: Color = Color::srgb_u8(157, 136, 93);
+pub const NORMAL_COLOR: Color = Color::srgb_u8(39, 18, 5);
+// pub const NORMAL_COLOR: Color = Color::srgb_u8(157, 136, 93);
 pub const HOVER_COLOR: Color = Color::srgb_u8(197, 176, 133);
 pub const CLICK_COLOR: Color = Color::srgb_u8(227, 206, 163);
 

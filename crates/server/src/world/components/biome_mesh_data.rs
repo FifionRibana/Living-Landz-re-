@@ -301,11 +301,12 @@ impl BiomeMeshData {
             );
         }
 
-        let sampled_cells = (&scaled_image)
+        
+        scaled_image
             .enumerate_pixels()
             .par_bridge()
             .fold(
-                || HashMap::new(),
+                HashMap::new,
                 |mut acc, (px, py, pixel)| {
                     let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
                     let vertices = &hex_layout
@@ -324,7 +325,7 @@ impl BiomeMeshData {
                 },
             )
             .reduce(
-                || HashMap::new(),
+                HashMap::new,
                 |mut acc, other| {
                     for (hex, color_map) in other {
                         let entry = acc.entry(hex).or_insert_with(HashMap::new);
@@ -345,7 +346,6 @@ impl BiomeMeshData {
                         r: hex_cell.y,
                     },
                     chunk: TerrainChunkId {
-                        // TODO: Chunk is not properly computed. It is world pos not hex_cell pos that shoul be divided
                         x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x) as i32,
                         y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y) as i32,
                     },
@@ -356,12 +356,7 @@ impl BiomeMeshData {
                         .unwrap_or(BiomeTypeEnum::DeepOcean),
                 }
             })
-            .collect();
-        sampled_cells
-
-        // TODO: Add display in client of current biome on hover (and / or clic)
-        // TODO: Retrieve chunk hexes on chunk load
-        // TODO: Modify queries to use query_builder
+            .collect()
     }
 
     #[inline]

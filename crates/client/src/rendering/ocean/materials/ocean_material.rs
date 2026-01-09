@@ -59,7 +59,7 @@ impl Default for OceanMaterial {
     fn default() -> Self {
         Self {
             heightmap: Handle::default(),
-            sdf_texture: Handle::default(),
+            sdf_texture: Handle::default(), 
             shallow_color: LinearRgba::new(0.15, 0.40, 0.50, 1.0),
             deep_color: LinearRgba::new(0.02, 0.08, 0.15, 1.0),
             foam_color: LinearRgba::new(0.92, 0.95, 1.0, 1.0),

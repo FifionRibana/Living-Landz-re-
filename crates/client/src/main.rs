@@ -5,6 +5,7 @@ mod camera;
 mod grid;
 // mod input;
 mod networking;
+mod post_processing;
 mod rendering;
 mod state;
 mod ui;
@@ -40,6 +41,7 @@ fn main() {
             rendering::territory::TerritoryBorderPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
+            post_processing::MedievalPostProcessPlugin,
         ))
         .add_plugins((
             // LogDiagnosticsPlugin::default(),
