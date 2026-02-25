@@ -31,6 +31,8 @@ impl Plugin for UiPlugin {
                     // systems::setup_cell_view_ui,
                     systems::setup_unit_details_panel,
                     // Panels
+                    systems::panels::setup_login_panel,
+                    systems::panels::setup_register_panel,
                     systems::panels::setup_calendar_panel,
                     systems::panels::setup_cell_panel,
                     systems::panels::setup_management_panel,
@@ -44,6 +46,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
+                    systems::panels::update_top_bar_visibility,
                     systems::panels::update_panel_visibility.run_if(resource_changed::<UIState>),
                     systems::panels::setup_cell_layout
                         .run_if(resource_changed::<UIState>.or(resource_changed::<CellState>)),
@@ -92,6 +95,17 @@ impl Plugin for UiPlugin {
                 (
                     // Button interactions
                     // systems::handle_menu_button_interactions,
+                    // Auth panel interactions
+                    systems::panels::handle_login_button_click,
+                    systems::panels::handle_to_register_button_click,
+                    // systems::panels::handle_login_response,
+                    systems::panels::handle_login_button_hover,
+                    systems::panels::handle_register_button_click,
+                    systems::panels::handle_back_button_click,
+                    // systems::panels::handle_register_response,
+                    // systems::panels::handle_auto_switch_to_login,
+                    systems::panels::handle_register_button_hover,
+                    // Other button interactions
                     systems::handle_action_category_button_interactions,
                     systems::update_action_category_button_appearance,
                     systems::handle_action_tab_button_interactions,

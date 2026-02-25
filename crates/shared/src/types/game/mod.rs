@@ -10,6 +10,10 @@ pub struct Player {
     pub coat_of_arms_id: Option<i64>,
     pub motto: Option<String>,
     pub origin_location: String,
+    pub password_hash: Option<String>,
+    pub email: Option<String>,
+    pub account_status: Option<String>,
+    pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }

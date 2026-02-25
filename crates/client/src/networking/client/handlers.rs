@@ -9,6 +9,7 @@ use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache, WorldCache,
 };
+use crate::ui::resources::{PanelEnum, UIState};
 use crate::ui::components::{SlotIndicator, SlotUnitPortrait};
 use crate::ui::systems::panels::InSlot;
 use shared::SlotPosition;
@@ -42,6 +43,7 @@ pub fn handle_server_message(
     mut units_data_cache: ResMut<UnitsDataCache>,
     mut territory_border_cache: ResMut<TerritoryBorderSdfCache>,
     mut territory_contour_cache: ResMut<TerritoryContourCache>,
+    mut ui_state: ResMut<UIState>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     // time: Res<Time>,
     mut commands: Commands,
@@ -92,9 +94,22 @@ pub fn handle_server_message(
                         character_name, character_data.id
                     );
                 }
+
+                // Switch to game view (MapView) after successful login
+                ui_state.switch_to(PanelEnum::MapView);
             }
             shared::protocol::ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);
+                // Error is displayed by the UI system (login_interactions.rs checks LoginError text)
+            }
+            shared::protocol::ServerMessage::RegisterSuccess { message: msg } => {
+                info!("✓ Registration successful: {}", msg);
+                // Success message is displayed by UI, then auto-switches to login panel
+                // Note: The UI will handle the timer to switch back
+            }
+            shared::protocol::ServerMessage::RegisterError { reason } => {
+                warn!("Registration failed: {}", reason);
+                // Error is displayed by the UI system (register_interactions.rs checks RegisterError text)
             }
             shared::protocol::ServerMessage::TerrainChunkData {
                 terrain_chunk_data,

@@ -39,9 +39,10 @@ fn main() {
             rendering::terrain::TerrainPlugin,
             rendering::ocean::OceanPlugin,
             rendering::territory::TerritoryBorderPlugin,
+            ui::frosted_glass::FrostedGlassPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
-            post_processing::MedievalPostProcessPlugin,
+            // post_processing::MedievalPostProcessPlugin,
         ))
         .add_plugins((
             // LogDiagnosticsPlugin::default(),
