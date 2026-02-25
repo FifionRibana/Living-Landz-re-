@@ -1,9 +1,31 @@
+use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 
 use crate::ui::{
-    components::{ActionMenuMarker, PanelContainer},
+    components::{ActionMenuMarker, PanelContainer, TopBarMarker},
     resources::{CellState, PanelEnum, UIState},
 };
+
+pub fn update_top_bar_visibility(
+    ui_state: Res<UIState>,
+    mut top_bar_query: Query<(&mut Visibility, &TopBarMarker)>,
+) {
+    let Ok((mut visibility, _)) = top_bar_query.single_mut() else {
+        return;
+    };
+
+    if ui_state.panel_state == PanelEnum::LoginPanel && *visibility == Visibility::Hidden
+        || ui_state.panel_state != PanelEnum::LoginPanel && *visibility == Visibility::Visible
+    {
+        return;
+    }
+
+    *visibility = if ui_state.panel_state == PanelEnum::LoginPanel {
+        Visibility::Hidden
+    } else {
+        Visibility::Visible
+    }
+}
 
 pub fn update_panel_visibility(
     ui_state: Res<UIState>,
@@ -11,12 +33,16 @@ pub fn update_panel_visibility(
     panel_query: Query<(&mut Visibility, &PanelContainer), Without<ActionMenuMarker>>,
     mut action_menu_query: Query<(&mut Visibility, &ActionMenuMarker), Without<PanelContainer>>,
     mut previous_panel: Local<Option<PanelEnum>>,
+    mut input_focus: ResMut<InputFocus>,
 ) {
     let panel_changed = *previous_panel != Some(ui_state.panel_state);
 
     if !panel_changed {
         return;
     }
+
+    // Clear any text input focus when switching panels to avoid blocking camera/keyboard input
+    input_focus.0 = None;
 
     if ui_state.panel_state != PanelEnum::CellView && *previous_panel == Some(PanelEnum::CellView) {
         info!("Exit cell view");
@@ -30,6 +56,7 @@ pub fn update_panel_visibility(
             *visibility = Visibility::Visible;
         }
     }
+
     action_menu_query
         .iter_mut()
         .for_each(|(mut action_menu_visibility, _)| {

@@ -11,6 +11,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::database::client::DatabaseTables;
+use crate::auth::password;
 use crate::units::NameGenerator;
 use crate::{utils, world};
 use shared::protocol::{ClientMessage, ColorData, ServerMessage};
@@ -119,6 +120,8 @@ pub async fn handle_connection(
                 let message_type = match &async_message {
                     ServerMessage::LoginSuccess { .. } => "LoginSuccess",
                     ServerMessage::LoginError { .. } => "LoginError",
+                    ServerMessage::RegisterSuccess{ .. } => "RegisterSuccess",
+                    ServerMessage::RegisterError{ .. } => "RegisterError",
                     ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
                     ServerMessage::OceanData { .. } => "OceanData",
                     ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
@@ -263,6 +266,249 @@ async fn handle_client_message(
                 }
             }
         }
+
+        ClientMessage::RegisterAccount {
+            family_name,
+            password,
+        } => {
+            tracing::info!(
+                "Session {} attempting to register account with family name: {}",
+                session_id,
+                family_name
+            );
+
+            // 1. Validate family name
+            if let Err(e) = shared::auth::validate_family_name(&family_name) {
+                tracing::warn!("Invalid family name during registration: {}", e);
+                return vec![ServerMessage::RegisterError { reason: e }];
+            }
+
+            // 2. Validate password
+            let requirements = shared::auth::PasswordRequirements::default();
+            if let Err(e) = shared::auth::validate_password(&password, &requirements) {
+                tracing::warn!("Invalid password during registration: {}", e);
+                return vec![ServerMessage::RegisterError { reason: e }];
+            }
+
+            // 3. Check if family name already exists
+            match shared::types::game::methods::get_player_by_family_name(
+                &db_tables.pool,
+                &family_name,
+            )
+            .await
+            {
+                Ok(Some(_)) => {
+                    tracing::warn!(
+                        "Registration failed: family name already exists: {}",
+                        family_name
+                    );
+                    vec![ServerMessage::RegisterError {
+                        reason: "Ce nom de famille est déjà utilisé".to_string(),
+                    }]
+                }
+                Ok(None) => {
+                    // 4. Hash the password
+                    let password_hash: String = match password::hash_password(&password) {
+                        Ok(hash) => hash,
+                        Err(e) => {
+                            tracing::error!("Failed to hash password: {}", e);
+                            return vec![ServerMessage::RegisterError {
+                                reason: "Erreur lors du traitement du mot de passe".to_string(),
+                            }];
+                        }
+                    };
+
+                    // 5. Create player with password
+                    match shared::types::game::methods::create_player_with_password(
+                        &db_tables.pool,
+                        &family_name,
+                        1, // Default language_id
+                        "default_location",
+                        None, // No motto
+                        &password_hash,
+                    )
+                    .await
+                    {
+                        Ok(player) => {
+                            tracing::info!(
+                                "Account registered successfully: {} (ID: {})",
+                                family_name,
+                                player.id
+                            );
+                            vec![ServerMessage::RegisterSuccess {
+                                message: "Compte créé avec succès. Vous pouvez maintenant vous connecter.".to_string(),
+                            }]
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to create player: {}", e);
+                            vec![ServerMessage::RegisterError {
+                                reason: format!("Erreur lors de la création du compte: {}", e),
+                            }]
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Database error during registration: {}", e);
+                    vec![ServerMessage::RegisterError {
+                        reason: "Erreur de base de données".to_string(),
+                    }]
+                }
+            }
+        }
+
+        ClientMessage::LoginWithPassword {
+            family_name,
+            password,
+        } => {
+            tracing::info!(
+                "Session {} attempting to log in with password as {}",
+                session_id,
+                family_name
+            );
+
+            // 1. Fetch player by family name
+            match shared::types::game::methods::get_player_by_family_name(
+                &db_tables.pool,
+                &family_name,
+            )
+            .await
+            {
+                Ok(Some(player)) => {
+                    // 2. Check if password_hash exists
+                    let password_hash = match &player.password_hash {
+                        Some(hash) => hash,
+                        None => {
+                            tracing::warn!(
+                                "Player {} has no password hash (account migration required)",
+                                family_name
+                            );
+                            return vec![ServerMessage::LoginError {
+                                reason: "Ce compte nécessite une migration de mot de passe. Veuillez contacter un administrateur.".to_string(),
+                            }];
+                        }
+                    };
+
+                    // 3. Verify password
+                    match password::verify_password(&password, password_hash) {
+                        Ok(true) => {
+                            // Password correct, proceed with login
+                            tracing::info!(
+                                "Player {} logged in successfully with password authentication",
+                                family_name
+                            );
+
+                            // Associate session with player_id
+                            sessions
+                                .authenticate_session(session_id, player.id as u64)
+                                .await;
+
+                            // Update last_login_at
+                            if let Err(e) = shared::types::game::methods::update_last_login(
+                                &db_tables.pool,
+                                player.id,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to update last_login_at for player {}: {}",
+                                    player.id,
+                                    e
+                                );
+                            }
+
+                            // Get or create default character
+                            match shared::types::game::methods::get_or_create_default_character(
+                                &db_tables.pool,
+                                player.id,
+                                &player.family_name,
+                            )
+                            .await
+                            {
+                                Ok(character) => {
+                                    tracing::info!(
+                                        "Character {} {} loaded/created",
+                                        character.first_name,
+                                        character.family_name
+                                    );
+
+                                    // Convert to protocol types
+                                    let player_data = shared::protocol::PlayerData {
+                                        id: player.id,
+                                        family_name: player.family_name,
+                                        language_id: player.language_id,
+                                        coat_of_arms_id: player.coat_of_arms_id,
+                                        motto: player.motto,
+                                        origin_location: player.origin_location,
+                                    };
+
+                                    let character_data = shared::protocol::CharacterData {
+                                        id: character.id,
+                                        player_id: character.player_id,
+                                        first_name: character.first_name,
+                                        family_name: character.family_name,
+                                        second_name: character.second_name,
+                                        nickname: character.nickname,
+                                        coat_of_arms_id: character.coat_of_arms_id,
+                                        image_id: character.image_id,
+                                        motto: character.motto,
+                                    };
+
+                                    vec![ServerMessage::LoginSuccess {
+                                        player: player_data,
+                                        character: Some(character_data),
+                                    }]
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to get/create character: {}", e);
+                                    vec![ServerMessage::LoginError {
+                                        reason: format!(
+                                            "Erreur lors du chargement du personnage: {}",
+                                            e
+                                        ),
+                                    }]
+                                }
+                            }
+                        }
+                        Ok(false) => {
+                            tracing::warn!(
+                                "Failed login attempt for {}: invalid password",
+                                family_name
+                            );
+                            vec![ServerMessage::LoginError {
+                                reason: "Identifiants invalides".to_string(),
+                            }]
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Password verification error for {}: {}",
+                                family_name,
+                                e
+                            );
+                            vec![ServerMessage::LoginError {
+                                reason: "Erreur lors de l'authentification".to_string(),
+                            }]
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        "Login attempt with non-existent family name: {}",
+                        family_name
+                    );
+                    // Don't reveal that the account doesn't exist (security)
+                    vec![ServerMessage::LoginError {
+                        reason: "Identifiants invalides".to_string(),
+                    }]
+                }
+                Err(e) => {
+                    tracing::error!("Database error during login for {}: {}", family_name, e);
+                    vec![ServerMessage::LoginError {
+                        reason: "Erreur de base de données".to_string(),
+                    }]
+                }
+            }
+        }
+
         ClientMessage::RequestTerrainChunks {
             terrain_name,
             terrain_chunk_ids,

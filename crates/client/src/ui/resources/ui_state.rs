@@ -4,6 +4,8 @@ use crate::ui::resources::ChatState;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PanelEnum {
+    LoginPanel,
+    RegisterPanel,
     MapView,
     CellView,
     ManagementPanel,
@@ -36,7 +38,7 @@ pub struct UIState {
 impl Default for UIState {
     fn default() -> Self {
         Self {
-            panel_state: PanelEnum::MapView,
+            panel_state: PanelEnum::LoginPanel,
             action_mode: None,
             hovered_action_mode: None,
             chat_state: ChatState::default(),

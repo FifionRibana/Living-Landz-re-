@@ -69,10 +69,22 @@ pub struct TerritoryContourChunkData {
 /// Messages Client → Server
 #[derive(Debug, Clone, Encode, Decode)]
 pub enum ClientMessage {
-    /// Initial connection
+    /// Initial connection (legacy - kept for backward compatibility)
     Login {
         username: String,
         // password_hash: String,
+    },
+
+    /// Register a new account with password
+    RegisterAccount {
+        family_name: String,
+        password: String,
+    },
+
+    /// Login with password authentication
+    LoginWithPassword {
+        family_name: String,
+        password: String,
     },
     RequestTerrainChunks {
         terrain_name: String,
@@ -180,6 +192,16 @@ pub enum ServerMessage {
 
     /// Connection error
     LoginError {
+        reason: String,
+    },
+
+    /// Registration successful
+    RegisterSuccess {
+        message: String,
+    },
+
+    /// Registration failed
+    RegisterError {
         reason: String,
     },
 

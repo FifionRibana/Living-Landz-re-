@@ -351,3 +351,6 @@ pub struct UnitDetailsProfessionText;
 
 #[derive(Component)]
 pub struct UnitDetailsCloseButton;
+
+// Authentication components - re-export from auth module
+pub use crate::ui::systems::panels::auth::components::*;

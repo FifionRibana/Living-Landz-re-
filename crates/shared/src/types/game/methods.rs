@@ -48,6 +48,45 @@ pub async fn create_player(
     .await
 }
 
+// Créer un joueur avec mot de passe
+pub async fn create_player_with_password(
+    pool: &PgPool,
+    family_name: &str,
+    language_id: i16,
+    origin_location: &str,
+    motto: Option<&str>,
+    password_hash: &str,
+) -> Result<Player, sqlx::Error> {
+    sqlx::query_as::<_, Player>(
+        "INSERT INTO game.players (family_name, language_id, origin_location, motto, password_hash)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *"
+    )
+    .bind(family_name)
+    .bind(language_id)
+    .bind(origin_location)
+    .bind(motto)
+    .bind(password_hash)
+    .fetch_one(pool)
+    .await
+}
+
+// Mettre à jour la date de dernière connexion
+pub async fn update_last_login(
+    pool: &PgPool,
+    player_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE game.players
+         SET last_login_at = NOW(), updated_at = NOW()
+         WHERE id = $1"
+    )
+    .bind(player_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 // Récupérer ou créer un joueur
 pub async fn get_or_create_player(
     pool: &PgPool,

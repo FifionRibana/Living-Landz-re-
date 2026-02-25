@@ -1207,6 +1207,8 @@ impl ActionProcessor {
         let message_type = match &message {
             ServerMessage::LoginSuccess { .. } => "LoginSuccess",
             ServerMessage::LoginError { .. } => "LoginError",
+            ServerMessage::RegisterSuccess{ .. } => "RegisterSuccess",
+            ServerMessage::RegisterError{ .. } => "RegisterError",
             ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
             ServerMessage::OceanData { .. } => "OceanData",
             ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {

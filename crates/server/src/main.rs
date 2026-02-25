@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 // use shared::GameState;
 
+mod auth;
 mod action_processor;
 mod database;
 mod networking;
