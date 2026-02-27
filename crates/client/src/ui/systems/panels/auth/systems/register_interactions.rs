@@ -4,12 +4,10 @@ use bevy_ui_text_input::TextInputBuffer;
 
 use crate::{
     networking::client::NetworkClient,
-    ui::{
-        resources::{PanelEnum, UIState},
-        systems::panels::auth::components::*,
-    },
+    states::AuthScreen,
+    ui::systems::panels::auth::components::*,
 };
-use shared::protocol::{ClientMessage, ServerMessage};
+use shared::protocol::ClientMessage;
 
 /// System to handle register button click
 pub fn handle_register_button_click(
@@ -126,12 +124,12 @@ pub fn handle_register_button_click(
 /// System to handle back button click
 pub fn handle_back_button_click(
     mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterBackButton>)>,
-    mut ui_state: ResMut<UIState>,
+    mut next_auth: ResMut<NextState<AuthScreen>>,
 ) {
     for interaction in &interaction_query {
         if *interaction == Interaction::Pressed {
             info!("Switching back to login panel");
-            ui_state.switch_to(PanelEnum::LoginPanel);
+            next_auth.set(AuthScreen::Login);
         }
     }
 }

@@ -3,11 +3,10 @@ use bevy::prelude::*;
 use bevy_ui_text_input::{TextInputBuffer, TextInputNode, TextInputQueue, TextInputStyle};
 
 use crate::ui::{
-    components::PanelContainer,
-    frosted_glass::{FadeDirection, FrostedGlassConfig, FrostedGlassMaterial},
-    resources::PanelEnum,
+    frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial},
     systems::panels::auth::components::*,
 };
+use crate::states::AuthScreen;
 
 pub fn setup_login_panel(
     mut commands: Commands,
@@ -34,9 +33,7 @@ pub fn setup_login_panel(
                 ..default()
             },
             Visibility::Visible, // Visible by default (will be hidden by panel_visibility system when not active)
-            PanelContainer {
-                panel: PanelEnum::LoginPanel,
-            },
+            DespawnOnExit(AuthScreen::Login),
             LoginPanelMarker,
         ))
         .with_children(|parent| {
