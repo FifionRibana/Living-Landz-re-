@@ -8,6 +8,7 @@ mod networking;
 mod post_processing;
 mod rendering;
 mod state;
+pub mod states;
 mod ui;
 
 fn main() {
@@ -30,6 +31,16 @@ fn main() {
                 }),
             MeshPickingPlugin,
         ))
+        // State machine
+        .init_state::<states::AppState>()
+        .add_sub_state::<states::AuthScreen>()
+        .add_sub_state::<states::GameView>()
+        .add_sub_state::<states::Overlay>()
+        .enable_state_scoped_entities::<states::AppState>()
+        .enable_state_scoped_entities::<states::AuthScreen>()
+        .enable_state_scoped_entities::<states::GameView>()
+        .enable_state_scoped_entities::<states::Overlay>()
+        //
         .add_plugins((
             camera::CameraPlugin,
             state::ClientStatePlugin,

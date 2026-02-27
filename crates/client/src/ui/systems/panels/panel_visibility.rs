@@ -1,29 +1,30 @@
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 
+use crate::states::AppState;
 use crate::ui::{
     components::{ActionMenuMarker, PanelContainer, TopBarMarker},
     resources::{CellState, PanelEnum, UIState},
 };
 
 pub fn update_top_bar_visibility(
-    ui_state: Res<UIState>,
+    app_state: Res<State<AppState>>,
     mut top_bar_query: Query<(&mut Visibility, &TopBarMarker)>,
 ) {
     let Ok((mut visibility, _)) = top_bar_query.single_mut() else {
         return;
     };
 
-    if ui_state.panel_state == PanelEnum::LoginPanel && *visibility == Visibility::Hidden
-        || ui_state.panel_state != PanelEnum::LoginPanel && *visibility == Visibility::Visible
-    {
-        return;
-    }
+    let should_be_visible = *app_state.get() == AppState::InGame;
 
-    *visibility = if ui_state.panel_state == PanelEnum::LoginPanel {
-        Visibility::Hidden
-    } else {
+    let new_visibility = if should_be_visible {
         Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+
+    if *visibility != new_visibility {
+        *visibility = new_visibility;
     }
 }
 

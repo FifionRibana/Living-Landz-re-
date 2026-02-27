@@ -2,9 +2,8 @@
 use bevy::prelude::*;
 use bevy_ui_text_input::{TextInputBuffer, TextInputNode, TextInputQueue, TextInputStyle};
 
-use crate::ui::{
-    components::PanelContainer, resources::PanelEnum, systems::panels::auth::components::*,
-};
+use crate::ui::systems::panels::auth::components::*;
+use crate::states::AuthScreen;
 
 pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Root container - full screen with background
@@ -21,10 +20,7 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                 ..default()
             },
             BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 1.0)), // Dark blue-grey background
-            Visibility::Hidden,                                   // Hidden by default
-            PanelContainer {
-                panel: PanelEnum::RegisterPanel,
-            },
+            DespawnOnExit(AuthScreen::Register),
             RegisterPanelMarker,
         ))
         .with_children(|parent| {

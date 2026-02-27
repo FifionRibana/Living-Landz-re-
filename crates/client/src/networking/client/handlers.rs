@@ -9,7 +9,7 @@ use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache, WorldCache,
 };
-use crate::ui::resources::{PanelEnum, UIState};
+use crate::states::AppState;
 use crate::ui::components::{SlotIndicator, SlotUnitPortrait};
 use crate::ui::systems::panels::InSlot;
 use shared::SlotPosition;
@@ -43,7 +43,7 @@ pub fn handle_server_message(
     mut units_data_cache: ResMut<UnitsDataCache>,
     mut territory_border_cache: ResMut<TerritoryBorderSdfCache>,
     mut territory_contour_cache: ResMut<TerritoryContourCache>,
-    mut ui_state: ResMut<UIState>,
+    mut next_app_state: ResMut<NextState<AppState>>,
     network_client_opt: Option<ResMut<NetworkClient>>,
     // time: Res<Time>,
     mut commands: Commands,
@@ -95,8 +95,8 @@ pub fn handle_server_message(
                     );
                 }
 
-                // Switch to game view (MapView) after successful login
-                ui_state.switch_to(PanelEnum::MapView);
+                // Switch to game (AppState::InGame) after successful login
+                next_app_state.set(AppState::InGame);
             }
             shared::protocol::ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);
