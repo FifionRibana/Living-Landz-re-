@@ -12,7 +12,7 @@ use crate::{
             ExteriorSlotContainer, InteriorSlotContainer, PendingHexMask, SlotBorderOverlay,
             SlotIndicator, SlotState, SlotUnitPortrait, SlotUnitSprite,
         },
-        resources::{CellState, DragInfo, DragState, PanelEnum, UIState},
+        resources::{CellState, DragInfo, DragState},
         systems::panels::components::CellViewPanel,
     },
 };
@@ -44,43 +44,26 @@ impl SlotOccupant {
 pub fn setup_cell_slots(
     asset_server: Res<AssetServer>,
     cell_state: Res<CellState>,
-    ui_state: Res<UIState>,
     units_cache: Res<UnitsCache>,
     mut commands: Commands,
     container_query: Query<Entity, With<CellViewPanel>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     slots_query: Query<Entity, With<SlotIndicator>>,
-    mut last_viewed_cell: Local<Option<shared::grid::GridCell>>,
 ) {
-    if ui_state.panel_state != PanelEnum::CellView {
-        if last_viewed_cell.is_some() {
-            // Despawn slots
-            for slot_entity in slots_query.iter() {
-                commands.entity(slot_entity).despawn();
-            }
-            *last_viewed_cell = None;
-        }
-        return;
-    }
-
     let window = if let Ok(window) = window_query.single() {
         window
     } else {
         return;
     };
 
-    // Only rebuild content when the viewed cell actually changes, not on every state change
     let Some(viewed_cell) = &cell_state.cell() else {
         return;
     };
 
-    // Check if this is the same cell we're already displaying
-    if *last_viewed_cell == Some(*viewed_cell) {
-        return;
+    // Despawn existing slots (needed when switching cells while in CellView)
+    for slot_entity in slots_query.iter() {
+        commands.entity(slot_entity).despawn();
     }
-
-    // Cell changed - update the display
-    *last_viewed_cell = Some(*viewed_cell);
 
     // Get all occupied slots for the current cell
     let occupied_slots = units_cache.get_occupied_slots(viewed_cell);
@@ -350,7 +333,6 @@ pub fn setup_cell_slots(
 pub fn update_unit_portraits(
     asset_server: Res<AssetServer>,
     cell_state: Res<CellState>,
-    ui_state: Res<UIState>,
     units_cache: Res<UnitsCache>,
     units_data_cache: Res<UnitsDataCache>,
     mut commands: Commands,
@@ -359,11 +341,6 @@ pub fn update_unit_portraits(
     mut hex_mask_handle: Local<Option<Handle<Image>>>,
     mut pending_spawns: Local<HashSet<u64>>,
 ) {
-    // info!("UPDATE UNIT PORTRAITS");
-    if ui_state.panel_state != PanelEnum::CellView {
-        return;
-    }
-
     // Only rebuild content when the viewed cell actually changes, not on every state change
     let Some(viewed_cell) = &cell_state.cell() else {
         return;

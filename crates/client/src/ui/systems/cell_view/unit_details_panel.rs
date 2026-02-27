@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 use crate::ui::components::{UnitDetailsPanelMarker, UnitDetailsAvatar, UnitDetailsNameText, UnitDetailsLevelText, UnitDetailsProfessionText, UnitDetailsCloseButton};
 use crate::ui::resources::CellViewState;
 use crate::state::resources::{UnitsDataCache};
+use crate::states::AppState;
 
 /// Marker component for the unit details panel container
 #[derive(Component)]
@@ -43,6 +45,7 @@ pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetS
             },
             UnitDetailsPanelMarker,
             UnitDetailsPanelContainer,
+            DespawnOnExit(AppState::InGame),
             Visibility::Hidden,
         ))
         .with_children(|parent| {

@@ -6,9 +6,10 @@ use crate::ui::{
         ActionMenuMarker, ActionModeMenuButton, ActionModeMenuIcon, CharacterNameText, ClockText,
         DateText, MenuButton, MoonPhaseImage, PlayerNameText, TopBarMarker,
     },
-    resources::{ActionModeEnum, PanelEnum, UIState},
+    resources::{ActionModeEnum, UIState},
     systems::{CLICK_COLOR, HOVER_COLOR, NORMAL_COLOR},
 };
+use crate::states::GameView;
 
 const TEXT_LIGHT_PRIMARY: Color = Color::srgb_u8(243, 217, 175);
 const TEXT_LIGHT_SECONDARY: Color = Color::srgb_u8(152, 121, 94);
@@ -55,14 +56,14 @@ pub fn setup_top_bar(
     let diplomacy_image = asset_server.load("ui/icons/shaking-hands.png");
 
     let menu_images = [
-        (world_map_image, PanelEnum::MapView),
-        (griffin_shield_image, PanelEnum::ManagementPanel),
-        (bookmarklet_image, PanelEnum::RecordsPanel),
-        (envelope_image, PanelEnum::MessagesPanel),
-        (laurels_trophy_image, PanelEnum::RankingPanel),
-        (calendar_image, PanelEnum::CalendarPanel),
-        (search_image, PanelEnum::SearchView),
-        (cog_image.clone(), PanelEnum::SettingsView),
+        (world_map_image, GameView::Map),
+        (griffin_shield_image, GameView::CityManagement),
+        (bookmarklet_image, GameView::Records),
+        (envelope_image, GameView::Messages),
+        (laurels_trophy_image, GameView::Rankings),
+        (calendar_image, GameView::Calendar),
+        (search_image, GameView::Search),
+        (cog_image.clone(), GameView::Settings),
     ];
 
     let sub_menu_images = [
@@ -149,7 +150,7 @@ pub fn setup_top_bar(
                                         },
                                         MenuButton {
                                             button_id: index,
-                                            panel: *panel,
+                                            view: panel.clone(),
                                         },
                                     ))
                                     .observe(recolor_menu_button_on::<Pointer<Over>>(HOVER_COLOR))
@@ -486,11 +487,11 @@ pub fn on_action_button_hovered<E: EntityEvent>(
 pub fn on_menu_button_click(
     event: On<Pointer<Click>>,
     menu_button_query: Query<&MenuButton>,
-    mut ui_state: ResMut<UIState>,
+    mut next_view: ResMut<NextState<GameView>>,
 ) {
     if let Ok(menu_button) = menu_button_query.get(event.entity) {
-        info!("Switching to {:?}", menu_button.panel);
-        ui_state.switch_to(menu_button.panel);
+        info!("Switching to {:?}", menu_button.view);
+        next_view.set(menu_button.view.clone());
     }
 }
 

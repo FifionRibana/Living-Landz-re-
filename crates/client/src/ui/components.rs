@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use shared::SlotPosition;
 
-use crate::ui::resources::{ActionModeEnum, PanelEnum};
+use crate::ui::resources::ActionModeEnum;
+use crate::states::GameView;
 
 #[derive(Component)]
 pub struct ClockText;
@@ -22,14 +23,9 @@ pub struct PlayerNameText;
 pub struct CharacterNameText;
 
 #[derive(Component)]
-pub struct PanelContainer {
-    pub panel: PanelEnum,
-}
-
-#[derive(Component)]
 pub struct MenuButton {
     pub button_id: usize,
-    pub panel: PanelEnum,
+    pub view: GameView,
 }
 
 #[derive(Component)]

@@ -3,8 +3,9 @@ use bevy::window::PrimaryWindow;
 
 use crate::grid::resources::SelectedHexes;
 use crate::state::resources::WorldCache;
-use crate::ui::resources::{CellState, PanelEnum};
-use crate::{camera::MainCamera, ui::resources::UIState};
+use crate::states::GameView;
+use crate::ui::resources::CellState;
+use crate::camera::MainCamera;
 
 use hexx::Hex;
 use shared::grid::{GridCell, GridConfig};
@@ -16,11 +17,12 @@ pub fn handle_hexagon_selection(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     grid_config: Res<GridConfig>,
-    ui_state: Res<UIState>,
+    game_view: Option<Res<State<GameView>>>,
     // Check if cursor is over UI - now all UI elements (buttons and panels) have Interaction
     ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
 ) -> Result {
-    if ui_state.panel_state != PanelEnum::MapView {
+    let Some(gv) = game_view else { return Ok(()) };
+    if *gv.get() != GameView::Map {
         return Ok(());
     }
 
@@ -78,12 +80,13 @@ pub fn handle_cell_view_entry(
     // Check if cursor is over UI
     ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
     mut last_click: Local<Option<(Hex, f32)>>,
-    mut ui_state: ResMut<UIState>,
+    mut next_view: ResMut<NextState<GameView>>,
+    game_view: Option<Res<State<GameView>>>,
     world_cache: Res<WorldCache>,
 ) {
+    let Some(gv) = game_view else { return };
     // Only process clicks when NOT in cell view mode
-    if ui_state.panel_state == PanelEnum::CellView {
-        //cell_view_state.is_active {
+    if *gv.get() == GameView::Cell {
         return;
     }
 
@@ -127,7 +130,7 @@ pub fn handle_cell_view_entry(
                     world_cache.get_cell(&cell).cloned(),
                     world_cache.get_building(&cell).cloned(),
                 );
-                ui_state.switch_to(PanelEnum::CellView);
+                next_view.set(GameView::Cell);
                 *last_click = None;
                 return;
             }
