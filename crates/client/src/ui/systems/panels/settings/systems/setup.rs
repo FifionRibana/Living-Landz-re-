@@ -1,6 +1,8 @@
 use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 
-use crate::ui::{components::PanelContainer, resources::PanelEnum, systems::panels::components::SettingsPanel};
+use crate::states::GameView;
+use crate::ui::systems::panels::components::SettingsPanel;
 
 pub fn setup_settings_panel(mut commands: Commands) {
     commands.spawn((
@@ -14,10 +16,9 @@ pub fn setup_settings_panel(mut commands: Commands) {
             justify_content: JustifyContent::Center,
             ..default()
         },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)), // Dark semi-transparent background
-        Visibility::Hidden,                                 // Hidden by default),
-        PanelContainer{ panel: PanelEnum::SettingsView },
-        SettingsPanel
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)),
+        DespawnOnExit(GameView::Settings),
+        SettingsPanel,
     )).with_children(|parent| {
         parent.spawn((
             Text::new("SETTINGS"),

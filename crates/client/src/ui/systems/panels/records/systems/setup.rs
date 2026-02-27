@@ -1,6 +1,8 @@
 use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 
-use crate::ui::{components::PanelContainer, resources::PanelEnum, systems::panels::components::RecordsPanel};
+use crate::states::GameView;
+use crate::ui::systems::panels::components::RecordsPanel;
 
 pub fn setup_records_panel(mut commands: Commands) {
     commands.spawn((
@@ -14,10 +16,9 @@ pub fn setup_records_panel(mut commands: Commands) {
             justify_content: JustifyContent::Center,
             ..default()
         },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)), // Dark semi-transparent background
-        Visibility::Hidden,                                 // Hidden by default),
-        PanelContainer{ panel: PanelEnum::RecordsPanel },
-        RecordsPanel
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)),
+        DespawnOnExit(GameView::Records),
+        RecordsPanel,
     )).with_children(|parent| {
         parent.spawn((
             Text::new("RECORDS"),

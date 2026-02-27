@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 use shared::{
     atlas::{BuildingAtlas, GaugeAtlas, MoonAtlas},
     grid::GridCell,
@@ -7,6 +8,7 @@ use shared::{
 use crate::{
     grid::resources::SelectedHexes,
     state::resources::{WorldCache, CurrentOrganization},
+    states::AppState,
     ui::components::{
         CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsOrganizationText, CellDetailsPanelMarker,
         CellDetailsQualityGaugeContainer, CellDetailsTitleText,
@@ -37,6 +39,7 @@ pub fn setup_ui(
                 is_hoverable: false,
             },
             BackgroundColor(Color::NONE),
+            DespawnOnExit(AppState::InGame),
         ))
         .with_children(|parent| {
             // Top bar

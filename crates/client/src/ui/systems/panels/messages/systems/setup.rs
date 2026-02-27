@@ -1,6 +1,8 @@
 use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 
-use crate::ui::{components::PanelContainer, resources::PanelEnum, systems::panels::components::MessagesPanel};
+use crate::states::GameView;
+use crate::ui::systems::panels::components::MessagesPanel;
 
 pub fn setup_messages_panel(mut commands: Commands) {
     commands.spawn((
@@ -14,10 +16,9 @@ pub fn setup_messages_panel(mut commands: Commands) {
             justify_content: JustifyContent::Center,
             ..default()
         },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)), // Dark semi-transparent background
-        Visibility::Hidden,                                 // Hidden by default),
-        PanelContainer{ panel: PanelEnum::MessagesPanel },
-        MessagesPanel
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)),
+        DespawnOnExit(GameView::Messages),
+        MessagesPanel,
     )).with_children(|parent| {
         parent.spawn((
             Text::new("MESSAGES"),

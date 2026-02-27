@@ -1,9 +1,10 @@
 use bevy::prelude::*;
-use shared::grid::GridCell;
+use bevy::state::state_scoped::DespawnOnExit;
 
+use crate::states::GameView;
 use crate::ui::{
-    components::{CellViewBackgroundImage, PanelContainer},
-    resources::{CellState, PanelEnum, UIState},
+    components::CellViewBackgroundImage,
+    resources::CellState,
     systems::{
         load_building_background, load_separators, load_terrain_background,
         panels::components::CellViewPanel,
@@ -21,11 +22,8 @@ pub fn setup_cell_panel(mut commands: Commands) {
                 top: Val::Px(0.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)), // Dark semi-transparent background
-            Visibility::Hidden,                                 // Hidden by default),
-            PanelContainer {
-                panel: PanelEnum::CellView,
-            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)),
+            DespawnOnExit(GameView::Cell),
             CellViewPanel,
         ))
         .with_children(|parent| {
@@ -46,38 +44,15 @@ pub fn setup_cell_layout(
     children_query: Query<&Children>,
     asset_server: Res<AssetServer>,
     cell_state: Res<CellState>,
-    ui_state: Res<UIState>,
-    mut last_viewed_cell: Local<Option<GridCell>>,
 ) {
-    // Si on n'est pas dans CellView, reset l'état
-    if ui_state.panel_state != PanelEnum::CellView {
-        if last_viewed_cell.is_some() {
-            *last_viewed_cell = None;
-        }
-        return;
-    }
-
-    // Only rebuild content when the viewed cell actually changes, not on every state change
     let Some(viewed_cell) = cell_state.cell() else {
-        // Cell view closed - reset state
-        if last_viewed_cell.is_some() {
-            *last_viewed_cell = None;
-        }
         return;
     };
-
-    // Check if this is the same cell we're already displaying
-    if *last_viewed_cell == Some(viewed_cell) {
-        return;
-    }
-
-    // Cell changed - update the display
-    *last_viewed_cell = Some(viewed_cell);
 
     // Get cell data
     let biome = cell_state.biome();
 
-    // Clear existing content in container
+    // Clear existing content in container (needed when switching cells while in CellView)
     for container_entity in &container_query {
         if let Ok(children) = children_query.get(container_entity) {
             for child in children.iter() {

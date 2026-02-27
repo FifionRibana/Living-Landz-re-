@@ -2,15 +2,15 @@
 // UI - Plugin
 // =============================================================================
 
+use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
-use bevy::state::condition;
 
 use super::{
     resources::{ActionState, CellViewState, ChatState, UIState},
     systems,
 };
 use crate::state::resources;
-use crate::states::AppState;
+use crate::states::{AppState, GameView, Overlay};
 use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
 
@@ -25,63 +25,95 @@ impl Plugin for UiPlugin {
             .insert_resource(DragState::default())
             .insert_resource(UIState::default())
             .add_plugins(bevy_ui_text_input::TextInputPlugin)
-            // Auth screens are now managed by AuthPlugin via states
+            // Auth screens managed by AuthPlugin via AuthScreen state
             .add_plugins(AuthPlugin)
+            // ─── Startup: load atlases (resources, not entities) ─────────
             .add_systems(
                 Startup,
+                (resources::setup_gauge_atlas, resources::setup_moon_atlas).chain(),
+            )
+            // ─── InGame lifecycle ────────────────────────────────────────
+            // HUD (top bar, action bar, chat, cell details) spawns on InGame entry,
+            // auto-despawned via DespawnOnExit(AppState::InGame)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (systems::setup_ui, systems::setup_unit_details_panel),
+            )
+            // ─── GameView panel lifecycle ─────────────────────────────────
+            // Each panel spawns on OnEnter and is auto-despawned via DespawnOnExit
+            .add_systems(
+                OnEnter(GameView::Calendar),
+                systems::panels::setup_calendar_panel,
+            )
+            .add_systems(
+                OnEnter(GameView::Cell),
                 (
-                    resources::setup_gauge_atlas,
-                    resources::setup_moon_atlas,
-                    systems::setup_ui,
-                    // systems::setup_cell_view_ui,
-                    systems::setup_unit_details_panel,
-                    // Panels (in-game panels — still spawned at Startup for now)
-                    systems::panels::setup_calendar_panel,
                     systems::panels::setup_cell_panel,
-                    systems::panels::setup_management_panel,
-                    systems::panels::setup_messages_panel,
-                    systems::panels::setup_ranking_panel,
-                    systems::panels::setup_records_panel,
-                    systems::panels::setup_settings_panel,
+                    systems::panels::setup_cell_layout,
+                    systems::panels::setup_cell_slots,
                 )
                     .chain(),
             )
-            // Force panel visibility update when entering InGame for the first time
             .add_systems(
-                OnEnter(AppState::InGame),
-                force_initial_panel_visibility,
+                OnEnter(GameView::CityManagement),
+                systems::panels::setup_management_panel,
             )
+            .add_systems(
+                OnEnter(GameView::Messages),
+                systems::panels::setup_messages_panel,
+            )
+            .add_systems(
+                OnEnter(GameView::Rankings),
+                systems::panels::setup_ranking_panel,
+            )
+            .add_systems(
+                OnEnter(GameView::Records),
+                systems::panels::setup_records_panel,
+            )
+            .add_systems(
+                OnEnter(GameView::Settings),
+                systems::panels::setup_settings_panel,
+            )
+            // Clean up when leaving Cell view
+            .add_systems(OnExit(GameView::Cell), on_exit_cell_view)
+            // ─── Update systems ──────────────────────────────────────────
+            // Global ESC handler
+            .add_systems(Update, handle_escape_key.run_if(in_state(AppState::InGame)))
+            .add_systems(
+                Update,
+                systems::panels::update_action_menu_visibility.run_if(in_state(AppState::InGame)),
+            )
+            // Cell view systems — only run in GameView::Cell
             .add_systems(
                 Update,
                 (
-                    systems::panels::update_top_bar_visibility,
-                    systems::panels::update_panel_visibility
-                        .run_if(in_state(AppState::InGame))
-                        .run_if(resource_changed::<UIState>),
-                    systems::panels::setup_cell_layout
-                        .run_if(in_state(AppState::InGame))
-                        .run_if(resource_changed::<UIState>.or(resource_changed::<CellState>)),
+                    systems::handle_cell_view_back_button,
+                    systems::panels::setup_cell_layout.run_if(resource_changed::<CellState>),
                     systems::panels::setup_cell_slots
                         .before(systems::panels::setup_cell_layout)
-                        .run_if(in_state(AppState::InGame))
-                        .run_if(resource_changed::<UIState>.or(resource_changed::<CellState>)),
+                        .run_if(resource_changed::<CellState>),
                     systems::panels::update_unit_portraits,
                     systems::panels::update_slot_occupancy,
                     systems::panels::apply_hex_mask_to_portraits
                         .before(systems::panels::update_unit_portraits),
                     systems::panels::sync_slot_hierarchy_on_relation_change,
                     systems::panels::auto_assign_unslotted_units
-                        .before(systems::panels::update_unit_portraits)
-                        .run_if(resource_changed::<UIState>.or(resource_changed::<CellState>)),
-                    systems::update_action_menu_visual,
-                    systems::update_chat_visibility,
-                    systems::update_chat_notification_badge,
-                ),
+                        .run_if(resource_changed::<CellState>),
+                )
+                    .run_if(in_state(GameView::Cell)),
             )
             .add_systems(
                 Update,
-                (systems::update_organization_info,)
+                (
+                    systems::update_action_menu_visual,
+                    systems::update_chat_visibility,
+                    systems::update_chat_notification_badge,
+                )
                     .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (systems::update_organization_info,).run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -97,7 +129,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    // In-game button interactions (no auth buttons here anymore)
+                    // In-game button interactions
                     systems::handle_action_category_button_interactions,
                     systems::update_action_category_button_appearance,
                     systems::handle_action_tab_button_interactions,
@@ -114,11 +146,45 @@ impl Plugin for UiPlugin {
     }
 }
 
-/// Triggers `resource_changed::<UIState>` so that `update_panel_visibility`
-/// runs on the first frame after entering InGame.
-fn force_initial_panel_visibility(mut ui_state: ResMut<UIState>) {
-    // Re-setting the same panel marks the resource as changed for this frame,
-    // which triggers update_panel_visibility to set correct initial visibility.
-    let panel = ui_state.panel_state;
-    ui_state.switch_to(panel);
+/// Clean up cell state when leaving cell view.
+fn on_exit_cell_view(mut cell_state: ResMut<CellState>, mut input_focus: ResMut<InputFocus>) {
+    info!("Exit cell view");
+    cell_state.exit_view();
+    input_focus.0 = None;
+}
+
+/// Global ESC handler for in-game.
+/// - GameView::Cell → exit to Map
+/// - Overlay::PauseMenu → close overlay
+/// - Otherwise → open PauseMenu overlay
+fn handle_escape_key(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    game_view: Option<Res<State<GameView>>>,
+    overlay: Option<Res<State<Overlay>>>,
+    mut next_view: ResMut<NextState<GameView>>,
+    mut next_overlay: ResMut<NextState<Overlay>>,
+) {
+    if !keyboard.just_pressed(KeyCode::Escape) {
+        return;
+    }
+
+    // Priority 1: close pause menu if open
+    if let Some(ref ov) = overlay && *ov.get() == Overlay::PauseMenu {
+        info!("Closing pause menu");
+        next_overlay.set(Overlay::None);
+        return;
+    }
+
+    // Priority 2: exit cell view
+    if let Some(ref gv) = game_view
+        && *gv.get() == GameView::Cell
+    {
+        info!("Exiting cell view via ESC");
+        next_view.set(GameView::Map);
+        return;
+    }
+
+    // Priority 3: open pause menu
+    info!("Opening pause menu");
+    next_overlay.set(Overlay::PauseMenu);
 }

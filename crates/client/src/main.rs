@@ -36,10 +36,6 @@ fn main() {
         .add_sub_state::<states::AuthScreen>()
         .add_sub_state::<states::GameView>()
         .add_sub_state::<states::Overlay>()
-        .enable_state_scoped_entities::<states::AppState>()
-        .enable_state_scoped_entities::<states::AuthScreen>()
-        .enable_state_scoped_entities::<states::GameView>()
-        .enable_state_scoped_entities::<states::Overlay>()
         //
         .add_plugins((
             camera::CameraPlugin,
