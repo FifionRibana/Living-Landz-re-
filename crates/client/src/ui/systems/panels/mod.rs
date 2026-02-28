@@ -18,5 +18,7 @@ pub use ranking::*;
 pub use records::*;
 pub use settings::*;
 
+pub mod pause_menu;
+
 mod panel_visibility;
 pub use panel_visibility::*;
