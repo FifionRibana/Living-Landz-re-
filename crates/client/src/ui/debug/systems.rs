@@ -201,7 +201,7 @@ pub fn update_debug_ui(
     windows: Query<&Window, With<PrimaryWindow>>,
     connection_status: Res<ConnectionStatus>,
     grid_config: Res<GridConfig>,
-    world_cache: Res<WorldCache>,
+    world_cache: Option<Res<WorldCache>>,
     mut query: Query<(
         &mut Text,
         Option<&FpsText>,
@@ -304,15 +304,20 @@ pub fn update_debug_ui(
                 .layout
                 .world_pos_to_hex(Vec2::new(position.x, position.y));
 
-            let grid_cell = &GridCell { 
+            let grid_cell = &GridCell {
                 q: hovered_cell.x,
-                r: hovered_cell.y
+                r: hovered_cell.y,
             };
-            let biome = match world_cache.get_cell(grid_cell) {
-                Some(cell_data) => { cell_data.biome }
-                _ => { BiomeTypeEnum::Undefined }
-            };
-            **text = format!("Cell: (q: {}, r: {})\nBiome: {:?}", hovered_cell.x, hovered_cell.y, biome);
+            if let Some(world_cache) = &world_cache {
+                let biome = match world_cache.get_cell(grid_cell) {
+                    Some(cell_data) => cell_data.biome,
+                    _ => BiomeTypeEnum::Undefined,
+                };
+                **text = format!(
+                    "Cell: (q: {}, r: {})\nBiome: {:?}",
+                    hovered_cell.x, hovered_cell.y, biome
+                );
+            }
         }
     }
 }

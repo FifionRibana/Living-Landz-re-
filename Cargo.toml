@@ -27,6 +27,7 @@ bevy = { version = "0.17.3", default-features = false, features = [
     "bevy_sprite",
     "bevy_sprite_render",
     "bevy_sprite_picking_backend",
+    "bevy_state",
     "bevy_text",
     "bevy_ui",
     "bevy_ui_picking_backend",

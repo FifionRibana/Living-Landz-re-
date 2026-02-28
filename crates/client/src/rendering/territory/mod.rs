@@ -7,6 +7,7 @@ pub use materials::*;
 pub use systems::*;
 
 use bevy::{prelude::*, sprite_render::Material2dPlugin};
+use crate::states::AppState;
 
 /// Plugin for rendering territory borders
 pub struct TerritoryBorderPlugin;
@@ -30,6 +31,6 @@ impl Plugin for TerritoryBorderPlugin {
                 visualize_border_cells,
                 // New contour-based system
                 render_territory_contours,
-            ));
+            ).run_if(in_state(AppState::InGame)));
     }
 }
