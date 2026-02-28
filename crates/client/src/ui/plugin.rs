@@ -72,6 +72,20 @@ impl Plugin for UiPlugin {
                 OnEnter(GameView::Settings),
                 systems::panels::setup_settings_panel,
             )
+            // ─── Pause menu overlay ────────────────────────────────────
+            .add_systems(
+                OnEnter(Overlay::PauseMenu),
+                systems::panels::pause_menu::setup_pause_menu,
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::panels::pause_menu::handle_resume_click,
+                    systems::panels::pause_menu::handle_disconnect_click,
+                    systems::panels::pause_menu::update_pause_button_hover,
+                )
+                    .run_if(in_state(Overlay::PauseMenu)),
+            )
             // Clean up when leaving Cell view
             .add_systems(OnExit(GameView::Cell), on_exit_cell_view)
             // ─── Update systems ──────────────────────────────────────────
