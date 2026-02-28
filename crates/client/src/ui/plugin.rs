@@ -18,12 +18,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ChatState::default())
-            .insert_resource(ActionState::default())
-            .insert_resource(CellViewState::default())
-            .insert_resource(CellState::default())
-            .insert_resource(DragState::default())
-            .insert_resource(UIState::default())
+        app
             .add_plugins(bevy_ui_text_input::TextInputPlugin)
             // Auth screens managed by AuthPlugin via AuthScreen state
             .add_plugins(AuthPlugin)
@@ -32,6 +27,9 @@ impl Plugin for UiPlugin {
                 Startup,
                 (resources::setup_gauge_atlas, resources::setup_moon_atlas).chain(),
             )
+            // ─── View state resources — scoped to InGame ────────────────
+            .add_systems(OnEnter(AppState::InGame), init_view_resources)
+            .add_systems(OnExit(AppState::InGame), cleanup_view_resources)
             // ─── InGame lifecycle ────────────────────────────────────────
             // HUD (top bar, action bar, chat, cell details) spawns on InGame entry,
             // auto-despawned via DespawnOnExit(AppState::InGame)
@@ -88,17 +86,17 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::handle_cell_view_back_button,
-                    systems::panels::setup_cell_layout.run_if(resource_changed::<CellState>),
+                    systems::panels::setup_cell_layout.run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
                     systems::panels::setup_cell_slots
                         .before(systems::panels::setup_cell_layout)
-                        .run_if(resource_changed::<CellState>),
+                        .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
                     systems::panels::update_unit_portraits,
                     systems::panels::update_slot_occupancy,
                     systems::panels::apply_hex_mask_to_portraits
                         .before(systems::panels::update_unit_portraits),
                     systems::panels::sync_slot_hierarchy_on_relation_change,
                     systems::panels::auto_assign_unslotted_units
-                        .run_if(resource_changed::<CellState>),
+                        .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
                 )
                     .run_if(in_state(GameView::Cell)),
             )
@@ -147,10 +145,33 @@ impl Plugin for UiPlugin {
 }
 
 /// Clean up cell state when leaving cell view.
-fn on_exit_cell_view(mut cell_state: ResMut<CellState>, mut input_focus: ResMut<InputFocus>) {
+fn on_exit_cell_view(
+    mut cell_state: Option<ResMut<CellState>>,
+    mut input_focus: ResMut<InputFocus>,
+) {
     info!("Exit cell view");
-    cell_state.exit_view();
+    if let Some(ref mut cell_state) = cell_state {
+        cell_state.exit_view();
+    }
     input_focus.0 = None;
+}
+
+fn init_view_resources(mut commands: Commands) {
+    commands.insert_resource(ChatState::default());
+    commands.insert_resource(ActionState::default());
+    commands.insert_resource(CellViewState::default());
+    commands.insert_resource(CellState::default());
+    commands.insert_resource(DragState::default());
+    commands.insert_resource(UIState::default());
+}
+
+fn cleanup_view_resources(mut commands: Commands) {
+    commands.remove_resource::<ChatState>();
+    commands.remove_resource::<ActionState>();
+    commands.remove_resource::<CellViewState>();
+    commands.remove_resource::<CellState>();
+    commands.remove_resource::<DragState>();
+    commands.remove_resource::<UIState>();
 }
 
 /// Global ESC handler for in-game.

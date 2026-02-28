@@ -2,6 +2,7 @@ use bevy::{prelude::*, sprite_render::Material2dPlugin};
 
 use crate::grid::input;
 use crate::grid::materials::{HexHighlightMaterial, HexPulseMaterial};
+use crate::states::AppState;
 
 pub struct GridInputPlugin;
 
@@ -19,7 +20,8 @@ impl Plugin for GridInputPlugin {
                     input::systems::update_selected_hexagons,
                     input::systems::animate_hexagons,
                 )
-                    .chain(),
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }

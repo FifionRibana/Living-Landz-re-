@@ -36,11 +36,11 @@ fn db_to_slot_position(slot_type: Option<String>, slot_index: Option<i32>) -> Op
 pub fn handle_server_message(
     mut connection: ResMut<ConnectionStatus>,
     mut player_info: ResMut<PlayerInfo>,
-    mut cache: ResMut<WorldCache>,
-    mut action_tracker: ResMut<ActionTracker>,
-    mut current_organization: ResMut<CurrentOrganization>,
-    mut units_cache: ResMut<UnitsCache>,
-    mut units_data_cache: ResMut<UnitsDataCache>,
+    mut cache: Option<ResMut<WorldCache>>,
+    mut action_tracker: Option<ResMut<ActionTracker>>,
+    mut current_organization: Option<ResMut<CurrentOrganization>>,
+    mut units_cache: Option<ResMut<UnitsCache>>,
+    mut units_data_cache: Option<ResMut<UnitsDataCache>>,
     mut territory_border_cache: ResMut<TerritoryBorderSdfCache>,
     mut territory_contour_cache: ResMut<TerritoryContourCache>,
     mut next_app_state: ResMut<NextState<AppState>>,
@@ -118,6 +118,10 @@ pub fn handle_server_message(
                 building_data,
                 unit_data,
             } => {
+                let Some(ref mut cache) = cache else { continue };
+                let Some(ref mut units_cache) = units_cache else { continue };
+                let Some(ref mut units_data_cache) = units_data_cache else { continue };
+
                 info!(
                     "✓ Received terrain: {} with {} units",
                     terrain_chunk_data.clone().name,
@@ -175,6 +179,7 @@ pub fn handle_server_message(
                 }
             }
             shared::protocol::ServerMessage::OceanData { ocean_data } => {
+                let Some(ref mut cache) = cache else { continue };
                 info!("✓ Received ocean data for world: {}", ocean_data.name);
                 cache.insert_ocean(ocean_data);
             }
@@ -183,6 +188,7 @@ pub fn handle_server_message(
                 chunk_id,
                 road_sdf_data,
             } => {
+                let Some(ref mut cache) = cache else { continue };
                 info!(
                     "✓ Received road SDF update for chunk ({},{}) in terrain {}",
                     chunk_id.x, chunk_id.y, terrain_name
@@ -307,6 +313,7 @@ pub fn handle_server_message(
                 action_type,
                 completion_time,
             } => {
+                let Some(ref mut action_tracker) = action_tracker else { continue };
                 info!(
                     "Action {} status update: {:?} for player {} at chunk ({}, {}) cell ({}, {})",
                     action_id, status, player_id, chunk_id.x, chunk_id.y, cell.q, cell.r
@@ -363,6 +370,8 @@ pub fn handle_server_message(
                 info!("✓ Organization {} deleted", organization_id);
             }
             shared::protocol::ServerMessage::DebugUnitSpawned { unit_data } => {
+                let Some(ref mut units_cache) = units_cache else { continue };
+                let Some(ref mut units_data_cache) = units_data_cache else { continue };
                 info!(
                     "✓ Unit {} spawned at {:?} with slot {:?} {}",
                     unit_data.id,
@@ -403,6 +412,7 @@ pub fn handle_server_message(
                 }
             }
             shared::protocol::ServerMessage::OrganizationAtCell { cell, organization } => {
+                let Some(ref mut current_organization) = current_organization else { continue };
                 current_organization.update(cell, organization);
             }
             shared::protocol::ServerMessage::DebugError { reason } => {
@@ -414,6 +424,7 @@ pub fn handle_server_message(
                 cell,
                 slot_position,
             } => {
+                let Some(ref mut units_cache) = units_cache else { continue };
                 info!(
                     "Unit {} slot updated at cell {:?}: {:?}",
                     unit_id, cell, slot_position

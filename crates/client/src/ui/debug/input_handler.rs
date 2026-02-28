@@ -2,26 +2,26 @@ use bevy::prelude::*;
 // use hexx::Hex;
 
 use crate::{
-    grid::resources::SelectedHexes,
-    networking::client::NetworkClient,
+    grid::resources::SelectedHexes, networking::client::NetworkClient,
     state::resources::CurrentOrganization,
 };
 use shared::{
+    OrganizationType,
     grid::{GridCell, GridConfig},
     protocol::ClientMessage,
-    OrganizationType,
 };
 
 /// Système pour gérer les raccourcis clavier de debug
 pub fn handle_debug_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     selected_hexes: Res<SelectedHexes>,
-    current_organization: Res<CurrentOrganization>,
+    current_organization: Option<Res<CurrentOrganization>>,
     _grid_config: Res<GridConfig>,
     mut network_client: ResMut<NetworkClient>,
 ) {
     // Vérifier si Shift est maintenu
-    let shift_pressed = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    let shift_pressed =
+        keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
     if !shift_pressed {
         return;
@@ -115,9 +115,7 @@ pub fn handle_debug_input(
                 r: selected_hex.y,
             };
 
-            network_client.send_message(ClientMessage::DebugSpawnUnit {
-                cell: cell.clone(),
-            });
+            network_client.send_message(ClientMessage::DebugSpawnUnit { cell: cell.clone() });
             info!("Debug: Spawning unit at ({}, {})", cell.q, cell.r);
         } else {
             warn!("Debug: No cell selected to spawn unit");
@@ -126,11 +124,16 @@ pub fn handle_debug_input(
 
     // Shift + D: Supprimer l'organisation sur la cellule actuelle
     if keyboard.just_pressed(KeyCode::KeyD) {
-        if let Some(org) = &current_organization.organization {
+        if let Some(current_organization) = current_organization
+            && let Some(org) = &current_organization.organization
+        {
             network_client.send_message(ClientMessage::DebugDeleteOrganization {
                 organization_id: org.id,
             });
-            info!("Debug: Deleting organization '{}' (ID: {})", org.name, org.id);
+            info!(
+                "Debug: Deleting organization '{}' (ID: {})",
+                org.name, org.id
+            );
         } else {
             warn!("Debug: No organization on current cell to delete");
         }

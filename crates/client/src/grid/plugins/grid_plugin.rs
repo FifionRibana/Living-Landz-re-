@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::grid::systems;
 use crate::grid::resources::RoadPreview;
+use crate::states::AppState;
 
 pub struct GridPlugin;
 
@@ -22,7 +23,8 @@ impl Plugin for GridPlugin {
                     systems::update_road_preview,
                     systems::draw_road_preview,
                     systems::draw_unit_indicators,
-                ),
+                )
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
