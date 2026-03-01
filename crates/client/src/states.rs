@@ -9,6 +9,8 @@
 // │   └── AuthScreen (SubState)
 // │       ├── Login (default)
 // │       └── Register
+// ├── CharacterCreation
+// ├── CoatOfArmsCreation
 // └── InGame
 //     ├── GameView (SubState) ← active view
 //     │   ├── Map (default)
@@ -33,6 +35,8 @@ use bevy::prelude::*;
 pub enum AppState {
     #[default]
     Login,
+    CharacterCreation,
+    CoatOfArmsCreation,
     InGame,
 }
 

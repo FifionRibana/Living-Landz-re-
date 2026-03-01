@@ -64,3 +64,13 @@ pub struct RegisterSuccessText;
 /// Marker for the password requirements text in register panel
 #[derive(Component)]
 pub struct RegisterPasswordRequirementsText;
+
+// ==================== Dev/Test Buttons ====================
+
+/// Test button: jump to character creation screen
+#[derive(Component)]
+pub struct TestCharacterCreationButton;
+
+/// Test button: jump to coat of arms screen
+#[derive(Component)]
+pub struct TestCoatOfArmsButton;

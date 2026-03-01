@@ -19,6 +19,8 @@ pub use records::*;
 pub use settings::*;
 
 pub mod pause_menu;
+pub mod character_creation;
+pub mod coat_of_arms_creation;
 
 mod panel_visibility;
 pub use panel_visibility::*;

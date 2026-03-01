@@ -8,7 +8,7 @@ use crate::states::AppState;
 /// Handles authentication responses (login/register).
 /// Runs at all times since auth happens before InGame.
 pub fn handle_auth_events(
-    mut events: MessageReader<ServerEvent>,
+    mut events: EventReader<ServerEvent>,
     mut connection: ResMut<ConnectionStatus>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
@@ -43,9 +43,14 @@ pub fn handle_auth_events(
                         "Character '{}' loaded (ID: {})",
                         character_name, character_data.id
                     );
-                }
 
-                next_app_state.set(AppState::InGame);
+                    // Has character → enter game
+                    next_app_state.set(AppState::InGame);
+                } else {
+                    // No character yet → character creation screen
+                    info!("No character found, entering character creation");
+                    next_app_state.set(AppState::CharacterCreation);
+                }
             }
             ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);
