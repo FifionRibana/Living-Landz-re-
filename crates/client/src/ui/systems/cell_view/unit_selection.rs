@@ -1,29 +1,31 @@
 use bevy::prelude::*;
-use crate::ui::resources::CellViewState;
+use crate::ui::resources::{CellViewState, UnitSelectionState};
 use crate::ui::components::SlotIndicator;
 use crate::state::resources::UnitsCache;
 
 /// Deselect unit when pressing ESC
 pub fn handle_unit_deselect(
-    mut cell_view_state: ResMut<CellViewState>,
+    mut unit_selection: ResMut<UnitSelectionState>,
+    cell_view_state: Res<CellViewState>,
     keyboard: Res<ButtonInput<KeyCode>>,
 ) {
-    // Only process when a unit is selected
-    if cell_view_state.selected_unit.is_none() {
+    // Only process when in cell view and a unit is selected
+    if !cell_view_state.is_active || !unit_selection.has_selection() {
         return;
     }
 
     // Deselect on ESC key
     if keyboard.just_pressed(KeyCode::Escape) {
         info!("Unit deselected via ESC");
-        cell_view_state.selected_unit = None;
+        unit_selection.clear();
     }
 }
 
 /// Deselect unit when clicking on an empty slot
 pub fn handle_empty_slot_click(
     mouse_button: Res<ButtonInput<MouseButton>>,
-    mut cell_view_state: ResMut<CellViewState>,
+    mut unit_selection: ResMut<UnitSelectionState>,
+    cell_view_state: Res<CellViewState>,
     units_cache: Res<UnitsCache>,
     slot_query: Query<(&Interaction, &SlotIndicator), Changed<Interaction>>,
 ) {
@@ -43,9 +45,9 @@ pub fn handle_empty_slot_click(
                 // Check if this slot is empty
                 if units_cache.get_unit_at_slot(&viewed_cell, &slot_indicator.position).is_none() {
                     // Deselect any selected unit
-                    if cell_view_state.selected_unit.is_some() {
+                    if unit_selection.has_selection() {
                         info!("Unit deselected by clicking empty slot");
-                        cell_view_state.selected_unit = None;
+                        unit_selection.clear();
                     }
                     break;
                 }

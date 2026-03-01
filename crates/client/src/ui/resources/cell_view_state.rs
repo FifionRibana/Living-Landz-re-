@@ -10,8 +10,6 @@ pub struct CellViewState {
     pub viewed_cell: Option<GridCell>,
     /// The currently selected slot (if any)
     pub selected_slot: Option<SlotPosition>,
-    /// The currently selected unit (for details panel)
-    pub selected_unit: Option<u64>,
     /// Information about a potential drag (mouse pressed but not confirmed yet)
     pub potential_drag: Option<PotentialDrag>,
     /// Information about a unit being dragged (if any)

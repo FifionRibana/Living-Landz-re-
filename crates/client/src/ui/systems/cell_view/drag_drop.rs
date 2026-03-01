@@ -60,7 +60,9 @@ pub fn handle_slot_drag_start(
 /// Detect mouse movement to confirm drag or handle mouse release for click
 pub fn detect_drag_movement(
     mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut cell_view_state: ResMut<CellViewState>,
+    mut unit_selection: ResMut<crate::ui::resources::UnitSelectionState>,
     windows: Query<&Window>,
 ) {
     // Only process if there's a potential drag
@@ -74,12 +76,19 @@ pub fn detect_drag_movement(
 
     // If mouse button is released before drag is confirmed, treat as click
     if mouse_button.just_released(MouseButton::Left) {
+        let unit_id = potential_drag.unit_id;
         info!(
             "Mouse released before drag threshold - treating as unit selection: {}",
-            potential_drag.unit_id
+            unit_id
         );
-        // Select the unit instead of dragging
-        cell_view_state.selected_unit = Some(potential_drag.unit_id);
+        // Ctrl+clic = toggle, sinon sélection simple
+        let ctrl = keyboard.pressed(KeyCode::ControlLeft)
+            || keyboard.pressed(KeyCode::ControlRight);
+        if ctrl {
+            unit_selection.toggle(unit_id);
+        } else {
+            unit_selection.select(unit_id);
+        }
         cell_view_state.cancel_potential_drag();
         return;
     }
@@ -158,6 +167,7 @@ pub fn update_drag_visual(
 pub fn handle_slot_drop(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mut cell_view_state: ResMut<CellViewState>,
+    mut unit_selection: ResMut<crate::ui::resources::UnitSelectionState>,
     units_cache: Res<UnitsCache>,
     slot_query: Query<(&Interaction, &SlotIndicator)>,
     mut network_client: ResMut<NetworkClient>,
@@ -187,7 +197,7 @@ pub fn handle_slot_drop(
         }
 
         // Check if this unit was previously selected
-        let was_selected = cell_view_state.selected_unit == Some(dragging_unit.unit_id);
+        let was_selected = unit_selection.is_selected(dragging_unit.unit_id);
 
         match dropped_on_slot {
             Some(target_slot) => {
@@ -217,7 +227,7 @@ pub fn handle_slot_drop(
 
                         // Keep unit selected if it was selected before the drag
                         if was_selected {
-                            cell_view_state.selected_unit = Some(dragging_unit.unit_id);
+                            unit_selection.select(dragging_unit.unit_id);
                         }
                     }
                 } else {

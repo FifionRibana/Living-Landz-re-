@@ -92,7 +92,7 @@ impl Plugin for UiPlugin {
             // auto-despawned via DespawnOnExit(AppState::InGame)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (systems::setup_ui, systems::setup_unit_details_panel),
+                (systems::setup_ui, systems::setup_unit_details_panel, systems::setup_map_units_panel),
             )
             // ─── GameView panel lifecycle ─────────────────────────────────
             // Each panel spawns on OnEnter and is auto-despawned via DespawnOnExit
@@ -171,6 +171,46 @@ impl Plugin for UiPlugin {
                 )
                     .run_if(in_state(GameView::Cell)),
             )
+            // Cell view: unit drag & drop, selection, visual feedback
+            .add_systems(
+                Update,
+                (
+                    // Drag & drop
+                    systems::handle_slot_drag_start,
+                    systems::detect_drag_movement.after(systems::handle_slot_drag_start),
+                    systems::update_drag_visual.after(systems::detect_drag_movement),
+                    systems::handle_slot_drop.after(systems::detect_drag_movement),
+                    systems::cancel_drag_on_escape,
+                    // Unit selection
+                    systems::handle_unit_deselect,
+                    systems::handle_empty_slot_click,
+                    // Slot visual feedback
+                    systems::update_slot_visual_feedback,
+                    systems::update_slot_overlay_visual_feedback,
+                    systems::update_unit_selection_slot_visuals
+                        .after(systems::handle_empty_slot_click),
+                    systems::update_unit_selection_portrait_tint
+                        .after(systems::handle_empty_slot_click),
+                    // Unit details panel
+                    systems::update_panel_visibility,
+                    systems::update_panel_content,
+                    systems::handle_close_button,
+                )
+                    .run_if(in_state(GameView::Cell)),
+            )
+            // Map view systems — units sidebar panel
+            .add_systems(
+                Update,
+                (
+                    systems::collect_visible_units,
+                    systems::update_map_units_list.after(systems::collect_visible_units),
+                    systems::handle_map_unit_list_click,
+                    systems::handle_map_units_panel_toggle,
+                    systems::update_map_units_panel_visibility
+                        .after(systems::collect_visible_units),
+                )
+                    .run_if(in_state(GameView::Map)),
+            )
             .add_systems(
                 Update,
                 (
@@ -218,12 +258,14 @@ impl Plugin for UiPlugin {
 /// Clean up cell state when leaving cell view.
 fn on_exit_cell_view(
     mut cell_state: Option<ResMut<CellState>>,
+    mut unit_selection: ResMut<super::resources::UnitSelectionState>,
     mut input_focus: ResMut<InputFocus>,
 ) {
     info!("Exit cell view");
     if let Some(ref mut cell_state) = cell_state {
         cell_state.exit_view();
     }
+    unit_selection.clear();
     input_focus.0 = None;
 }
 
@@ -234,6 +276,9 @@ fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(CellState::default());
     commands.insert_resource(DragState::default());
     commands.insert_resource(UIState::default());
+    commands.insert_resource(super::resources::UnitSelectionState::default());
+    commands.insert_resource(super::resources::MapUnitsPanelState::default());
+    commands.insert_resource(super::resources::VisibleUnitsInRange::default());
 }
 
 fn cleanup_view_resources(mut commands: Commands) {
@@ -243,6 +288,9 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();
     commands.remove_resource::<UIState>();
+    commands.remove_resource::<super::resources::UnitSelectionState>();
+    commands.remove_resource::<super::resources::MapUnitsPanelState>();
+    commands.remove_resource::<super::resources::VisibleUnitsInRange>();
 }
 
 fn init_character_creation(mut commands: Commands) {

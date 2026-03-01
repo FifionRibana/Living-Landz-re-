@@ -173,11 +173,12 @@ pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetS
 
 /// Update the visibility of the unit details panel based on selection state
 pub fn update_panel_visibility(
+    unit_selection: Res<crate::ui::resources::UnitSelectionState>,
     cell_view_state: Res<CellViewState>,
     mut panel_query: Query<&mut Visibility, With<UnitDetailsPanelMarker>>,
 ) {
     for mut visibility in &mut panel_query {
-        if cell_view_state.is_active && cell_view_state.selected_unit.is_some() {
+        if cell_view_state.is_active && unit_selection.has_selection() {
             *visibility = Visibility::Visible;
         } else {
             *visibility = Visibility::Hidden;
@@ -187,7 +188,7 @@ pub fn update_panel_visibility(
 
 /// Update the content of the unit details panel
 pub fn update_panel_content(
-    cell_view_state: Res<CellViewState>,
+    unit_selection: Res<crate::ui::resources::UnitSelectionState>,
     units_data_cache: Res<UnitsDataCache>,
     asset_server: Res<AssetServer>,
     mut avatar_query: Query<&mut ImageNode, With<UnitDetailsAvatar>>,
@@ -195,8 +196,8 @@ pub fn update_panel_content(
     mut level_text_query: Query<&mut Text, (With<UnitDetailsLevelText>, Without<UnitDetailsNameText>, Without<UnitDetailsProfessionText>)>,
     mut profession_text_query: Query<&mut Text, (With<UnitDetailsProfessionText>, Without<UnitDetailsNameText>, Without<UnitDetailsLevelText>)>,
 ) {
-    // Only update when a unit is selected
-    let Some(selected_unit_id) = cell_view_state.selected_unit else {
+    // Only update when a unit is selected (show primary unit)
+    let Some(selected_unit_id) = unit_selection.primary() else {
         return;
     };
 
@@ -234,13 +235,13 @@ pub fn update_panel_content(
 
 /// Handle clicks on the close button
 pub fn handle_close_button(
-    mut cell_view_state: ResMut<CellViewState>,
+    mut unit_selection: ResMut<crate::ui::resources::UnitSelectionState>,
     button_query: Query<&Interaction, (Changed<Interaction>, With<UnitDetailsCloseButton>)>,
 ) {
     for interaction in &button_query {
         if matches!(interaction, Interaction::Pressed) {
             info!("Unit details panel closed via button");
-            cell_view_state.selected_unit = None;
+            unit_selection.clear();
         }
     }
 }

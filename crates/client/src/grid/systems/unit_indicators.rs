@@ -4,13 +4,16 @@ use hexx::Hex;
 use crate::{
     // grid::components::UnitIndicator,
     state::resources::UnitsCache,
+    ui::resources::UnitSelectionState,
 };
 use shared::grid::GridConfig;
 
 /// Système pour dessiner les indicateurs d'unités avec des cercles blancs
+/// Les unités sélectionnées sont affichées en vert.
 pub fn draw_unit_indicators(
     mut gizmos: Gizmos,
     units_cache: Res<UnitsCache>,
+    unit_selection: Res<UnitSelectionState>,
     grid_config: Res<GridConfig>,
 ) {
     for (cell, units) in units_cache.get_all_cells_with_units() {
@@ -25,19 +28,27 @@ pub fn draw_unit_indicators(
         // Si 3+ unités: disposition en cercle
         let positions = calculate_circle_positions(unit_count, 0.4);
 
-        for offset in positions {
-            let pos = base_pos + offset;
+        for (i, offset) in positions.iter().enumerate() {
+            let pos = base_pos + *offset;
+            let unit_id = units[i];
+
+            let is_selected = unit_selection.is_selected(unit_id);
+
+            let color = if is_selected {
+                Color::srgb(0.3, 1.0, 0.3)
+            } else {
+                Color::WHITE
+            };
 
             // Dessiner plusieurs cercles pour créer une bordure épaisse
-            // Rayon extérieur: 0.25, rayon intérieur: 0.18
-            let outer_radius = 0.25;
-            let inner_radius = 0.18;
-            let steps = 10; // Nombre de cercles pour l'épaisseur
+            let outer_radius = if is_selected { 0.30 } else { 0.25 };
+            let inner_radius = if is_selected { 0.20 } else { 0.18 };
+            let steps = 10;
 
-            for i in 0..steps {
-                let t = i as f32 / steps as f32;
+            for s in 0..steps {
+                let t = s as f32 / steps as f32;
                 let radius = inner_radius + (outer_radius - inner_radius) * t;
-                gizmos.circle_2d(pos, radius, Color::WHITE);
+                gizmos.circle_2d(pos, radius, color);
             }
         }
     }
