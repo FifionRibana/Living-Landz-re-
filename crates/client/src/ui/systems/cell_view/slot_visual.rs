@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use crate::ui::components::SlotIndicator;
-use crate::ui::resources::CellViewState;
-use crate::ui::systems::SlotBorderOverlay;
+use crate::ui::components::{SlotIndicator, SlotUnitSprite};
+use crate::ui::resources::{CellViewState, UnitSelectionState};
+use crate::ui::components::SlotBorderOverlay;
+use crate::state::resources::UnitsCache;
 
 /// Update slot visual feedback based on interaction state
 pub fn update_slot_visual_feedback(
@@ -87,5 +88,71 @@ pub fn update_slot_overlay_visual_feedback(
                 image_node.color = Color::srgba(1.0, 1.0, 1.0, opacity);
             }
         };
+    }
+}
+
+/// Tint the border overlay of slots whose unit is selected in UnitSelectionState.
+/// Runs every frame when the selection changes to apply/remove green tint.
+pub fn update_unit_selection_slot_visuals(
+    cell_view_state: Res<CellViewState>,
+    unit_selection: Res<UnitSelectionState>,
+    units_cache: Res<UnitsCache>,
+    mut border_query: Query<(&SlotBorderOverlay, &mut ImageNode, &Interaction)>,
+) {
+    if !cell_view_state.is_active {
+        return;
+    }
+    // Only reprocess when selection or cache changes
+    if !unit_selection.is_changed() && !units_cache.is_changed() {
+        return;
+    }
+
+    let Some(viewed_cell) = cell_view_state.viewed_cell else {
+        return;
+    };
+
+    for (border, mut image_node, interaction) in &mut border_query {
+        let unit_at_slot = units_cache.get_unit_at_slot(&viewed_cell, &border.slot_position);
+        let is_selected = unit_at_slot
+            .map(|uid| unit_selection.is_selected(uid))
+            .unwrap_or(false);
+
+        // Don't override hover/pressed state set by update_slot_overlay_visual_feedback
+        if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+            continue;
+        }
+
+        if is_selected {
+            // Green tint for selected units
+            image_node.color = Color::srgba(0.4, 1.0, 0.4, 0.9);
+        } else {
+            // Normal opacity
+            image_node.color = Color::srgba(1.0, 1.0, 1.0, 0.75);
+        }
+    }
+}
+
+/// Tint unit portrait sprites with a light blue overlay when selected.
+/// This gives immediate visual feedback on which units are selected.
+pub fn update_unit_selection_portrait_tint(
+    cell_view_state: Res<CellViewState>,
+    unit_selection: Res<UnitSelectionState>,
+    mut sprite_query: Query<(&SlotUnitSprite, &mut ImageNode)>,
+) {
+    if !cell_view_state.is_active {
+        return;
+    }
+    if !unit_selection.is_changed() {
+        return;
+    }
+
+    for (sprite, mut image_node) in &mut sprite_query {
+        if unit_selection.is_selected(sprite.unit_id) {
+            // Light blue tint on portrait
+            image_node.color = Color::srgba(0.7, 0.85, 1.0, 1.0);
+        } else {
+            // Normal — no tint
+            image_node.color = Color::WHITE;
+        }
     }
 }
