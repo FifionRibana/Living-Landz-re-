@@ -124,3 +124,49 @@ pub fn handle_login_button_hover(
         }
     }
 }
+
+/// Test button: jump directly to character creation screen
+pub fn handle_test_character_creation_click(
+    query: Query<&Interaction, (Changed<Interaction>, With<TestCharacterCreationButton>)>,
+    mut next_app_state: ResMut<NextState<crate::states::AppState>>,
+) {
+    for interaction in query.iter() {
+        if *interaction == Interaction::Pressed {
+            info!("[TEST] Jumping to character creation");
+            next_app_state.set(crate::states::AppState::CharacterCreation);
+        }
+    }
+}
+
+/// Test button: jump directly to coat of arms screen
+pub fn handle_test_coat_of_arms_click(
+    query: Query<&Interaction, (Changed<Interaction>, With<TestCoatOfArmsButton>)>,
+    mut next_app_state: ResMut<NextState<crate::states::AppState>>,
+) {
+    for interaction in query.iter() {
+        if *interaction == Interaction::Pressed {
+            info!("[TEST] Jumping to coat of arms creation");
+            next_app_state.set(crate::states::AppState::CoatOfArmsCreation);
+        }
+    }
+}
+
+/// Hover effect for test buttons
+pub fn handle_test_button_hover(
+    mut query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (
+            Changed<Interaction>,
+            Or<(With<TestCharacterCreationButton>, With<TestCoatOfArmsButton>)>,
+        ),
+    >,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        *bg = match interaction {
+            Interaction::Hovered | Interaction::Pressed => {
+                BackgroundColor(Color::srgba(0.35, 0.28, 0.16, 0.9))
+            }
+            Interaction::None => BackgroundColor(Color::srgba(0.25, 0.20, 0.12, 0.8)),
+        };
+    }
+}

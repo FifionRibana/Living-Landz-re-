@@ -283,6 +283,99 @@ pub fn setup_login_panel(
                             TextColor(Color::srgb(0.7, 0.8, 0.9)),
                         ));
                     });
+
+                    // ─── Dev/test buttons ───────────────────────────────
+                    form.spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(1.0),
+                            margin: UiRect::vertical(Val::Px(8.0)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(0.3, 0.3, 0.35, 0.3)),
+                    ));
+
+                    form.spawn((
+                        Text::new("— Tests —"),
+                        TextFont {
+                            font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+                            font_size: 11.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgba(0.6, 0.55, 0.45, 0.6)),
+                        Node {
+                            align_self: AlignSelf::Center,
+                            margin: UiRect::bottom(Val::Px(6.0)),
+                            ..default()
+                        },
+                    ));
+
+                    // Row with two test buttons
+                    form.spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(8.0),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|row| {
+                        // Test character creation
+                        row.spawn((
+                            Button,
+                            Node {
+                                flex_grow: 1.0,
+                                height: Val::Px(36.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BorderColor::all(Color::srgba(0.6, 0.50, 0.30, 0.5)),
+                            BackgroundColor(Color::srgba(0.25, 0.20, 0.12, 0.8)),
+                            BorderRadius::all(Val::Px(3.0)),
+                            TestCharacterCreationButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("Personnage"),
+                                TextFont {
+                                    font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.80, 0.66, 0.30)),
+                            ));
+                        });
+
+                        // Test coat of arms
+                        row.spawn((
+                            Button,
+                            Node {
+                                flex_grow: 1.0,
+                                height: Val::Px(36.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BorderColor::all(Color::srgba(0.6, 0.50, 0.30, 0.5)),
+                            BackgroundColor(Color::srgba(0.25, 0.20, 0.12, 0.8)),
+                            BorderRadius::all(Val::Px(3.0)),
+                            TestCoatOfArmsButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("Blason"),
+                                TextFont {
+                                    font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.80, 0.66, 0.30)),
+                            ));
+                        });
+                    });
                 });
         });
 }

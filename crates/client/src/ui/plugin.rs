@@ -13,6 +13,8 @@ use crate::state::resources;
 use crate::states::{AppState, GameView, Overlay};
 use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
+use crate::ui::systems::panels::character_creation::resources::CharacterCreationState;
+use crate::ui::systems::panels::coat_of_arms_creation::resources::CoatOfArmsCreationState;
 
 pub struct UiPlugin;
 
@@ -22,6 +24,61 @@ impl Plugin for UiPlugin {
             .add_plugins(bevy_ui_text_input::TextInputPlugin)
             // Auth screens managed by AuthPlugin via AuthScreen state
             .add_plugins(AuthPlugin)
+            // ─── Character creation ───────────────────────────────────
+            .add_systems(
+                OnEnter(AppState::CharacterCreation),
+                (init_character_creation, systems::panels::character_creation::setup_character_creation).chain(),
+            )
+            .add_systems(
+                OnExit(AppState::CharacterCreation),
+                cleanup_character_creation,
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::panels::character_creation::handle_arrow_clicks,
+                    systems::panels::character_creation::update_arrow_hover,
+                    systems::panels::character_creation::handle_gender_click,
+                    systems::panels::character_creation::update_gender_visuals,
+                    systems::panels::character_creation::handle_random_all_click,
+                    systems::panels::character_creation::update_random_all_hover,
+                    systems::panels::character_creation::handle_random_name_click,
+                    systems::panels::character_creation::update_random_name_hover,
+                    systems::panels::character_creation::handle_back_click,
+                    systems::panels::character_creation::update_back_hover,
+                    systems::panels::character_creation::handle_validate_click,
+                    systems::panels::character_creation::update_validate_hover,
+                    systems::panels::character_creation::sync_name_input,
+                    systems::panels::character_creation::push_name_to_input,
+                    systems::panels::character_creation::update_counter_texts,
+                    systems::panels::character_creation::update_preview_images,
+                )
+                    .run_if(in_state(AppState::CharacterCreation)),
+            )
+            // ─── Coat of arms creation ──────────────────────────────────
+            .add_systems(
+                OnEnter(AppState::CoatOfArmsCreation),
+                (init_coat_of_arms_creation, systems::panels::coat_of_arms_creation::setup_coat_of_arms_creation).chain(),
+            )
+            .add_systems(
+                OnExit(AppState::CoatOfArmsCreation),
+                cleanup_coat_of_arms_creation,
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::panels::coat_of_arms_creation::handle_heraldry_arrow_clicks,
+                    systems::panels::coat_of_arms_creation::update_heraldry_arrow_hover,
+                    systems::panels::coat_of_arms_creation::handle_coa_back_click,
+                    systems::panels::coat_of_arms_creation::update_coa_back_hover,
+                    systems::panels::coat_of_arms_creation::handle_coa_validate_click,
+                    systems::panels::coat_of_arms_creation::update_coa_validate_hover,
+                    systems::panels::coat_of_arms_creation::sync_motto_input,
+                    systems::panels::coat_of_arms_creation::update_heraldry_counter_texts,
+                    systems::panels::coat_of_arms_creation::update_heraldry_preview_images,
+                )
+                    .run_if(in_state(AppState::CoatOfArmsCreation)),
+            )
             // ─── Startup: load atlases (resources, not entities) ─────────
             .add_systems(
                 Startup,
@@ -186,6 +243,22 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();
     commands.remove_resource::<UIState>();
+}
+
+fn init_character_creation(mut commands: Commands) {
+    commands.insert_resource(CharacterCreationState::default());
+}
+
+fn cleanup_character_creation(mut commands: Commands) {
+    commands.remove_resource::<CharacterCreationState>();
+}
+
+fn init_coat_of_arms_creation(mut commands: Commands) {
+    commands.insert_resource(CoatOfArmsCreationState::default());
+}
+
+fn cleanup_coat_of_arms_creation(mut commands: Commands) {
+    commands.remove_resource::<CoatOfArmsCreationState>();
 }
 
 /// Global ESC handler for in-game.

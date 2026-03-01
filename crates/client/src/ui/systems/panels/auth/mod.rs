@@ -25,6 +25,9 @@ impl Plugin for AuthPlugin {
                     systems::handle_login_button_click,
                     systems::handle_to_register_button_click,
                     systems::handle_login_button_hover,
+                    systems::handle_test_character_creation_click,
+                    systems::handle_test_coat_of_arms_click,
+                    systems::handle_test_button_hover,
                 )
                     .run_if(in_state(AuthScreen::Login)),
             )
