@@ -13,11 +13,14 @@ pub struct UnitSelectionState {
 impl UnitSelectionState {
     /// Sélection simple (remplace toute la sélection)
     pub fn select(&mut self, unit_id: u64) {
+        info!("Unit selection: {}, {:?}", unit_id, self.selected_units);
         self.selected_units = vec![unit_id];
+        info!("After: {:?}", self.selected_units);
     }
 
     /// Toggle sélection (Ctrl+clic) — ajoute ou retire
     pub fn toggle(&mut self, unit_id: u64) {
+        info!("Toggle unit selection: {}", unit_id);
         if let Some(pos) = self.selected_units.iter().position(|&id| id == unit_id) {
             self.selected_units.remove(pos);
         } else {

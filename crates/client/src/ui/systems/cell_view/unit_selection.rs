@@ -6,15 +6,12 @@ use crate::state::resources::UnitsCache;
 /// Deselect unit when pressing ESC
 pub fn handle_unit_deselect(
     mut unit_selection: ResMut<UnitSelectionState>,
-    cell_view_state: Res<CellViewState>,
     keyboard: Res<ButtonInput<KeyCode>>,
 ) {
-    // Only process when in cell view and a unit is selected
-    if !cell_view_state.is_active || !unit_selection.has_selection() {
+    if !unit_selection.has_selection() {
         return;
     }
 
-    // Deselect on ESC key
     if keyboard.just_pressed(KeyCode::Escape) {
         info!("Unit deselected via ESC");
         unit_selection.clear();
@@ -29,8 +26,7 @@ pub fn handle_empty_slot_click(
     units_cache: Res<UnitsCache>,
     slot_query: Query<(&Interaction, &SlotIndicator), Changed<Interaction>>,
 ) {
-    // Only process in cell view mode and when not in drag mode
-    if !cell_view_state.is_active || cell_view_state.has_potential_drag() || cell_view_state.is_dragging() {
+    if cell_view_state.has_potential_drag() || cell_view_state.is_dragging() {
         return;
     }
 
@@ -38,13 +34,10 @@ pub fn handle_empty_slot_click(
         return;
     };
 
-    // Check for mouse press on an empty slot
     if mouse_button.just_released(MouseButton::Left) {
         for (interaction, slot_indicator) in &slot_query {
             if matches!(interaction, Interaction::Pressed) {
-                // Check if this slot is empty
                 if units_cache.get_unit_at_slot(&viewed_cell, &slot_indicator.position).is_none() {
-                    // Deselect any selected unit
                     if unit_selection.has_selection() {
                         info!("Unit deselected by clicking empty slot");
                         unit_selection.clear();

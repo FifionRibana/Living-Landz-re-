@@ -4,46 +4,57 @@ use crate::ui::resources::{CellViewState, UnitSelectionState};
 use crate::ui::components::SlotBorderOverlay;
 use crate::state::resources::UnitsCache;
 
-/// Update slot visual feedback based on interaction state
+// ─── Selection-aware colors ──────────────────────────────────
+
+const SELECTED_BORDER_COLOR: Color = Color::srgba(0.4, 1.0, 0.4, 0.9);
+const NORMAL_BORDER_COLOR: Color = Color::srgba(1.0, 1.0, 1.0, 0.75);
+const SELECTED_PORTRAIT_TINT: Color = Color::srgba(0.7, 0.85, 1.0, 1.0);
+const NORMAL_PORTRAIT_TINT: Color = Color::WHITE;
+
+// ─── Helpers ────────────────────────────────────────────────
+
+fn is_slot_unit_selected(
+    cell: &shared::grid::GridCell,
+    slot_pos: &shared::SlotPosition,
+    units_cache: &UnitsCache,
+    unit_selection: &UnitSelectionState,
+) -> bool {
+    units_cache
+        .get_unit_at_slot(cell, slot_pos)
+        .map(|uid| unit_selection.is_selected(uid))
+        .unwrap_or(false)
+}
+
+// ─── Base slot hex image ────────────────────────────────────
+
+/// Update the base hex slot image based on interaction state.
 pub fn update_slot_visual_feedback(
     cell_view_state: Res<CellViewState>,
     mut slot_query: Query<(&Interaction, &SlotIndicator, &mut ImageNode), Changed<Interaction>>,
 ) {
-    if !cell_view_state.is_active {
-        return;
-    }
-
     let is_dragging = cell_view_state.is_dragging();
 
     for (interaction, slot_indicator, mut image_node) in &mut slot_query {
         let is_occupied = slot_indicator.occupied_by.is_some();
 
-        // For drag & drop, use overlay colors
-        // For normal hover, adjust opacity
         match interaction {
             Interaction::Hovered => {
                 if is_dragging {
-                    // During drag & drop, show color feedback
                     if is_occupied {
-                        // Cannot drop on occupied slot - red tint
                         image_node.color = Color::srgba(1.0, 0.5, 0.5, 0.6);
                     } else {
-                        // Valid drop target - green tint
                         image_node.color = Color::srgba(0.5, 1.0, 0.5, 0.6);
                     }
                 } else {
-                    // Normal hover - increase opacity to 40%
                     let hover_opacity = slot_indicator.state.get_hover_opacity(slot_indicator.is_occupied());
                     image_node.color = Color::srgba(1.0, 1.0, 1.0, hover_opacity);
                 }
             }
             Interaction::Pressed => {
-                // Slight brightness increase on press
                 let opacity = slot_indicator.state.get_opacity(slot_indicator.is_occupied());
                 image_node.color = Color::srgba(1.2, 1.2, 1.2, opacity.min(1.0));
             }
             Interaction::None => {
-                // Return to normal opacity
                 let opacity = slot_indicator.state.get_opacity(slot_indicator.is_occupied());
                 image_node.color = Color::srgba(1.0, 1.0, 1.0, opacity);
             }
@@ -51,108 +62,101 @@ pub fn update_slot_visual_feedback(
     }
 }
 
-/// Update slot visual feedback based on interaction state
+// ─── Border overlay (on top of portrait) ────────────────────
+
+/// Update the border overlay color based on interaction state.
+/// Selection-aware: in Interaction::None, uses green tint if unit is selected.
 pub fn update_slot_overlay_visual_feedback(
     cell_view_state: Res<CellViewState>,
+    unit_selection: Res<UnitSelectionState>,
+    units_cache: Res<UnitsCache>,
     mut slot_query: Query<(&Interaction, &SlotBorderOverlay, &mut ImageNode), Changed<Interaction>>,
 ) {
-    if !cell_view_state.is_active {
-        return;
-    }
-
     let is_dragging = cell_view_state.is_dragging();
+    let viewed_cell = cell_view_state.viewed_cell;
 
-    for (interaction, _slot_border, mut image_node) in &mut slot_query {
+    for (interaction, border, mut image_node) in &mut slot_query {
+        let is_selected = viewed_cell
+            .as_ref()
+            .map(|cell| is_slot_unit_selected(cell, &border.slot_position, &units_cache, &unit_selection))
+            .unwrap_or(false);
 
-        // For drag & drop, use overlay colors
-        // For normal hover, adjust opacity
         match interaction {
             Interaction::Hovered => {
                 if is_dragging {
-                    // During drag & drop, show color feedback
                     image_node.color = Color::srgba(1.0, 0.5, 0.5, 0.6);
                 } else {
-                    // Normal hover - increase opacity to 40%
-                    let hover_opacity = 0.9;
-                    image_node.color = Color::srgba(1.0, 1.0, 1.0, hover_opacity);
+                    image_node.color = Color::srgba(1.0, 1.0, 1.0, 0.9);
                 }
             }
             Interaction::Pressed => {
-                // Slight brightness increase on press
-                let opacity = 1.0;
-                image_node.color = Color::srgba(1.2, 1.2, 1.2, opacity);
+                image_node.color = Color::srgba(1.2, 1.2, 1.2, 1.0);
             }
             Interaction::None => {
-                // Return to normal opacity
-                let opacity = 0.75;
-                image_node.color = Color::srgba(1.0, 1.0, 1.0, opacity);
+                image_node.color = if is_selected {
+                    SELECTED_BORDER_COLOR
+                } else {
+                    NORMAL_BORDER_COLOR
+                };
             }
         };
     }
 }
 
-/// Tint the border overlay of slots whose unit is selected in UnitSelectionState.
-/// Runs every frame when the selection changes to apply/remove green tint.
-pub fn update_unit_selection_slot_visuals(
+/// Refresh border overlays every frame for non-hovered/pressed slots.
+/// Ensures selection state is always visually in sync, including on state entry.
+pub fn refresh_overlay_on_selection_change(
     cell_view_state: Res<CellViewState>,
     unit_selection: Res<UnitSelectionState>,
     units_cache: Res<UnitsCache>,
-    mut border_query: Query<(&SlotBorderOverlay, &mut ImageNode, &Interaction)>,
+    mut border_query: Query<(&Interaction, &SlotBorderOverlay, &mut ImageNode)>,
 ) {
-    if !cell_view_state.is_active {
-        return;
-    }
-    // Only reprocess when selection or cache changes
-    if !unit_selection.is_changed() && !units_cache.is_changed() {
-        return;
-    }
-
     let Some(viewed_cell) = cell_view_state.viewed_cell else {
         return;
     };
 
-    for (border, mut image_node, interaction) in &mut border_query {
-        let unit_at_slot = units_cache.get_unit_at_slot(&viewed_cell, &border.slot_position);
-        let is_selected = unit_at_slot
-            .map(|uid| unit_selection.is_selected(uid))
-            .unwrap_or(false);
-
-        // Don't override hover/pressed state set by update_slot_overlay_visual_feedback
+    for (interaction, border, mut image_node) in &mut border_query {
         if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
             continue;
         }
 
-        if is_selected {
-            // Green tint for selected units
-            image_node.color = Color::srgba(0.4, 1.0, 0.4, 0.9);
+        let is_selected = is_slot_unit_selected(
+            &viewed_cell,
+            &border.slot_position,
+            &units_cache,
+            &unit_selection,
+        );
+
+        let target = if is_selected {
+            SELECTED_BORDER_COLOR
         } else {
-            // Normal opacity
-            image_node.color = Color::srgba(1.0, 1.0, 1.0, 0.75);
+            NORMAL_BORDER_COLOR
+        };
+
+        // Only write if different to avoid unnecessary change detection
+        if image_node.color != target {
+            image_node.color = target;
         }
     }
 }
 
-/// Tint unit portrait sprites with a light blue overlay when selected.
-/// This gives immediate visual feedback on which units are selected.
+// ─── Portrait sprite tint ───────────────────────────────────
+
+/// Apply a light blue tint on portrait sprites of selected units.
+/// Runs every frame to ensure consistency on state entry.
 pub fn update_unit_selection_portrait_tint(
-    cell_view_state: Res<CellViewState>,
     unit_selection: Res<UnitSelectionState>,
     mut sprite_query: Query<(&SlotUnitSprite, &mut ImageNode)>,
 ) {
-    if !cell_view_state.is_active {
-        return;
-    }
-    if !unit_selection.is_changed() {
-        return;
-    }
-
     for (sprite, mut image_node) in &mut sprite_query {
-        if unit_selection.is_selected(sprite.unit_id) {
-            // Light blue tint on portrait
-            image_node.color = Color::srgba(0.7, 0.85, 1.0, 1.0);
+        let target = if unit_selection.is_selected(sprite.unit_id) {
+            SELECTED_PORTRAIT_TINT
         } else {
-            // Normal — no tint
-            image_node.color = Color::WHITE;
+            NORMAL_PORTRAIT_TINT
+        };
+
+        if image_node.color != target {
+            image_node.color = target;
         }
     }
 }
