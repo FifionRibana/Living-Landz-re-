@@ -12,7 +12,7 @@ use crate::{
             ExteriorSlotContainer, InteriorSlotContainer, PendingHexMask, SlotBorderOverlay,
             SlotIndicator, SlotState, SlotUnitPortrait, SlotUnitSprite,
         },
-        resources::{CellState, DragInfo, DragState},
+        resources::{CellState, DragInfo, DragState, UnitSelectionState},
         systems::panels::components::CellViewPanel,
     },
 };
@@ -158,7 +158,8 @@ pub fn setup_cell_slots(
                                         .observe(on_slot_drag_end)
                                         .observe(on_slot_drag_drop)
                                         .observe(on_slot_drag_enter)
-                                        .observe(on_slot_drag_leave);
+                                        .observe(on_slot_drag_leave)
+                                        .observe(on_slot_click);
                                 }
                             });
 
@@ -210,7 +211,8 @@ pub fn setup_cell_slots(
                                         .observe(on_slot_drag_end)
                                         .observe(on_slot_drag_drop)
                                         .observe(on_slot_drag_enter)
-                                        .observe(on_slot_drag_leave);
+                                        .observe(on_slot_drag_leave)
+                                        .observe(on_slot_click);
                                 }
                             });
 
@@ -265,7 +267,8 @@ pub fn setup_cell_slots(
                                         .observe(on_slot_drag_end)
                                         .observe(on_slot_drag_drop)
                                         .observe(on_slot_drag_enter)
-                                        .observe(on_slot_drag_leave);
+                                        .observe(on_slot_drag_leave)
+                                        .observe(on_slot_click);
                                 }
                             });
                     } else {
@@ -321,7 +324,8 @@ pub fn setup_cell_slots(
                                         .observe(on_slot_drag_end)
                                         .observe(on_slot_drag_drop)
                                         .observe(on_slot_drag_enter)
-                                        .observe(on_slot_drag_leave);
+                                        .observe(on_slot_drag_leave)
+                                        .observe(on_slot_click);
                                 }
                             });
                     }
@@ -749,4 +753,39 @@ fn on_slot_drag_leave(
     let opacity = slot_indicator.state.get_opacity(false);
 
     image.color = Color::srgba(1.0, 1.0, 1.0, opacity);
+}
+
+/// Handle click on a slot — select/deselect the unit occupying it.
+/// `Pointer<Click>` fires only when press+release happens without significant
+/// movement, so it won't interfere with drag operations.
+fn on_slot_click(
+    _event: On<Pointer<Click>>,
+    slot_query: Query<&SlotIndicator>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut unit_selection: ResMut<UnitSelectionState>,
+) {
+    info!("CLICK");
+    let slot_entity = _event.event_target();
+    let Ok(slot_indicator) = slot_query.get(slot_entity) else {
+        return;
+    };
+
+    info!("slot indicator {:?}", slot_indicator);
+
+    let Some(unit_id) = slot_indicator.occupied_by else {
+        // Empty slot clicked — clear selection
+        unit_selection.clear();
+        return;
+    };
+
+    info!("unit id {}", unit_id);
+
+    let ctrl =
+        keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+
+    if ctrl {
+        unit_selection.toggle(unit_id);
+    } else {
+        unit_selection.select(unit_id);
+    }
 }

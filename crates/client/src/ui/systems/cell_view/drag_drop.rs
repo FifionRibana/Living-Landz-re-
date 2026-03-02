@@ -21,8 +21,8 @@ pub fn handle_slot_drag_start(
     slot_query: Query<(&Interaction, &SlotIndicator), Changed<Interaction>>,
     windows: Query<&Window>,
 ) {
-    // Only process in cell view mode and when not already dragging
-    if !cell_view_state.is_active || cell_view_state.is_dragging() || cell_view_state.has_potential_drag() {
+    // Only process when not already dragging
+    if cell_view_state.is_dragging() || cell_view_state.has_potential_drag() {
         return;
     }
 

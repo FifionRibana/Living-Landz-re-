@@ -92,7 +92,7 @@ impl Plugin for UiPlugin {
             // auto-despawned via DespawnOnExit(AppState::InGame)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (systems::setup_ui, systems::setup_unit_details_panel, systems::setup_map_units_panel),
+                (systems::setup_ui, systems::setup_map_units_panel),
             )
             // ─── GameView panel lifecycle ─────────────────────────────────
             // Each panel spawns on OnEnter and is auto-despawned via DespawnOnExit
@@ -108,6 +108,10 @@ impl Plugin for UiPlugin {
                     systems::panels::setup_cell_slots,
                 )
                     .chain(),
+            )
+            .add_systems(
+                OnEnter(GameView::Cell),
+                systems::setup_unit_details_panel,
             )
             .add_systems(
                 OnEnter(GameView::CityManagement),
@@ -187,14 +191,16 @@ impl Plugin for UiPlugin {
                     // Slot visual feedback
                     systems::update_slot_visual_feedback,
                     systems::update_slot_overlay_visual_feedback,
-                    systems::update_unit_selection_slot_visuals
+                    systems::refresh_overlay_on_selection_change
                         .after(systems::handle_empty_slot_click),
                     systems::update_unit_selection_portrait_tint
                         .after(systems::handle_empty_slot_click),
-                    // Unit details panel
+                    // Unit details tab + panel
                     systems::update_panel_visibility,
+                    systems::update_tab_badge,
+                    systems::handle_tab_click,
                     systems::update_panel_content,
-                    systems::handle_close_button,
+                    systems::collapse_on_deselect,
                 )
                     .run_if(in_state(GameView::Cell)),
             )
@@ -258,14 +264,13 @@ impl Plugin for UiPlugin {
 /// Clean up cell state when leaving cell view.
 fn on_exit_cell_view(
     mut cell_state: Option<ResMut<CellState>>,
-    mut unit_selection: ResMut<super::resources::UnitSelectionState>,
     mut input_focus: ResMut<InputFocus>,
 ) {
     info!("Exit cell view");
     if let Some(ref mut cell_state) = cell_state {
         cell_state.exit_view();
     }
-    unit_selection.clear();
+    // Selection is intentionally preserved across views
     input_focus.0 = None;
 }
 
