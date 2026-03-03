@@ -1,5 +1,6 @@
 mod action_menu;
 mod action_bar;
+pub mod action_panel;
 mod action_panel_content;
 mod action_panel_setup;
 mod actions_panel;

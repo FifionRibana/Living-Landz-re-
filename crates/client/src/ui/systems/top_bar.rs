@@ -459,6 +459,39 @@ pub fn setup_top_bar(
                                 is_hoverable: false,
                             },
                         ));
+                        // Tooltip (hidden by default, shown on hover when disabled)
+                        button_parent.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(52.),
+                                top: Val::Px(6.),
+                                padding: UiRect::axes(Val::Px(8.), Val::Px(4.)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.9)),
+                            BorderRadius::all(Val::Px(4.)),
+                            GlobalZIndex(2000),
+                            Visibility::Hidden,
+                            crate::ui::components::ActionModeTooltip,
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: false,
+                            },
+                        ))
+                        .with_children(|tt| {
+                            tt.spawn((
+                                Text::new("Aucune unité compatible"),
+                                TextFont {
+                                    font_size: 11.,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.9, 0.85, 0.7)),
+                                Pickable {
+                                    should_block_lower: false,
+                                    is_hoverable: false,
+                                },
+                            ));
+                        });
                     });
             }
         });
@@ -497,10 +530,14 @@ pub fn on_menu_button_click(
 
 pub fn on_action_menu_button_click(
     event: On<Pointer<Click>>,
-    menu_button_query: Query<&ActionModeMenuButton>,
+    menu_button_query: Query<(&ActionModeMenuButton, Option<&crate::ui::components::ActionModeDisabled>)>,
     mut ui_state: ResMut<UIState>,
 ) {
-    if let Ok(menu_button) = menu_button_query.get(event.entity) {
+    if let Ok((menu_button, disabled)) = menu_button_query.get(event.entity) {
+        if disabled.is_some() {
+            // Button is disabled — ignore click
+            return;
+        }
         if Some(menu_button.action_mode) == ui_state.action_mode {
             info!("Reset action mode");
             ui_state.reset_action_mode();

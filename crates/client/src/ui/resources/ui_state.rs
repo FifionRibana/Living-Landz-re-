@@ -1,15 +1,7 @@
 use bevy::prelude::*;
 
 use crate::ui::resources::ChatState;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ActionModeEnum {
-    RoadActionMode,
-    BuildingActionMode,
-    ProductionActionMode,
-    TrainingActionMode,
-    DiplomacyActionMode,
-}
+pub use shared::ActionModeEnum;
 
 /// UI state resource for action modes and chat.
 /// Panel navigation is now handled entirely by the GameView state machine.

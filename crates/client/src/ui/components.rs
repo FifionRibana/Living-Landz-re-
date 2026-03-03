@@ -42,6 +42,14 @@ pub struct ActionModeMenuIcon {
 #[derive(Component)]
 pub struct ActionBarMarker;
 
+/// Marker for action mode buttons that are currently disabled (no compatible unit selected).
+#[derive(Component)]
+pub struct ActionModeDisabled;
+
+/// Tooltip node shown on hover over a disabled action button.
+#[derive(Component)]
+pub struct ActionModeTooltip;
+
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionCategory {
     Roads,
