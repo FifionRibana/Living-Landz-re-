@@ -394,14 +394,205 @@ pub fn update_action_panel_content(
 
 // ─── Interactions ───────────────────────────────────────────
 
-/// Handle click on action entry buttons.
+/// Handle click on action entry buttons — dispatch to network.
 pub fn handle_action_entry_click(
     entry_query: Query<(&Interaction, &ActionPanelEntry), Changed<Interaction>>,
+    mut network_client_opt: Option<ResMut<crate::networking::client::NetworkClient>>,
+    connection: Res<crate::state::resources::ConnectionStatus>,
+    cell_state: Res<crate::ui::resources::CellState>,
+    unit_selection: Res<crate::ui::resources::UnitSelectionState>,
+    grid_config: Res<shared::grid::GridConfig>,
+    selected_hexes: Res<crate::grid::resources::SelectedHexes>,
 ) {
     for (interaction, entry) in &entry_query {
-        if matches!(interaction, Interaction::Pressed) {
-            info!("Action selected: {}", entry.action_id);
-            // TODO: dispatch to action execution system
+        if !matches!(interaction, Interaction::Pressed) {
+            continue;
+        }
+
+        info!("Action selected: {}", entry.action_id);
+
+        // Validate connection
+        if !connection.logged_in {
+            warn!("Cannot execute action: not logged in");
+            return;
+        }
+        let Some(player_id) = connection.player_id else {
+            warn!("Cannot execute action: no player ID");
+            return;
+        };
+        let Some(network_client) = network_client_opt.as_mut() else {
+            warn!("Cannot execute action: no network client");
+            return;
+        };
+
+        // Resolve cell + chunk
+        let (cell, chunk_id) = if let Some(cd) = &cell_state.cell_data {
+            let hex = cd.cell.to_hex();
+            let world_pos = grid_config.layout.hex_to_world_pos(hex);
+            let chunk = shared::TerrainChunkId {
+                x: world_pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
+                y: world_pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+            };
+            (cd.cell, chunk)
+        } else if let Some(&hex) = selected_hexes.ids.iter().next() {
+            let cell = shared::grid::GridCell { q: hex.x, r: hex.y };
+            let world_pos = grid_config.layout.hex_to_world_pos(hex);
+            let chunk = shared::TerrainChunkId {
+                x: world_pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
+                y: world_pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+            };
+            (cell, chunk)
+        } else {
+            warn!("Cannot execute action: no cell context");
+            return;
+        };
+
+        let action_id = &entry.action_id;
+
+        // ── Build actions ──
+        if let Some(building_id) = action_id.strip_prefix("build_") {
+            let building_type = match building_id {
+                "blacksmith" => shared::BuildingTypeEnum::Blacksmith,
+                "carpenter_shop" => shared::BuildingTypeEnum::CarpenterShop,
+                "farm" => shared::BuildingTypeEnum::Farm,
+                "bakehouse" => shared::BuildingTypeEnum::Bakehouse,
+                "brewery" => shared::BuildingTypeEnum::Brewery,
+                "market" => shared::BuildingTypeEnum::Market,
+                "cowshed" => shared::BuildingTypeEnum::Cowshed,
+                "sheepfold" => shared::BuildingTypeEnum::Sheepfold,
+                "stable" => shared::BuildingTypeEnum::Stable,
+                "temple" => shared::BuildingTypeEnum::Temple,
+                "theater" => shared::BuildingTypeEnum::Theater,
+                "road_segment" => {
+                    // Road segment uses BuildRoad message
+                    network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
+                        player_id,
+                        start_cell: cell,
+                        end_cell: cell, // TODO: target adjacent cell
+                    });
+                    info!("✓ Road segment request sent");
+                    return;
+                }
+                other => {
+                    warn!("Unknown building: {}", other);
+                    return;
+                }
+            };
+
+            network_client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
+                player_id,
+                chunk_id,
+                cell,
+                building_type,
+            });
+            info!("✓ Build {} request sent", building_id);
+        }
+        // ── Road planning (map view) ──
+        else if action_id.starts_with("plan_") {
+            let hexes: Vec<_> = selected_hexes.ids.iter().copied().collect();
+            if hexes.len() < 2 {
+                warn!("Road planning requires at least 2 selected hexes");
+                return;
+            }
+            let start = shared::grid::GridCell::from_hex(&hexes[0]);
+            let end = shared::grid::GridCell::from_hex(hexes.last().unwrap());
+
+            network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
+                player_id,
+                start_cell: start,
+                end_cell: end,
+            });
+            info!("✓ Road plan request sent");
+        }
+        // ── Production actions ──
+        else if let Some(recipe_id) = action_id.strip_prefix("produce_") {
+            network_client.send_message(shared::protocol::ClientMessage::ActionCraftResource {
+                player_id,
+                chunk_id,
+                cell,
+                recipe_id: recipe_id.to_string(),
+                quantity: 1,
+            });
+            info!("✓ Production {} request sent", recipe_id);
+        }
+        // ── Trade actions ──
+        else if action_id.starts_with("trade_") {
+            // TODO: open trade dialog
+            info!("Trade action: {} (not yet implemented)", action_id);
+        }
+        // ── Training actions ──
+        else if let Some(profession_str) = action_id.strip_prefix("train_") {
+            let target_profession = match profession_str {
+                "baker" => shared::ProfessionEnum::Baker,
+                "farmer" => shared::ProfessionEnum::Farmer,
+                "warrior" => shared::ProfessionEnum::Warrior,
+                "blacksmith" => shared::ProfessionEnum::Blacksmith,
+                "carpenter" => shared::ProfessionEnum::Carpenter,
+                "miner" => shared::ProfessionEnum::Miner,
+                "merchant" => shared::ProfessionEnum::Merchant,
+                "hunter" => shared::ProfessionEnum::Hunter,
+                "healer" => shared::ProfessionEnum::Healer,
+                "scholar" => shared::ProfessionEnum::Scholar,
+                "cook" => shared::ProfessionEnum::Cook,
+                "fisherman" => shared::ProfessionEnum::Fisherman,
+                "lumberjack" => shared::ProfessionEnum::Lumberjack,
+                "mason" => shared::ProfessionEnum::Mason,
+                "brewer" => shared::ProfessionEnum::Brewer,
+                other => {
+                    warn!("Unknown profession: {}", other);
+                    return;
+                }
+            };
+
+            // Train first selected unit
+            if let Some(&unit_id) = unit_selection.selected_ids().first() {
+                network_client.send_message(shared::protocol::ClientMessage::ActionTrainUnit {
+                    player_id,
+                    unit_id,
+                    chunk_id,
+                    cell,
+                    target_profession,
+                });
+                info!("✓ Train {} request sent for unit {}", profession_str, unit_id);
+            } else {
+                warn!("No unit selected for training");
+            }
+        }
+        // ── Upgrade actions ──
+        else if action_id.starts_with("upgrade_") {
+            info!("Upgrade action: {} (not yet implemented)", action_id);
+        }
+        // ── Diplomacy actions ──
+        else if matches!(action_id.as_str(), "send_envoy" | "propose_trade" | "research") {
+            info!("Diplomacy action: {} (not yet implemented)", action_id);
+        }
+        else {
+            warn!("Unknown action: {}", action_id);
+        }
+    }
+}
+
+/// Visual feedback on hover for action entry buttons.
+pub fn update_action_entry_hover(
+    mut entry_query: Query<
+        (&Interaction, &mut ImageNode),
+        (With<ActionPanelEntry>, Changed<Interaction>),
+    >,
+    asset_server: Res<AssetServer>,
+) {
+    let paper_normal: Handle<Image> = asset_server.load("ui/ui_paper_panel_md.png");
+
+    for (interaction, mut image) in &mut entry_query {
+        match interaction {
+            Interaction::Pressed => {
+                image.color = Color::srgb(0.85, 0.8, 0.7);
+            }
+            Interaction::Hovered => {
+                image.color = Color::srgb(0.95, 0.92, 0.85);
+            }
+            Interaction::None => {
+                image.color = Color::WHITE;
+            }
         }
     }
 }

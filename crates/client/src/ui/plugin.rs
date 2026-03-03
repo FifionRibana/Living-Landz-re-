@@ -247,6 +247,7 @@ impl Plugin for UiPlugin {
                     systems::action_panel::update_action_panel_content
                         .after(systems::action_panel::compute_action_context),
                     systems::action_panel::handle_action_entry_click,
+                    systems::action_panel::update_action_entry_hover,
                 )
                     .run_if(in_state(AppState::InGame)),
             )

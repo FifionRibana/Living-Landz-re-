@@ -294,11 +294,11 @@ fn training_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
                 entries.push(
                     ActionEntry::new(
                         &format!("train_{}", target.to_name_lowercase()),
-                        &format!("Former : {}", target.to_name()),
+                        &format!("Former : {}", target.to_name_fr()),
                     )
                     .with_description(&format!(
                         "Former cette unité au métier de {}",
-                        target.to_name()
+                        target.to_name_fr()
                     ))
                     .with_icon("ui/icons/laurels-trophy.png")
                     .with_duration(10),

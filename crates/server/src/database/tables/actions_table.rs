@@ -1,10 +1,7 @@
 use bevy::prelude::*;
 
 use shared::{
-    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum,
-    BuildBuildingAction, BuildRoadAction, BuildingTypeEnum, CraftResourceAction,
-    HarvestResourceAction, MoveUnitAction, ResourceSpecificTypeEnum, SendMessageAction,
-    SpecificAction, TerrainChunkId, grid::GridCell,
+    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ProfessionEnum, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, TerrainChunkId, TrainUnitAction, grid::GridCell
 };
 use sqlx::{PgPool, Row};
 
@@ -318,6 +315,16 @@ impl ScheduledActionsTable {
                             q: r.get("cell_q"),
                             r: r.get("cell_r"),
                         },
+                    })
+                }
+                ActionSpecificTypeEnum::TrainUnit => {
+                    // PLACEHOLDER
+                    SpecificAction::TrainUnit(TrainUnitAction {
+                        player_id,
+                        unit_id: 0,
+                        chunk_id: *chunk_id,
+                        cell,
+                        target_profession: ProfessionEnum::Unknown
                     })
                 }
                 ActionSpecificTypeEnum::SendMessage => {

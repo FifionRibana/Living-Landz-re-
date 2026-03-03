@@ -3,7 +3,7 @@ use sqlx::prelude::FromRow;
 
 use crate::{
     ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildingSpecificTypeEnum,
-    BuildingTypeEnum, ResourceSpecificTypeEnum, TerrainChunkId, grid::GridCell,
+    BuildingTypeEnum, ProfessionEnum, ResourceSpecificTypeEnum, TerrainChunkId, grid::GridCell,
 };
 
 pub struct ActionContext {
@@ -206,6 +206,33 @@ impl SpecificActionData for CraftResourceAction {
     }
 }
 
+// TrainUnit
+#[derive(Clone, Debug, Encode, Decode)]
+pub struct TrainUnitAction {
+    pub player_id: u64,
+    pub unit_id: u64,
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub target_profession: ProfessionEnum,
+}
+
+impl SpecificActionData for TrainUnitAction {
+    fn action_type(&self) -> ActionTypeEnum {
+        ActionTypeEnum::TrainUnit
+    }
+
+    fn duration_ms(&self, _context: &ActionContext) -> u64 {
+        30_000 // 30s base training time
+    }
+
+    fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
+        if self.unit_id == 0 {
+            return Err("unit_id cannot be 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 // ============ ENUM UNIFIÉ ============
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum SpecificAction {
@@ -216,6 +243,7 @@ pub enum SpecificAction {
     SendMessage(SendMessageAction),
     HarvestResource(HarvestResourceAction),
     CraftResource(CraftResourceAction),
+    TrainUnit(TrainUnitAction),
 }
 
 impl SpecificAction {
@@ -227,6 +255,7 @@ impl SpecificAction {
             Self::SendMessage(_) => 4,
             Self::HarvestResource(_) => 5,
             Self::CraftResource(_) => 6,
+            Self::TrainUnit(_) => 7,
             Self::Unknown() => 0,
         }
     }
@@ -239,6 +268,7 @@ impl SpecificAction {
             Self::SendMessage(a) => a.action_type(),
             Self::HarvestResource(a) => a.action_type(),
             Self::CraftResource(a) => a.action_type(),
+            Self::TrainUnit(a) => a.action_type(),
             Self::Unknown() => ActionTypeEnum::Unknown,
         }
     }
@@ -251,6 +281,7 @@ impl SpecificAction {
             Self::SendMessage(a) => a.duration_ms(context),
             Self::HarvestResource(a) => a.duration_ms(context),
             Self::CraftResource(a) => a.duration_ms(context),
+            Self::TrainUnit(a) => a.duration_ms(context),
             Self::Unknown() => 5_000,
         }
     }
