@@ -1,5 +1,64 @@
 use bincode::{Decode, Encode};
 
+use super::super::unit::ProfessionEnum;
+
+// ============ ACTION MODE (catégories d'actions UI) ============
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+pub enum ActionModeEnum {
+    RoadActionMode = 1,
+    BuildingActionMode = 2,
+    ProductionActionMode = 3,
+    TrainingActionMode = 4,
+    DiplomacyActionMode = 5,
+}
+
+impl ActionModeEnum {
+    /// All action modes.
+    pub const ALL: [ActionModeEnum; 5] = [
+        Self::RoadActionMode,
+        Self::BuildingActionMode,
+        Self::ProductionActionMode,
+        Self::TrainingActionMode,
+        Self::DiplomacyActionMode,
+    ];
+
+    /// Which professions can perform this action mode.
+    /// Roads are basic labor — any unit can do it.
+    pub fn required_professions(&self) -> &'static [ProfessionEnum] {
+        use ProfessionEnum::*;
+        match self {
+            Self::RoadActionMode => &[
+                Unknown, Baker, Farmer, Warrior, Blacksmith, Carpenter, Miner,
+                Merchant, Hunter, Healer, Scholar, Cook, Fisherman, Lumberjack,
+                Mason, Brewer,
+            ],
+            Self::BuildingActionMode => &[Carpenter, Mason, Lumberjack, Blacksmith],
+            Self::ProductionActionMode => &[
+                Farmer, Baker, Cook, Brewer, Blacksmith, Carpenter, Lumberjack,
+                Mason, Fisherman, Miner,
+            ],
+            Self::TrainingActionMode => &[Warrior, Scholar, Hunter],
+            Self::DiplomacyActionMode => &[Merchant, Scholar],
+        }
+    }
+
+    /// Returns true if the given profession can perform this action mode.
+    pub fn is_available_for(&self, profession: &ProfessionEnum) -> bool {
+        self.required_professions().contains(profession)
+    }
+
+    pub fn to_name(&self) -> &'static str {
+        match self {
+            Self::RoadActionMode => "Roads",
+            Self::BuildingActionMode => "Buildings",
+            Self::ProductionActionMode => "Production",
+            Self::TrainingActionMode => "Training",
+            Self::DiplomacyActionMode => "Diplomacy",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum ActionStatusEnum {
     InProgress = 1,

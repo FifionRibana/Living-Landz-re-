@@ -6,7 +6,7 @@ use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 
 use super::{
-    resources::{ActionState, CellViewState, ChatState, UIState},
+    resources::{ActionContextState, ActionState, CellViewState, ChatState, UIState},
     systems,
 };
 use crate::state::resources;
@@ -92,7 +92,11 @@ impl Plugin for UiPlugin {
             // auto-despawned via DespawnOnExit(AppState::InGame)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (systems::setup_ui, systems::setup_map_units_panel),
+                (
+                    systems::setup_ui,
+                    systems::setup_map_units_panel,
+                    systems::action_panel::setup_action_panel,
+                ),
             )
             // ─── GameView panel lifecycle ─────────────────────────────────
             // Each panel spawns on OnEnter and is auto-despawned via DespawnOnExit
@@ -221,6 +225,9 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::update_action_menu_visual,
+                    systems::update_action_mode_availability,
+                    systems::update_action_mode_tooltips
+                        .after(systems::update_action_mode_availability),
                     systems::update_chat_visibility,
                     systems::update_chat_notification_badge,
                 )
@@ -229,6 +236,19 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (systems::update_organization_info,).run_if(in_state(AppState::InGame)),
+            )
+            // ─── Action panel (new contextual system) ──────────────────
+            .add_systems(
+                Update,
+                (
+                    systems::action_panel::compute_action_context,
+                    systems::action_panel::update_action_panel_visibility
+                        .after(systems::action_panel::compute_action_context),
+                    systems::action_panel::update_action_panel_content
+                        .after(systems::action_panel::compute_action_context),
+                    systems::action_panel::handle_action_entry_click,
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -277,6 +297,7 @@ fn on_exit_cell_view(
 fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(ChatState::default());
     commands.insert_resource(ActionState::default());
+    commands.insert_resource(ActionContextState::default());
     commands.insert_resource(CellViewState::default());
     commands.insert_resource(CellState::default());
     commands.insert_resource(DragState::default());
@@ -289,6 +310,7 @@ fn init_view_resources(mut commands: Commands) {
 fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<ChatState>();
     commands.remove_resource::<ActionState>();
+    commands.remove_resource::<ActionContextState>();
     commands.remove_resource::<CellViewState>();
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();

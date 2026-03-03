@@ -112,6 +112,15 @@ impl ProfessionEnum {
         }
     }
 
+    /// Returns the action modes this profession can participate in.
+    pub fn available_action_modes(&self) -> Vec<super::super::ActionModeEnum> {
+        super::super::ActionModeEnum::ALL
+            .iter()
+            .filter(|mode| mode.is_available_for(self))
+            .copied()
+            .collect()
+    }
+
     pub fn iter() -> impl Iterator<Item = ProfessionEnum> {
         [
             ProfessionEnum::Unknown,
