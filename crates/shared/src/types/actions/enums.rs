@@ -50,11 +50,11 @@ impl ActionModeEnum {
 
     pub fn to_name(&self) -> &'static str {
         match self {
-            Self::RoadActionMode => "Roads",
-            Self::BuildingActionMode => "Buildings",
+            Self::RoadActionMode => "Routes",
+            Self::BuildingActionMode => "Construction",
             Self::ProductionActionMode => "Production",
-            Self::TrainingActionMode => "Training",
-            Self::DiplomacyActionMode => "Diplomacy",
+            Self::TrainingActionMode => "Formation",
+            Self::DiplomacyActionMode => "Diplomatie",
         }
     }
 }
@@ -92,6 +92,7 @@ pub enum ActionTypeEnum {
     SendMessage = 4,
     HarvestResource = 5,
     CraftResource = 6,
+    TrainUnit = 7,
 }
 
 impl ActionTypeEnum {
@@ -108,6 +109,7 @@ impl ActionTypeEnum {
             4 => Some(Self::SendMessage),
             5 => Some(Self::HarvestResource),
             6 => Some(Self::CraftResource),
+            7 => Some(Self::TrainUnit),
             _ => None,
         }
     }
@@ -121,6 +123,7 @@ pub enum ActionSpecificTypeEnum {
     SendMessage = 4,
     HarvestResource = 5,
     CraftResource = 6,
+    TrainUnit = 7,
 }
 
 impl ActionSpecificTypeEnum {
@@ -136,6 +139,7 @@ impl ActionSpecificTypeEnum {
             4 => Some(Self::SendMessage),
             5 => Some(Self::HarvestResource),
             6 => Some(Self::CraftResource),
+            7 => Some(Self::TrainUnit),
             _ => None,
         }
     }

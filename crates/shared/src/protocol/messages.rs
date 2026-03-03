@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData, OrganizationSummary, OrganizationType, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
+    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -146,6 +146,13 @@ pub enum ClientMessage {
         cell: GridCell,
         recipe_id: String,
         quantity: u32,
+    },
+    ActionTrainUnit {
+        player_id: u64,
+        unit_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        target_profession: ProfessionEnum,
     },
 
     // ========================================================================

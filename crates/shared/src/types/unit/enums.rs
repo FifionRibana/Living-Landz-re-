@@ -90,6 +90,27 @@ impl ProfessionEnum {
         }
     }
 
+    pub fn to_name_fr(&self) -> &'static str {
+        match self {
+            Self::Unknown => "Inconnu",
+            Self::Baker => "Boulanger",
+            Self::Farmer => "Fermier",
+            Self::Warrior => "Guerrier",
+            Self::Blacksmith => "Forgeron",
+            Self::Carpenter => "Charpentier",
+            Self::Miner => "Mineur",
+            Self::Merchant => "Marchand",
+            Self::Hunter => "Chasseur",
+            Self::Healer => "Guérisseur",
+            Self::Scholar => "Érudit",
+            Self::Cook => "Cuisinier",
+            Self::Fisherman => "Pêcheur",
+            Self::Lumberjack => "Bûcheron",
+            Self::Mason => "Maçon",
+            Self::Brewer => "Brasseur",
+        }
+    }
+
     /// Bonus de capacité d'inventaire en kg pour cette profession
     pub fn inventory_capacity_bonus(&self) -> i32 {
         match self {

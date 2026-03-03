@@ -126,7 +126,8 @@ pub fn hide_action_panel_during_action(
     action_tracker: Res<ActionTracker>,
     selected_hexes: Res<SelectedHexes>,
     grid_config: Res<GridConfig>,
-    mut action_panel_query: Query<&mut Visibility, With<crate::ui::components::ActionsPanelMarker>>,
+    mut old_panel_query: Query<&mut Visibility, (With<crate::ui::components::ActionsPanelMarker>, Without<crate::ui::systems::action_panel::ActionPanelRoot>)>,
+    mut new_panel_query: Query<&mut Visibility, (With<crate::ui::systems::action_panel::ActionPanelRoot>, Without<crate::ui::components::ActionsPanelMarker>)>,
 ) {
     // Ne vérifier que si la sélection a changé ou si une action a été mise à jour
     if !selected_hexes.is_changed() && !action_tracker.is_changed() {
@@ -135,17 +136,23 @@ pub fn hide_action_panel_during_action(
 
     let has_action = has_active_action_on_selected_cell(&action_tracker, &selected_hexes, &grid_config);
 
-    for mut visibility in action_panel_query.iter_mut() {
+    // Hide old panel
+    for mut visibility in old_panel_query.iter_mut() {
         if has_action {
-            // Masquer le panneau d'actions si une action est en cours
             *visibility = Visibility::Hidden;
         } else {
-            // Sinon, laisser le panneau visible si une cellule est sélectionnée
             *visibility = if selected_hexes.ids.is_empty() {
                 Visibility::Hidden
             } else {
                 Visibility::Visible
             };
+        }
+    }
+
+    // Hide new panel during active action
+    if has_action {
+        for mut visibility in new_panel_query.iter_mut() {
+            *visibility = Visibility::Hidden;
         }
     }
 }

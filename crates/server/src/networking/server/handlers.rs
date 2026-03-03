@@ -3,7 +3,7 @@ use shared::{
     ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
     ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction,
     HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData,
-    TerrainChunkData,
+    TerrainChunkData, TrainUnitAction,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
@@ -1112,6 +1112,80 @@ async fn handle_client_message(
                     tracing::error!("Failed to schedule action: {}", e);
                     responses.push(ServerMessage::ActionError {
                         reason: format!("Failed to schedule action: {}", e),
+                    });
+                }
+            }
+
+            responses
+        }
+        ClientMessage::ActionTrainUnit {
+            player_id,
+            unit_id,
+            chunk_id,
+            cell,
+            target_profession,
+        } => {
+            let mut responses = Vec::new();
+            let action_table = &db_tables.actions;
+            let specific_data = SpecificAction::TrainUnit(TrainUnitAction {
+                player_id,
+                unit_id,
+                chunk_id,
+                cell,
+                target_profession,
+            });
+
+            let start_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let duration_ms = specific_data.duration_ms(&ActionContext {
+                player_id,
+                grid_cell: cell,
+            });
+
+            let action_data = ActionData {
+                base_data: ActionBaseData {
+                    player_id,
+                    chunk: chunk_id,
+                    cell,
+                    action_type: ActionTypeEnum::TrainUnit,
+                    action_specific_type: ActionSpecificTypeEnum::TrainUnit,
+                    start_time,
+                    duration_ms,
+                    completion_time: start_time + (duration_ms / 1000),
+                    status: ActionStatusEnum::Pending,
+                },
+                specific_data,
+            };
+
+            match add_action_and_cache(
+                action_table,
+                action_processor,
+                &action_data,
+                ActionTypeEnum::TrainUnit,
+            )
+            .await
+            {
+                Ok(action_id) => {
+                    tracing::info!(
+                        "Training unit {} to {:?} (action {})",
+                        unit_id, target_profession, action_id
+                    );
+                    responses.push(ServerMessage::ActionStatusUpdate {
+                        action_id,
+                        player_id,
+                        chunk_id,
+                        cell,
+                        status: ActionStatusEnum::Pending,
+                        action_type: ActionTypeEnum::TrainUnit,
+                        completion_time: start_time + (duration_ms / 1000),
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to schedule training: {}", e);
+                    responses.push(ServerMessage::ActionError {
+                        reason: format!("Failed to schedule training: {}", e),
                     });
                 }
             }
