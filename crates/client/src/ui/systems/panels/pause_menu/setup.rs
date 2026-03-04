@@ -2,7 +2,9 @@ use bevy::ecs::relationship::RelatedSpawnerCommands;
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 
+use crate::camera::resources::SceneRenderTarget;
 use crate::states::Overlay;
+use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 
 // ─── Component markers ──────────────────────────────────────────────────────
 
@@ -28,9 +30,23 @@ const DISCONNECT_HOVER: Color = Color::srgb(0.55, 0.22, 0.18);
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
-pub fn setup_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn setup_pause_menu(
+    mut commands: Commands, 
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<FrostedGlassMaterial>>,
+    render_target: Res<SceneRenderTarget>,
+) {
     let font_bold = asset_server.load("fonts/FiraSans-Bold.ttf");
     let font_regular = asset_server.load("fonts/FiraSans-Regular.ttf");
+
+    let config = FrostedGlassConfig::dialog()
+        .with_border_radius(8.0)
+        .with_colors(Color::srgb_u8(220, 202, 169), Color::srgb_u8(235, 225, 209));
+
+    let mut material = FrostedGlassMaterial::from(config);
+
+    // Inject the live scene texture
+    material.scene_texture = Some(render_target.0.clone());
 
     // Full-screen darkened overlay
     commands
@@ -63,9 +79,12 @@ pub fn setup_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                         border: UiRect::all(Val::Px(2.0)),
                         ..default()
                     },
-                    BackgroundColor(PANEL_BG),
-                    BorderColor::all(BUTTON_BORDER),
+                    MaterialNode(materials.add(material)),
+                    BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
                     BorderRadius::all(Val::Px(8.0)),
+                    // BackgroundColor(PANEL_BG),
+                    // BorderColor::all(BUTTON_BORDER),
+                    // BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| {
                     // Title

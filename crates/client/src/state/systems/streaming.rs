@@ -5,13 +5,14 @@ use shared::{
     BiomeChunkData, BiomeChunkId, BiomeTypeEnum, TerrainChunkData, TerrainChunkId, constants,
 };
 
+use crate::camera::MainCamera;
 use crate::networking::client::NetworkClient;
 use crate::rendering::terrain::components::{Biome, Terrain, Building};
 // use crate::rendering::terrain::components::Terrain;
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
 
 pub fn request_chunks_around_camera(
-    camera: Query<&Transform, With<Camera2d>>,
+    camera: Query<&Transform, With<MainCamera>>,
     // terrains: Query<&Terrain>,
     connection: Res<ConnectionStatus>,
     network_client_opt: Option<ResMut<NetworkClient>>,
@@ -86,7 +87,7 @@ pub fn request_chunks_around_camera(
 
 pub fn unload_distant_chunks(
     mut commands: Commands,
-    camera: Query<&Transform, With<Camera2d>>,
+    camera: Query<&Transform, With<MainCamera>>,
     terrain_entities: Query<(Entity, &Terrain)>,
     biome_entities: Query<(Entity, &Biome)>,
     building_entities: Query<(Entity, &Building)>,

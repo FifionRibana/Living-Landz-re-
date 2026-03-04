@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 
+use crate::camera::resources::SceneRenderTarget;
 use crate::states::GameView;
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::systems::panels::components::CalendarPanel;
@@ -8,7 +9,17 @@ use crate::ui::systems::panels::components::CalendarPanel;
 pub fn setup_calendar_panel(
     mut commands: Commands,
     mut materials: ResMut<Assets<FrostedGlassMaterial>>,
+    render_target: Res<SceneRenderTarget>,
 ) {
+    let config = FrostedGlassConfig::dialog()
+        .with_border_radius(8.0)
+        .with_colors(Color::srgb_u8(220, 202, 169), Color::srgb_u8(235, 225, 209));
+
+    let mut material = FrostedGlassMaterial::from(config);
+
+    // Inject the live scene texture
+    material.scene_texture = Some(render_target.0.clone());
+
     commands
         .spawn((
             Node {
@@ -37,31 +48,7 @@ pub fn setup_calendar_panel(
                         border: UiRect::all(Val::Px(2.0)),
                         ..default()
                     },
-                    // BackgroundColor(Color::srgba_u8(235, 225, 209, 128)), // Semi-transparent dark panel
-                    MaterialNode(
-                        materials.add(FrostedGlassMaterial::from(
-                            // FrostedGlassConfig::card_fading(FadeDirection::Left)
-                            FrostedGlassConfig::dialog()
-                                .with_border_radius(8.0)
-                                .with_colors(
-                                    Color::srgb_u8(220, 202, 169),
-                                    Color::srgb_u8(235, 225, 209),
-                                ),
-                            // .with_colors(
-                            //     Color::srgba(1.0, 1.0, 1.0, 1.0),    // Blanc en haut
-                            //     Color::srgba(0.92, 0.88, 0.82, 1.0), // Beige en bas
-                            // )
-                            // .with_background(background_image),
-                        )),
-                    ),
-                    // BackgroundGradient::from(LinearGradient {
-                    //     angle: 0.,
-                    //     stops: vec![
-                    //         ColorStop::new(Color::srgba_u8(220, 202, 169, 255), Val::Percent(0.)),
-                    //         ColorStop::new(Color::srgba_u8(235, 225, 209, 96), Val::Percent(100.)),
-                    //     ],
-                    //     ..default()
-                    // }),
+                    MaterialNode(materials.add(material)),
                     BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
                     BorderRadius::all(Val::Px(8.0)),
                 ))
