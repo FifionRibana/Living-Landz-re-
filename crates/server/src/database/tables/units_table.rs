@@ -344,6 +344,35 @@ impl UnitsTable {
         Ok(())
     }
 
+    /// Met à jour la profession d'une unité (après formation)
+    pub async fn update_unit_profession(
+        &self,
+        unit_id: u64,
+        profession: ProfessionEnum,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE units.units
+            SET profession_id = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(unit_id as i64)
+        .bind(profession.to_id())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update unit profession: {}", e))?;
+
+        tracing::info!(
+            "Unit {} profession updated to {:?} (id={})",
+            unit_id,
+            profession,
+            profession.to_id()
+        );
+
+        Ok(())
+    }
+
     // ============ SKILLS ============
 
     /// Charge tous les skills d'une unité

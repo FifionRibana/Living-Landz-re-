@@ -92,6 +92,28 @@ pub fn handle_unit_events(
                 }
             }
 
+            ServerMessage::UnitProfessionChanged {
+                unit_id,
+                new_profession,
+            } => {
+                let Some(ref mut units_data_cache) = units_data_cache else { continue };
+                info!(
+                    "✓ Unit {} profession changed to {:?}",
+                    unit_id, new_profession
+                );
+
+                // Update the cached unit data with the new profession
+                if let Some(unit) = units_data_cache.get_unit_mut(*unit_id) {
+                    unit.profession = *new_profession;
+                    info!(
+                        "Updated cached unit {} ({} {}) profession to {:?}",
+                        unit_id, unit.first_name, unit.last_name, new_profession
+                    );
+                } else {
+                    warn!("Unit {} not found in cache for profession update", unit_id);
+                }
+            }
+
             _ => {}
         }
     }

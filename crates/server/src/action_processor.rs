@@ -218,6 +218,36 @@ impl ActionProcessor {
                     self.regenerate_road_sdf_for_chunk_and_neighbors(&action_info.chunk_id).await;
                 }
 
+                // Si c'est une action TrainUnit, mettre à jour la profession de l'unité
+                if action_info.action_type == ActionTypeEnum::TrainUnit {
+                    match self.db_tables.actions.load_train_unit_data(action_id).await {
+                        Ok(Some((unit_id, target_profession))) => {
+                            // Update profession in DB
+                            if let Err(e) = self.db_tables.units.update_unit_profession(unit_id, target_profession).await {
+                                tracing::error!("Failed to update unit {} profession: {}", unit_id, e);
+                            } else {
+                                tracing::info!(
+                                    "Unit {} trained to {:?} (action {})",
+                                    unit_id, target_profession, action_id
+                                );
+
+                                // Notify the player that unit profession changed
+                                let profession_msg = ServerMessage::UnitProfessionChanged {
+                                    unit_id,
+                                    new_profession: target_profession,
+                                };
+                                self.send_message_to_player(action_info.player_id, profession_msg).await;
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::error!("No train_unit data found for action {}", action_id);
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load train_unit data for action {}: {}", action_id, e);
+                        }
+                    }
+                }
+
                 // Envoyer notification au joueur qui a lancé l'action
                 let status_message = ServerMessage::ActionStatusUpdate {
                     action_id,
@@ -1237,6 +1267,7 @@ impl ActionProcessor {
             ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
             ServerMessage::DebugError { .. } => "DebugError",
             ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
+            ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
             ServerMessage::Pong => "Pong",
         };
 

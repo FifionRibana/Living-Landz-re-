@@ -150,6 +150,7 @@ pub async fn handle_connection(
                     ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
                     ServerMessage::DebugError { .. } => "DebugError",
                     ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
+                    ServerMessage::UnitProfessionChanged { .. } => "UnitProfessionChanged",
                     ServerMessage::Pong => "Pong",
                 };
 

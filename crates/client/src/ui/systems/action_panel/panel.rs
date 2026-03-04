@@ -354,6 +354,18 @@ pub fn update_action_panel_content(
                                 },
                             ))
                             .with_children(|costs_row| {
+                                costs_row.spawn((
+                                    Text::new("▼ "),
+                                    TextFont {
+                                        font_size: 9.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb_u8(160, 100, 60)),
+                                    Pickable {
+                                        should_block_lower: false,
+                                        is_hoverable: false,
+                                    },
+                                ));
                                 for cost in &action.costs {
                                     costs_row.spawn((
                                         Text::new(format!("{} ×{}", cost.name, cost.quantity)),
@@ -362,6 +374,50 @@ pub fn update_action_panel_content(
                                             ..default()
                                         },
                                         TextColor(Color::srgb_u8(160, 100, 60)),
+                                        Pickable {
+                                            should_block_lower: false,
+                                            is_hoverable: false,
+                                        },
+                                    ));
+                                }
+                            });
+                        }
+
+                        // Outputs row
+                        if !action.outputs.is_empty() {
+                            col.spawn((
+                                Node {
+                                    flex_direction: FlexDirection::Row,
+                                    column_gap: Val::Px(6.0),
+                                    flex_wrap: FlexWrap::Wrap,
+                                    ..default()
+                                },
+                                Pickable {
+                                    should_block_lower: false,
+                                    is_hoverable: false,
+                                },
+                            ))
+                            .with_children(|outputs_row| {
+                                outputs_row.spawn((
+                                    Text::new("▲ "),
+                                    TextFont {
+                                        font_size: 9.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb_u8(60, 130, 80)),
+                                    Pickable {
+                                        should_block_lower: false,
+                                        is_hoverable: false,
+                                    },
+                                ));
+                                for output in &action.outputs {
+                                    outputs_row.spawn((
+                                        Text::new(format!("{} ×{}", output.name, output.quantity)),
+                                        TextFont {
+                                            font_size: 9.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(60, 130, 80)),
                                         Pickable {
                                             should_block_lower: false,
                                             is_hoverable: false,
