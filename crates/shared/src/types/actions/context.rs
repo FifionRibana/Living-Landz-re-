@@ -81,8 +81,10 @@ pub struct ActionEntry {
     pub description: String,
     /// Icon asset path
     pub icon: String,
-    /// Resource costs
+    /// Resource costs (inputs consumed)
     pub costs: Vec<ResourceCost>,
+    /// Resource outputs (items produced)
+    pub outputs: Vec<ResourceCost>,
     /// Which profession is needed to execute this (None = any)
     pub required_profession: Option<ProfessionEnum>,
     /// Duration in game ticks
@@ -100,10 +102,32 @@ impl ActionEntry {
             description: String::new(),
             icon: String::new(),
             costs: Vec::new(),
+            outputs: Vec::new(),
             required_profession: None,
             duration_ticks: 1,
             executable: true,
         }
+    }
+
+    /// Create an ActionEntry from a RecipeDefinition.
+    pub fn from_recipe(recipe: &super::recipe_registry::RecipeDefinition) -> Self {
+        let mut entry = Self::new(
+            &format!("produce_{}", recipe.id),
+            recipe.name,
+        )
+        .with_description(recipe.description)
+        .with_icon(recipe.icon)
+        .with_profession(recipe.profession)
+        .with_duration(recipe.duration_ticks);
+
+        for (name, qty) in recipe.inputs {
+            entry = entry.with_cost(name, *qty);
+        }
+        for (name, qty) in recipe.outputs {
+            entry = entry.with_output(name, *qty);
+        }
+
+        entry
     }
 
     pub fn with_description(mut self, desc: &str) -> Self {
@@ -118,6 +142,14 @@ impl ActionEntry {
 
     pub fn with_cost(mut self, name: &str, qty: u32) -> Self {
         self.costs.push(ResourceCost {
+            name: name.to_string(),
+            quantity: qty,
+        });
+        self
+    }
+
+    pub fn with_output(mut self, name: &str, qty: u32) -> Self {
+        self.outputs.push(ResourceCost {
             name: name.to_string(),
             quantity: qty,
         });

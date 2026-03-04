@@ -287,6 +287,12 @@ pub enum ServerMessage {
         slot_position: Option<SlotPosition>,
     },
 
+    /// Unit profession changed after training completion
+    UnitProfessionChanged {
+        unit_id: u64,
+        new_profession: ProfessionEnum,
+    },
+
     // ========================================================================
     // DEBUG RESPONSES
     // ========================================================================

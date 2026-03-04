@@ -158,123 +158,12 @@ fn production_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
         return vec![];
     };
 
-    // Get recipes for this building, filtered by available professions
-    let all_recipes = building_recipes(building);
-    all_recipes
+    // Get recipes from the registry for this building, filtered by selected professions
+    super::recipe_registry::recipes_for_building(building)
         .into_iter()
-        .filter(|entry| {
-            entry
-                .required_profession
-                .as_ref()
-                .map(|prof| ctx.has_profession(prof))
-                .unwrap_or(true) // No requirement = anyone can do it
-        })
+        .filter(|recipe| ctx.has_profession(&recipe.profession))
+        .map(|recipe| ActionEntry::from_recipe(recipe))
         .collect()
-}
-
-fn building_recipes(building: BuildingTypeEnum) -> Vec<ActionEntry> {
-    match building {
-        BuildingTypeEnum::Blacksmith => vec![
-            ActionEntry::new("produce_iron_sword", "Épée en fer")
-                .with_description("Forger une épée en fer")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Fer", 3)
-                .with_cost("Bois", 1)
-                .with_profession(ProfessionEnum::Blacksmith)
-                .with_duration(4),
-            ActionEntry::new("produce_iron_tools", "Outils en fer")
-                .with_description("Fabriquer des outils en fer")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Fer", 2)
-                .with_profession(ProfessionEnum::Blacksmith)
-                .with_duration(3),
-            ActionEntry::new("produce_horseshoes", "Fers à cheval")
-                .with_description("Forger des fers à cheval")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Fer", 1)
-                .with_profession(ProfessionEnum::Blacksmith)
-                .with_duration(2),
-        ],
-        BuildingTypeEnum::CarpenterShop => vec![
-            ActionEntry::new("produce_planks", "Planches")
-                .with_description("Scier des planches")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Bois", 2)
-                .with_profession(ProfessionEnum::Carpenter)
-                .with_duration(2),
-            ActionEntry::new("produce_furniture", "Meubles")
-                .with_description("Fabriquer des meubles")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Bois", 5)
-                .with_profession(ProfessionEnum::Carpenter)
-                .with_duration(5),
-            ActionEntry::new("produce_barrel", "Tonneau")
-                .with_description("Assembler un tonneau")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Bois", 4)
-                .with_profession(ProfessionEnum::Carpenter)
-                .with_duration(3),
-        ],
-        BuildingTypeEnum::Farm => vec![
-            ActionEntry::new("produce_wheat", "Blé")
-                .with_description("Cultiver du blé")
-                .with_icon("ui/icons/cog.png")
-                .with_profession(ProfessionEnum::Farmer)
-                .with_duration(6),
-            ActionEntry::new("produce_vegetables", "Légumes")
-                .with_description("Cultiver des légumes")
-                .with_icon("ui/icons/cog.png")
-                .with_profession(ProfessionEnum::Farmer)
-                .with_duration(4),
-            ActionEntry::new("produce_flax", "Lin")
-                .with_description("Cultiver du lin")
-                .with_icon("ui/icons/cog.png")
-                .with_profession(ProfessionEnum::Farmer)
-                .with_duration(5),
-        ],
-        BuildingTypeEnum::Bakehouse => vec![
-            ActionEntry::new("produce_bread", "Pain")
-                .with_description("Cuire du pain")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Blé", 2)
-                .with_profession(ProfessionEnum::Baker)
-                .with_duration(2),
-            ActionEntry::new("produce_pastry", "Pâtisserie")
-                .with_description("Préparer des pâtisseries")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Blé", 3)
-                .with_cost("Beurre", 1)
-                .with_profession(ProfessionEnum::Baker)
-                .with_duration(3),
-        ],
-        BuildingTypeEnum::Brewery => vec![
-            ActionEntry::new("produce_beer", "Bière")
-                .with_description("Brasser de la bière")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Blé", 3)
-                .with_profession(ProfessionEnum::Brewer)
-                .with_duration(6),
-            ActionEntry::new("produce_mead", "Hydromel")
-                .with_description("Brasser de l'hydromel")
-                .with_icon("ui/icons/cog.png")
-                .with_cost("Miel", 2)
-                .with_profession(ProfessionEnum::Brewer)
-                .with_duration(8),
-        ],
-        BuildingTypeEnum::Market => vec![
-            ActionEntry::new("trade_buy", "Acheter")
-                .with_description("Acheter des marchandises au marché")
-                .with_icon("ui/icons/cog.png")
-                .with_profession(ProfessionEnum::Merchant)
-                .with_duration(1),
-            ActionEntry::new("trade_sell", "Vendre")
-                .with_description("Vendre des marchandises au marché")
-                .with_icon("ui/icons/cog.png")
-                .with_profession(ProfessionEnum::Merchant)
-                .with_duration(1),
-        ],
-        _ => vec![],
-    }
 }
 
 // ─── Training ───────────────────────────────────────────────

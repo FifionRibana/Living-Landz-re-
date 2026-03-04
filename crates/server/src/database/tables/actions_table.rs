@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 
 use shared::{
-    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, BuildingTypeEnum, CraftResourceAction, HarvestResourceAction, MoveUnitAction, ProfessionEnum, ResourceSpecificTypeEnum, SendMessageAction, SpecificAction, TerrainChunkId, TrainUnitAction, grid::GridCell
+    ActionBaseData, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum,
+    BuildBuildingAction, BuildRoadAction, BuildingTypeEnum, CraftResourceAction,
+    HarvestResourceAction, MoveUnitAction, ProfessionEnum, ResourceSpecificTypeEnum,
+    SendMessageAction, SpecificAction, TerrainChunkId, TrainUnitAction, grid::GridCell,
 };
 use sqlx::{PgPool, Row};
 
@@ -131,6 +134,17 @@ impl ScheduledActionsTable {
                 .bind(action_id as i64)
                 .bind(&a.recipe_id)
                 .bind(a.quantity as i32)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("DB error: {}", e))?;
+            }
+            SpecificAction::TrainUnit(a) => {
+                sqlx::query(
+                    "INSERT INTO actions.train_unit_actions (action_id, unit_id, target_profession_id) VALUES ($1, $2, $3)"
+                )
+                .bind(action_id as i64)
+                .bind(a.unit_id as i64)
+                .bind(a.target_profession.to_id())
                 .execute(&self.pool)
                 .await
                 .map_err(|e| format!("DB error: {}", e))?;
@@ -317,16 +331,6 @@ impl ScheduledActionsTable {
                         },
                     })
                 }
-                ActionSpecificTypeEnum::TrainUnit => {
-                    // PLACEHOLDER
-                    SpecificAction::TrainUnit(TrainUnitAction {
-                        player_id,
-                        unit_id: 0,
-                        chunk_id: *chunk_id,
-                        cell,
-                        target_profession: ProfessionEnum::Unknown
-                    })
-                }
                 ActionSpecificTypeEnum::SendMessage => {
                     let _send_message = sqlx::query(
                         r#"
@@ -351,7 +355,32 @@ impl ScheduledActionsTable {
                         receivers: receivers_array.into_iter().map(|uid| uid as u64).collect(),
                         content: r.get("message_content"),
                     })
-                } // _ => SpecificAction::Unknown(),
+                }
+                ActionSpecificTypeEnum::TrainUnit => {
+                    let train_row = sqlx::query(
+                        r#"
+                            SELECT unit_id, target_profession_id
+                            FROM actions.train_unit_actions
+                            WHERE action_id = $1
+                        "#,
+                    )
+                    .bind(id)
+                    .fetch_one(&self.pool)
+                    .await?;
+
+                    let unit_id = train_row.get::<i64, &str>("unit_id") as u64;
+                    let profession_id: i16 = train_row.get("target_profession_id");
+                    let target_profession = ProfessionEnum::from_id(profession_id)
+                        .unwrap_or(ProfessionEnum::Unknown);
+
+                    SpecificAction::TrainUnit(TrainUnitAction {
+                        player_id,
+                        unit_id,
+                        chunk_id: *chunk_id,
+                        cell,
+                        target_profession,
+                    })
+                }
             };
 
             actions.push(ActionData {
@@ -433,6 +462,33 @@ impl ScheduledActionsTable {
         }
 
         Ok(actions)
+    }
+
+    /// Load train_unit specific data for a completed action.
+    /// Returns (unit_id, target_profession) or None if not found.
+    pub async fn load_train_unit_data(
+        &self,
+        action_id: u64,
+    ) -> Result<Option<(u64, ProfessionEnum)>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT unit_id, target_profession_id
+            FROM actions.train_unit_actions
+            WHERE action_id = $1
+            "#,
+        )
+        .bind(action_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load train_unit data: {}", e))?;
+
+        Ok(row.map(|r| {
+            let unit_id = r.get::<i64, &str>("unit_id") as u64;
+            let profession_id: i16 = r.get("target_profession_id");
+            let profession = ProfessionEnum::from_id(profession_id)
+                .unwrap_or(ProfessionEnum::Unknown);
+            (unit_id, profession)
+        }))
     }
 
     /// Met à jour le statut d'une action

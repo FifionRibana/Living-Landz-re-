@@ -27,6 +27,11 @@ impl UnitsDataCache {
         self.units_data.get(&unit_id)
     }
 
+    /// Get mutable unit data by ID
+    pub fn get_unit_mut(&mut self, unit_id: u64) -> Option<&mut UnitData> {
+        self.units_data.get_mut(&unit_id)
+    }
+
     /// Remove unit data
     pub fn remove_unit(&mut self, unit_id: u64) {
         self.units_data.remove(&unit_id);
