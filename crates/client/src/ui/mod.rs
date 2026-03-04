@@ -1,3 +1,4 @@
+pub mod carousel;
 pub mod components;
 pub mod debug;
 pub mod frosted_glass;

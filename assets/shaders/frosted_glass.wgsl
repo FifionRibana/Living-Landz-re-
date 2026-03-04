@@ -123,7 +123,34 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
         }
     }
     
-    let output_alpha = border_alpha * edge_alpha;
+    // let output_alpha = border_alpha * edge_alpha;
+
+    // --- Calcul du Fade Horizontal (Carousel) ---
+    var horizontal_fade = 1.0;
     
-    return vec4<f32>(output_color, output_alpha);
+    if (material.edge_fade > 0.0) {
+        // Cas : Carte à droite (edge_fade positif)
+        // On transitionne de 1.0 (opaque à gauche de la carte) vers 0.0 (transparent à droite)
+        // L'intensité (edge_fade) détermine à quel point le bord est "grignoté"
+        horizontal_fade = mix(1.0, 1.0 - in.uv.x, material.edge_fade);
+    } else if (material.edge_fade < 0.0) {
+        // Cas : Carte à gauche (edge_fade négatif)
+        // On transitionne de 0.0 (transparent à gauche) vers 1.0 (opaque à droite)
+        let intensity = abs(material.edge_fade);
+        horizontal_fade = mix(1.0, in.uv.x, intensity);
+    }
+
+    // --- Calcul de l'Alpha Final ---
+    // On combine : 
+    // 1. Le gradient vertical (opacity_top/bottom)
+    // 2. Le border radius (arrondis)
+    // 3. Le fade horizontal (carousel)
+    
+    let vertical_alpha = mix(material.opacity_top, material.opacity_bottom, t);
+    // let final_alpha = vertical_alpha * border_alpha * horizontal_fade * edge_alpha;
+    let final_alpha = border_alpha * horizontal_fade * edge_alpha;
+
+    return vec4<f32>(output_color, final_alpha);
+    
+    // return vec4<f32>(output_color, output_alpha);
 }

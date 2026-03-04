@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::{
     resources::{ActionContextState, ActionState, CellViewState, ChatState, UIState},
-    systems,
+    systems, carousel
 };
 use crate::state::resources;
 use crate::states::{AppState, GameView, Overlay};
@@ -15,7 +15,6 @@ use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
 use crate::ui::systems::panels::character_creation::resources::CharacterCreationState;
 use crate::ui::systems::panels::coat_of_arms_creation::resources::CoatOfArmsCreationState;
-
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -150,6 +149,14 @@ impl Plugin for UiPlugin {
                     systems::panels::pause_menu::update_pause_button_hover,
                 )
                     .run_if(in_state(Overlay::PauseMenu)),
+            )
+            // Carousel handling
+            .add_systems(
+                Update,
+                (
+                    carousel::systems::handle_carousel_scroll,
+                    carousel::systems::update_carousel_items,
+                ).run_if(in_state(AppState::InGame)),
             )
             // Clean up when leaving Cell view
             .add_systems(OnExit(GameView::Cell), on_exit_cell_view)
