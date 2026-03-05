@@ -166,6 +166,7 @@ pub struct FrostedGlassUniforms {
     pub size: Vec2,
     pub screen_size: Vec2,
     pub use_background_image: u32,  // 0 = scene_texture, 1 = background_image
+    pub visibility: f32,
     pub _padding: Vec2, // Alignement 16 bytes
 }
 
@@ -184,6 +185,7 @@ impl From<FrostedGlassConfig> for FrostedGlassMaterial {
                 size: Vec2::ZERO, // Sera mis à jour par le système
                 screen_size: Vec2::ZERO,
                 use_background_image: if use_background { 1 } else { 0 },
+                visibility: 1.0,
                 _padding: Vec2::ZERO,
             },
             scene_texture: config.scene_texture, // Sera injecté par le plugin

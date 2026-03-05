@@ -13,6 +13,7 @@ struct FrostedGlassUniforms {
     size: vec2<f32>,
     screen_size: vec2<f32>,
     use_background_image: u32,
+    visibility: f32,
     _padding: vec2<f32>,
 }
 
@@ -112,43 +113,21 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
         border_alpha = 1.0 - smoothstep(-1.5, 0.5, dist);
     }
     
-    // Edge fade (carousel)
-    var edge_alpha = 1.0;
-    if material.edge_fade != 0.0 {
-        let fade_amount = abs(material.edge_fade);
-        if material.edge_fade < 0.0 {
-            edge_alpha = smoothstep(0.0, fade_amount, in.uv.x);
-        } else {
-            edge_alpha = smoothstep(0.0, fade_amount, 1.0 - in.uv.x);
-        }
-    }
+// 1. Calcul de la position du pixel actuel dans l'espace du conteneur
+    // material.edge_fade contient ici la position X brute du centre de la carte
+    let pixel_x_in_container = (in.uv.x - 0.5) * material.size.x + material.edge_fade;
     
-    // let output_alpha = border_alpha * edge_alpha;
+    // 2. Définition de la zone de visibilité (le "masque")
+    // On utilise la largeur de l'écran ou une valeur fixe pour les bords du carousel
+    let container_limit = material.screen_size.x * 0.5 - 50.0; 
+    let feather = 50.0; // Largeur de la transition du wipe en pixels
+    
+    // window_mask sera 1.0 au centre et 0.0 au-delà de container_limit
+    let window_mask = smoothstep(container_limit, container_limit - feather, abs(pixel_x_in_container));
 
-    // --- Calcul du Fade Horizontal (Carousel) ---
-    var horizontal_fade = 1.0;
-    
-    if (material.edge_fade > 0.0) {
-        // Cas : Carte à droite (edge_fade positif)
-        // On transitionne de 1.0 (opaque à gauche de la carte) vers 0.0 (transparent à droite)
-        // L'intensité (edge_fade) détermine à quel point le bord est "grignoté"
-        horizontal_fade = mix(1.0, 1.0 - in.uv.x, material.edge_fade);
-    } else if (material.edge_fade < 0.0) {
-        // Cas : Carte à gauche (edge_fade négatif)
-        // On transitionne de 0.0 (transparent à gauche) vers 1.0 (opaque à droite)
-        let intensity = abs(material.edge_fade);
-        horizontal_fade = mix(1.0, in.uv.x, intensity);
-    }
-
-    // --- Calcul de l'Alpha Final ---
-    // On combine : 
-    // 1. Le gradient vertical (opacity_top/bottom)
-    // 2. Le border radius (arrondis)
-    // 3. Le fade horizontal (carousel)
-    
-    let vertical_alpha = mix(material.opacity_top, material.opacity_bottom, t);
-    // let final_alpha = vertical_alpha * border_alpha * horizontal_fade * edge_alpha;
-    let final_alpha = border_alpha * horizontal_fade * edge_alpha;
+    // 3. ALPHA FINAL (Multiplication propre)
+    // On combine l'opacité du design * les arrondis * le wipe * LA VISIBILITÉ DE L'ANIMATION
+    let final_alpha = border_alpha * window_mask * material.visibility;
 
     return vec4<f32>(output_color, final_alpha);
     

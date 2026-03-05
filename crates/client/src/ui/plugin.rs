@@ -156,6 +156,8 @@ impl Plugin for UiPlugin {
                 (
                     carousel::systems::handle_carousel_scroll,
                     carousel::systems::update_carousel_items,
+                    carousel::systems::update_carousel_icons,
+                    // carousel::systems::apply_carousel_snap, // Disabled cause it reacts too quickly even when increasing the no scroll timer
                 ).run_if(in_state(AppState::InGame)),
             )
             // Clean up when leaving Cell view
