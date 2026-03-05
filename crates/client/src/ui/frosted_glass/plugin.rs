@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy::render::{Render, RenderApp, RenderSystems};
 
-use crate::ui::frosted_glass::BlurSettings;
+use crate::ui::frosted_glass::{BlurSettings, WipeMaterial};
 use crate::ui::frosted_glass::resources::BlurredSceneTexture;
 use crate::ui::frosted_glass::{inject_scene_texture, setup_blur_capture, sync_material_size};
 
@@ -38,7 +38,8 @@ impl Plugin for FrostedGlassPlugin {
             .add_systems(
                 PostUpdate,
                 (sync_material_size, inject_scene_texture).chain(),
-            );
+            )
+            .add_plugins(UiMaterialPlugin::<WipeMaterial>::default());
     }
 
     // fn finish(&self, app: &mut App) {

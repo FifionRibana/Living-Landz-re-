@@ -3,7 +3,7 @@ use bevy::state::state_scoped::DespawnOnExit;
 
 use crate::camera::resources::SceneRenderTarget;
 use crate::states::GameView;
-use crate::ui::carousel::components::{Carousel, CarouselItem};
+use crate::ui::carousel::components::{Carousel, CarouselAlpha, CarouselItem};
 use crate::ui::frosted_glass::{FadeDirection, FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::systems::panels::components::ManagementPanel;
 
@@ -49,6 +49,7 @@ pub fn setup_management_panel(
                     Node {
                         width: Val::Percent(100.0),
                         height: Val::Px(250.),
+                        overflow: Overflow::clip(),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         margin: UiRect::horizontal(Val::Px(50.0)),
@@ -59,6 +60,10 @@ pub fn setup_management_panel(
                         item_width,
                         spacing,
                         total_items: items.len(),
+                        current_scroll: 0.0,
+                        target_scroll: 0.0,
+                        lerp_speed: 10.0,
+                        snap_timer: 0.0
                     },
                 ))
                 .with_children(|carousel| {
@@ -82,7 +87,11 @@ pub fn setup_management_panel(
                                 BorderRadius::all(Val::Px(12.0)),
                             ))
                             .with_children(|carousel_item| {
-                                carousel_item.spawn(Text::new(*name));
+                                carousel_item.spawn((
+                                    Text::new(*name),
+                                    BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.0)),
+                                    CarouselAlpha::new(1.0),
+                                ));
                             });
                     }
                 });
