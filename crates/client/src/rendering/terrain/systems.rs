@@ -16,7 +16,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{RoadParams, SdfParams};
+use crate::rendering::terrain::materials::{ChunkInfo, RoadParams, SdfParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -178,9 +178,9 @@ pub fn spawn_terrain(
             info!("Creating material WITH SDF for chunk {:?}", terrain.id);
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture, // rgba(168, 176, 119, 1) // rgba(196, 180, 144, 1)
-                sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
+                sand_color: LinearRgba::new(0.62, 0.56, 0.40, 1.0),
                 // sand_color: LinearRgba::new(0.77, 0.71, 0.56, 1.0), //LinearRgba::new(0.76, 0.70, 0.50, 1.0),
-                grass_color: LinearRgba::new(0.36, 0.52, 0.28, 1.0),
+                grass_color: LinearRgba::new(0.30, 0.38, 0.20, 1.0),
                 // grass_color: LinearRgba::new(0.66, 0.69, 0.47, 1.0),//LinearRgba::new(0.36, 0.52, 0.28, 1.0),
                 sdf_params: SdfParams {
                     beach_start: -0.15,
@@ -193,6 +193,12 @@ pub fn spawn_terrain(
                 road_color_light: LinearRgba::new(0.62, 0.53, 0.41, 1.0), //LinearRgba::new(0.76, 0.70, 0.55, 1.0),
                 road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
                 road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
+                chunk_info: ChunkInfo {
+                    world_offset_x: world_position.x,
+                    world_offset_y: world_position.y,
+                    chunk_width: constants::CHUNK_SIZE.x,
+                    chunk_height: constants::CHUNK_SIZE.y,
+                },
             }))
         } else {
             info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
@@ -250,8 +256,8 @@ pub fn spawn_terrain(
 
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture: dummy_sdf,
-                sand_color: LinearRgba::new(0.76, 0.70, 0.50, 1.0),
-                grass_color: LinearRgba::new(0.36, 0.52, 0.28, 1.0),
+                sand_color: LinearRgba::new(0.62, 0.56, 0.40, 1.0),
+                grass_color: LinearRgba::new(0.30, 0.38, 0.20, 1.0),
                 sdf_params: SdfParams {
                     beach_start: 0.0,
                     beach_end: 0.0,
@@ -263,6 +269,12 @@ pub fn spawn_terrain(
                 road_color_light: LinearRgba::new(0.76, 0.70, 0.55, 1.0),
                 road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
                 road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
+                chunk_info: ChunkInfo {
+                    world_offset_x: world_position.x,
+                    world_offset_y: world_position.y,
+                    chunk_width: constants::CHUNK_SIZE.x,
+                    chunk_height: constants::CHUNK_SIZE.y,
+                },
             }))
         };
 

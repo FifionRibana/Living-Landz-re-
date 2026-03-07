@@ -60,9 +60,9 @@ impl Default for OceanMaterial {
         Self {
             heightmap: Handle::default(),
             sdf_texture: Handle::default(), 
-            shallow_color: LinearRgba::new(0.15, 0.40, 0.50, 1.0),
-            deep_color: LinearRgba::new(0.02, 0.08, 0.15, 1.0),
-            foam_color: LinearRgba::new(0.92, 0.95, 1.0, 1.0),
+            shallow_color: LinearRgba::new(0.18, 0.38, 0.42, 1.0),
+            deep_color: LinearRgba::new(0.04, 0.10, 0.18, 1.0),
+            foam_color: LinearRgba::new(0.88, 0.90, 0.92, 1.0),
             params: OceanParams::default(),
         }
     }
@@ -70,7 +70,7 @@ impl Default for OceanMaterial {
 
 impl Material2d for OceanMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/ocean.wgsl".into()
+        "shaders/ocean_painterly.wgsl".into()
     }
     
     fn alpha_mode(&self) -> AlphaMode2d {
