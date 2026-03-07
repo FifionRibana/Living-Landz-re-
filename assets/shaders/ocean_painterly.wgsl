@@ -117,6 +117,62 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // =====================================================================
+    // COURANTS OCÉANIQUES — variations lentes de teinte et luminosité
+    // 2 couches de FBM qui dérivent dans des directions différentes
+    // Pas de domain warping = pas d'artefacts géométriques
+    // =====================================================================
+
+    let current_time = time * 0.03; // Très lent
+
+    // Couche 1 : très grande échelle, dérive sud-est
+    let c1 = fbm(world_pos * 0.00012 + vec2<f32>(current_time * 0.4, -current_time * 0.25), 5);
+
+    // Couche 2 : échelle moyenne, dérive nord-ouest (interférence)
+    let c2 = fbm(world_pos * 0.00025 + vec2<f32>(-current_time * 0.2, current_time * 0.35) + vec2<f32>(42.0, 17.0), 4);
+
+    // Couche 3 : petite échelle, lente, pour les détails
+    let c3 = fbm(world_pos * 0.0006 + vec2<f32>(current_time * 0.15, current_time * 0.1) + vec2<f32>(91.0, 53.0), 3);
+
+    let current_val = c1 * 0.5 + c2 * 0.3 + c3 * 0.2;
+
+    // Actif dès qu'on n'est plus sur la frange côtière immédiate
+    let current_strength = smoothstep(0.05, 0.25, sdf_depth);
+
+    // Variation de teinte chaude/froide
+    let cshift = (current_val - 0.5);
+    ocean_color += vec3<f32>(cshift * 0.02, cshift * 0.008, -cshift * 0.015) * current_strength;
+
+    // Variation de luminosité
+    ocean_color *= 1.0 + cshift * 0.04 * current_strength;
+
+    // =====================================================================
+    // RUGOSITÉ DE SURFACE — patches de vent
+    // Zones calmes (lisses, plus claires) vs zones ventées (clapot, plus sombres)
+    // Très basse fréquence, évolue lentement
+    // =====================================================================
+
+    let wind_time = time * 0.02;
+    let roughness = fbm(world_pos * 0.00012 + vec2<f32>(wind_time * 0.1, wind_time * 0.06), 3);
+
+    // Modulation de luminosité douce
+    let rough_effect = (roughness - 0.5) * 0.04 * smoothstep(0.1, 0.35, sdf_depth);
+    ocean_color *= 1.0 + rough_effect;
+
+    // =====================================================================
+    // TURBIDITÉ CÔTIÈRE — voile vert-brun près des côtes
+    // Simulant sédiments, algues, eaux troubles des estuaires
+    // =====================================================================
+
+    let turbid_color = vec3<f32>(0.10, 0.14, 0.11); // Vert-brun côtier
+    if sdf_depth < 0.40 {
+        let turb_base = 1.0 - smoothstep(0.0, 0.35, sdf_depth);
+        // Panaches irréguliers le long de la côte
+        let turb_noise = fbm(world_pos * 0.0008 + vec2<f32>(wind_time * 0.05, 0.0), 3);
+        let turbidity = turb_base * (0.3 + turb_noise * 0.7) * 0.18;
+        ocean_color = mix(ocean_color, turbid_color, turbidity);
+    }
+
+    // =====================================================================
     // VAGUES DE SURFACE
     // =====================================================================
 
@@ -187,6 +243,20 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // =====================================================================
+    // BRUME DE PROFONDEUR — voile bleu-gris qui désature les eaux profondes
+    // Réduit le contraste au large, renforce la lisibilité côte vs pleine mer
+    // Appliqué APRÈS courants/vagues/caustiques pour les atténuer naturellement
+    // mais AVANT l'écume (qui reste nette par-dessus)
+    // =====================================================================
+
+    let haze_color = vec3<f32>(0.12, 0.15, 0.19); // Bleu-gris brumeux
+    // Brume pilotée par la profondeur réelle (SDF + heightmap)
+    // Eau peu profonde = claire, eau profonde = brume, même loin de la côte
+    let haze_depth = sdf_depth * 0.5 + bathymetry * 0.5;
+    let haze_amount = smoothstep(0.02, 0.65, haze_depth) * 0.20;
+    ocean_color = mix(ocean_color, haze_color, haze_amount);
+
+    // =====================================================================
     // ÉCUME — riche, vitesse réaliste pour vue à ~20m
     // =====================================================================
 
@@ -198,15 +268,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                    * (1.0 - smoothstep(-0.05, 0.05, sdf_signed));
 
     if foam_zone > 0.01 {
-        // Variations spatiales basse fréquence (pas de discontinuité)
+        // Variations spatiales basse fréquence
         let phase_1 = fbm(world_pos * 0.006, 3) * TAU;
         let phase_2 = fbm(world_pos * 0.007 + vec2<f32>(100.0, 0.0), 3) * TAU;
         let amp_var = 0.5 + fbm(world_pos * 0.005, 3) * 0.5;
         let width_var = 0.7 + fbm(world_pos * 0.008 + vec2<f32>(50.0, 50.0), 3) * 0.6;
-        let speed_var = 0.6 + noise(world_pos * 0.003 + vec2<f32>(0.0, 100.0)) * 0.4;
 
-        // Vague principale
-        let w1 = sin(foam_time * speed_var + phase_1);
+        // Vague principale — vitesse FIXE, seule la phase varie spatialement
+        let w1 = sin(foam_time * 0.8 + phase_1);
         let wc1 = -0.05 + w1 * params.wave_amplitude * 0.8 * amp_var;
         let fhw1 = params.foam_width * 0.5 * width_var;
         // Fade aux extrêmes : très doux, seulement tout au bout de course
@@ -214,7 +283,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let fi1 = (1.0 - smoothstep(0.0, fhw1, abs(sdf_signed - wc1))) * fade1;
 
         // Vague secondaire
-        let w2 = sin(foam_time * 0.75 * speed_var + phase_2);
+        let w2 = sin(foam_time * 0.55 + phase_2);
         let wc2 = -0.15 + w2 * params.wave_amplitude * 0.4 * amp_var;
         let fhw2 = params.foam_width * 0.35 * width_var;
         let fade2 = 1.0 - pow(abs(w2), 6.0);
@@ -230,10 +299,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Vitesse réduite, légèrement différente par vague
             let w_speed = 0.05 + wave_idx * 0.012;
-            let w_cycle = fract(foam_time * w_speed + w_phase);
+            let raw_cycle = foam_time * w_speed + w_phase;
+            let w_cycle = fract(raw_cycle);
             
-            // Index de cycle pour varier les distances et la forme
-            let cycle_id = floor(foam_time * w_speed + w_phase);
+            // Index de cycle — modulo pour garder les hashes stables dans le temps
+            let cycle_id = floor(raw_cycle) % 256.0;
             let cycle_rand = fract(sin(cycle_id * 43.758 + wave_idx * 17.31) * 12345.6789);
             let cycle_rand2 = fract(sin(cycle_id * 71.137 + wave_idx * 23.57) * 54321.9876);
             
