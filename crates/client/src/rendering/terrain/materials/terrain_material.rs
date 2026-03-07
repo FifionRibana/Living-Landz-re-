@@ -36,6 +36,11 @@ pub struct TerrainMaterial {
 
     #[uniform(10)]
     pub road_color_tracks: LinearRgba,
+
+    /// Position et taille du chunk dans l'espace monde
+    /// Permet au shader de calculer des coordonnées globales continues
+    #[uniform(11)]
+    pub chunk_info: ChunkInfo,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -54,6 +59,31 @@ pub struct RoadParams {
     pub noise_amplitude: f32,
 }
 
+/// Informations de positionnement du chunk dans le monde
+/// Passées au shader pour que le bruit soit continu entre chunks
+#[derive(Clone, Copy, ShaderType)]
+pub struct ChunkInfo {
+    /// Offset X du chunk dans l'espace monde
+    pub world_offset_x: f32,
+    /// Offset Y du chunk dans l'espace monde
+    pub world_offset_y: f32,
+    /// Largeur du chunk en pixels monde
+    pub chunk_width: f32,
+    /// Hauteur du chunk en pixels monde
+    pub chunk_height: f32,
+}
+
+impl Default for ChunkInfo {
+    fn default() -> Self {
+        Self {
+            world_offset_x: 0.0,
+            world_offset_y: 0.0,
+            chunk_width: 600.0,
+            chunk_height: 503.0,
+        }
+    }
+}
+
 impl Default for TerrainMaterial {
     fn default() -> Self {
         Self {
@@ -66,7 +96,7 @@ impl Default for TerrainMaterial {
                 has_coast: 0.0,
                 _padding: 0.0,
             },
-            road_sdf_texture: Handle::default(), // Will be replaced with dummy texture
+            road_sdf_texture: Handle::default(),
             road_params: RoadParams {
                 has_roads: 0.0,
                 edge_softness: 2.0,
@@ -76,13 +106,14 @@ impl Default for TerrainMaterial {
             road_color_light: LinearRgba::new(0.76, 0.70, 0.55, 1.0),
             road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
             road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
+            chunk_info: ChunkInfo::default(),
         }
     }
 }
 
 impl Material2d for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/terrain_signed_sdf.wgsl".into()
+        "shaders/terrain_signed_sdf_painterly.wgsl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {

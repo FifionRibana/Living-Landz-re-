@@ -13,7 +13,9 @@ mod ui;
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::srgb_u8(0, 15, 30)))
+        // .insert_resource(ClearColor(Color::srgb_u8(0, 15, 30)))
+        .insert_resource(ClearColor(Color::srgb_u8(34, 58, 81)))
+        // .insert_resource(ClearColor(Color::linear_rgba(0.012, 0.035, 0.07, 1.0)))
         .add_plugins((
             DefaultPlugins
                 .set(WindowPlugin {
