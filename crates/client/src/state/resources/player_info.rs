@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::types::game::{Character, Player};
+use shared::{UnitData, types::game::{Character, Player}};
 
 #[derive(Resource, Debug, Clone)]
 pub struct PlayerInfo {
@@ -9,6 +9,8 @@ pub struct PlayerInfo {
     // Temporary storage for player/character names when full data is not available
     pub temp_player_name: Option<String>,
     pub temp_character_name: Option<String>,
+    // Lord
+    pub lord: Option<UnitData>,
 }
 
 impl Default for PlayerInfo {
@@ -19,6 +21,7 @@ impl Default for PlayerInfo {
             active_character: None,
             temp_player_name: None,
             temp_character_name: None,
+            lord: None,
         }
     }
 }
@@ -50,5 +53,14 @@ impl PlayerInfo {
 
     pub fn is_initialized(&self) -> bool {
         self.player.is_some()
+    }
+
+    /// Le joueur a-t-il un lord ?
+    pub fn has_lord(&self) -> bool {
+        self.lord.is_some()
+    }
+
+    pub fn set_lord(&mut self, lord: UnitData) {
+        self.lord = Some(lord);
     }
 }

@@ -1,4 +1,5 @@
 use futures::{SinkExt, StreamExt};
+use shared::grid::GridCell;
 use shared::{
     ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
     ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction,
@@ -10,8 +11,8 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::action_processor::{ActionInfo, ActionProcessor};
-use crate::database::client::DatabaseTables;
 use crate::auth::password;
+use crate::database::client::DatabaseTables;
 use crate::units::NameGenerator;
 use crate::{utils, world};
 use shared::protocol::{ClientMessage, ColorData, ServerMessage};
@@ -122,6 +123,9 @@ pub async fn handle_connection(
                     ServerMessage::LoginError { .. } => "LoginError",
                     ServerMessage::RegisterSuccess{ .. } => "RegisterSuccess",
                     ServerMessage::RegisterError{ .. } => "RegisterError",
+                    ServerMessage::LordData { .. } => "LordData",
+                    ServerMessage::LordCreated { .. } => "LordCreated",
+                    ServerMessage::LordCreateError { .. } => "LordCreateError",
                     ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
                     ServerMessage::OceanData { .. } => "OceanData",
                     ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
@@ -149,6 +153,7 @@ pub async fn handle_connection(
                     ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
                     ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
                     ServerMessage::DebugError { .. } => "DebugError",
+                    ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
                     ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
                     ServerMessage::UnitProfessionChanged { .. } => "UnitProfessionChanged",
                     ServerMessage::Pong => "Pong",
@@ -209,55 +214,61 @@ async fn handle_client_message(
                         .authenticate_session(session_id, player.id as u64)
                         .await;
 
-                    // Get or create a default character
-                    match shared::types::game::methods::get_or_create_default_character(
+                    let characters = shared::types::game::methods::get_player_characters(
                         &db_tables.pool,
                         player.id,
-                        &player.family_name,
                     )
                     .await
-                    {
-                        Ok(character) => {
-                            tracing::info!(
-                                "Character {} {} loaded/created",
-                                character.first_name,
-                                character.family_name
-                            );
+                    .unwrap_or_default();
 
-                            // Convert to protocol types (without timestamps)
-                            let player_data = shared::protocol::PlayerData {
-                                id: player.id,
-                                family_name: player.family_name,
-                                language_id: player.language_id,
-                                coat_of_arms_id: player.coat_of_arms_id,
-                                motto: player.motto,
-                                origin_location: player.origin_location,
-                            };
+                    let character = characters.into_iter().next(); // Premier personnage ou None
 
-                            let character_data = shared::protocol::CharacterData {
-                                id: character.id,
-                                player_id: character.player_id,
-                                first_name: character.first_name,
-                                family_name: character.family_name,
-                                second_name: character.second_name,
-                                nickname: character.nickname,
-                                coat_of_arms_id: character.coat_of_arms_id,
-                                image_id: character.image_id,
-                                motto: character.motto,
-                            };
+                    let player_data = shared::protocol::PlayerData {
+                        id: player.id,
+                        family_name: player.family_name.clone(),
+                        language_id: player.language_id,
+                        coat_of_arms_id: player.coat_of_arms_id,
+                        motto: player.motto.clone(),
+                        origin_location: player.origin_location.clone(),
+                    };
 
-                            vec![ServerMessage::LoginSuccess {
-                                player: player_data,
-                                character: Some(character_data),
-                            }]
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to get/create character: {}", e);
-                            vec![ServerMessage::LoginError {
-                                reason: format!("Character creation error: {}", e),
-                            }]
-                        }
-                    }
+                    let character_data = character.map(|c| shared::protocol::CharacterData {
+                        id: c.id,
+                        player_id: c.player_id,
+                        first_name: c.first_name,
+                        family_name: c.family_name,
+                        second_name: c.second_name,
+                        nickname: c.nickname,
+                        coat_of_arms_id: c.coat_of_arms_id,
+                        image_id: c.image_id,
+                        motto: c.motto,
+                    });
+
+                    // Envoyer LoginSuccess
+                    let login_response = vec![ServerMessage::LoginSuccess {
+                        player: player_data,
+                        character: character_data,
+                    }];
+
+                    // Puis charger et envoyer le lord
+                    let player_id_u64 = player.id as u64;
+                    let lord = db_tables
+                        .units
+                        .load_lord_for_player(player_id_u64)
+                        .await
+                        .unwrap_or(None);
+
+                    tracing::info!(
+                        "Lord for player {}: {}",
+                        player_id_u64,
+                        lord.as_ref().map_or("None".to_string(), |l| l.full_name())
+                    );
+
+                    let _ = sessions
+                        .send_to_player(player_id_u64, ServerMessage::LordData { lord })
+                        .await;
+
+                    login_response
                 }
                 Err(e) => {
                     tracing::error!("Failed to get/create player {}: {}", username, e);
@@ -417,58 +428,62 @@ async fn handle_client_message(
                                 );
                             }
 
-                            // Get or create default character
-                            match shared::types::game::methods::get_or_create_default_character(
+                            let characters = shared::types::game::methods::get_player_characters(
                                 &db_tables.pool,
                                 player.id,
-                                &player.family_name,
                             )
                             .await
-                            {
-                                Ok(character) => {
-                                    tracing::info!(
-                                        "Character {} {} loaded/created",
-                                        character.first_name,
-                                        character.family_name
-                                    );
+                            .unwrap_or_default();
 
-                                    // Convert to protocol types
-                                    let player_data = shared::protocol::PlayerData {
-                                        id: player.id,
-                                        family_name: player.family_name,
-                                        language_id: player.language_id,
-                                        coat_of_arms_id: player.coat_of_arms_id,
-                                        motto: player.motto,
-                                        origin_location: player.origin_location,
-                                    };
+                            let character = characters.into_iter().next(); // Premier personnage ou None
 
-                                    let character_data = shared::protocol::CharacterData {
-                                        id: character.id,
-                                        player_id: character.player_id,
-                                        first_name: character.first_name,
-                                        family_name: character.family_name,
-                                        second_name: character.second_name,
-                                        nickname: character.nickname,
-                                        coat_of_arms_id: character.coat_of_arms_id,
-                                        image_id: character.image_id,
-                                        motto: character.motto,
-                                    };
+                            let player_data = shared::protocol::PlayerData {
+                                id: player.id,
+                                family_name: player.family_name.clone(),
+                                language_id: player.language_id,
+                                coat_of_arms_id: player.coat_of_arms_id,
+                                motto: player.motto.clone(),
+                                origin_location: player.origin_location.clone(),
+                            };
 
-                                    vec![ServerMessage::LoginSuccess {
-                                        player: player_data,
-                                        character: Some(character_data),
-                                    }]
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to get/create character: {}", e);
-                                    vec![ServerMessage::LoginError {
-                                        reason: format!(
-                                            "Erreur lors du chargement du personnage: {}",
-                                            e
-                                        ),
-                                    }]
-                                }
-                            }
+                            let character_data =
+                                character.map(|c| shared::protocol::CharacterData {
+                                    id: c.id,
+                                    player_id: c.player_id,
+                                    first_name: c.first_name,
+                                    family_name: c.family_name,
+                                    second_name: c.second_name,
+                                    nickname: c.nickname,
+                                    coat_of_arms_id: c.coat_of_arms_id,
+                                    image_id: c.image_id,
+                                    motto: c.motto,
+                                });
+
+                            // Envoyer LoginSuccess
+                            let login_response = vec![ServerMessage::LoginSuccess {
+                                player: player_data,
+                                character: character_data,
+                            }];
+
+                            // Puis charger et envoyer le lord
+                            let player_id_u64 = player.id as u64;
+                            let lord = db_tables
+                                .units
+                                .load_lord_for_player(player_id_u64)
+                                .await
+                                .unwrap_or(None);
+
+                            tracing::info!(
+                                "Lord for player {}: {}",
+                                player_id_u64,
+                                lord.as_ref().map_or("None".to_string(), |l| l.full_name())
+                            );
+
+                            let _ = sessions
+                                .send_to_player(player_id_u64, ServerMessage::LordData { lord })
+                                .await;
+
+                            login_response
                         }
                         Ok(false) => {
                             tracing::warn!(
@@ -1059,6 +1074,40 @@ async fn handle_client_message(
         } => {
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
+
+            // Charger la position actuelle de l'unité pour calculer la distance
+            let unit_data = match db_tables.units.load_unit(unit_id).await {
+                Ok(u) => u,
+                Err(e) => {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!("Unité introuvable: {}", e),
+                    }];
+                }
+            };
+
+            // Vérifier que l'unité appartient au joueur
+            if unit_data.player_id != Some(player_id) {
+                return vec![ServerMessage::ActionError {
+                    reason: "Cette unité ne vous appartient pas".to_string(),
+                }];
+            }
+
+            // TODO : Compute properly the path using A* pathfinding algorithm
+            // TODO : given crossed cells, distance, roads, etc...
+            // Calculer la distance hex entre position actuelle et cible
+            let from_hex = unit_data.current_cell.to_hex();
+            let to_hex = cell.to_hex();
+            let hex_distance = from_hex.unsigned_distance_to(to_hex) as u64;
+
+            if hex_distance == 0 {
+                return vec![ServerMessage::ActionError {
+                    reason: "L'unité est déjà sur cette cellule".to_string(),
+                }];
+            }
+
+            // Durée : 2 secondes par hex de distance
+            let duration_ms = hex_distance * 2000;
+
             let specific_data = SpecificAction::MoveUnit(MoveUnitAction {
                 player_id,
                 unit_id,
@@ -1070,10 +1119,6 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
-                player_id,
-                grid_cell: cell,
-            });
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1099,6 +1144,13 @@ async fn handle_client_message(
             .await
             {
                 Ok(action_id) => {
+                    tracing::info!(
+                        "Unit {} moving {} hexes from ({},{}) to ({},{}) — {}ms (action {})",
+                        unit_id, hex_distance,
+                        unit_data.current_cell.q, unit_data.current_cell.r,
+                        cell.q, cell.r,
+                        duration_ms, action_id
+                    );
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
@@ -1110,9 +1162,9 @@ async fn handle_client_message(
                     });
                 }
                 Err(e) => {
-                    tracing::error!("Failed to schedule action: {}", e);
+                    tracing::error!("Failed to schedule move action: {}", e);
                     responses.push(ServerMessage::ActionError {
-                        reason: format!("Failed to schedule action: {}", e),
+                        reason: format!("Échec de la planification: {}", e),
                     });
                 }
             }
@@ -1171,7 +1223,9 @@ async fn handle_client_message(
                 Ok(action_id) => {
                     tracing::info!(
                         "Training unit {} to {:?} (action {})",
-                        unit_id, target_profession, action_id
+                        unit_id,
+                        target_profession,
+                        action_id
                     );
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -1399,6 +1453,146 @@ async fn handle_client_message(
         }
 
         // ====================================================================
+        // LORD COMMANDS
+        // ====================================================================
+        ClientMessage::CreateLord {
+            first_name,
+            gender,
+            portrait_layers,
+        } => {
+            tracing::info!(
+                "Session {} creating lord: {} ({}) layers={}",
+                session_id,
+                first_name,
+                gender,
+                portrait_layers
+            );
+
+            // 1. Récupérer le player_id depuis la session
+            let player_id = match sessions.get_player_id(session_id).await {
+                Some(id) => id,
+                None => {
+                    return vec![ServerMessage::LordCreateError {
+                        reason: "Non authentifié".to_string(),
+                    }];
+                }
+            };
+
+            // 2. Vérifier que le joueur n'a pas déjà un lord
+            match db_tables.units.load_lord_for_player(player_id).await {
+                Ok(Some(existing_lord)) => {
+                    tracing::warn!(
+                        "Player {} already has a lord: {}",
+                        player_id,
+                        existing_lord.full_name()
+                    );
+                    return vec![ServerMessage::LordCreateError {
+                        reason: "Vous avez déjà un Lord/Lady".to_string(),
+                    }];
+                }
+                Ok(None) => { /* OK, pas de lord existant */ }
+                Err(e) => {
+                    return vec![ServerMessage::LordCreateError {
+                        reason: format!("Erreur: {}", e),
+                    }];
+                }
+            }
+
+            // 3. Récupérer le family_name du joueur
+            let family_name = match shared::types::game::methods::get_player_by_id(
+                &db_tables.pool,
+                player_id as i64,
+            )
+            .await
+            {
+                Ok(Some(player)) => player.family_name,
+                Ok(None) => {
+                    return vec![ServerMessage::LordCreateError {
+                        reason: "Joueur introuvable".to_string(),
+                    }];
+                }
+                Err(e) => {
+                    return vec![ServerMessage::LordCreateError {
+                        reason: format!("Erreur DB: {}", e),
+                    }];
+                }
+            };
+
+            // 4. Choisir une cellule de départ
+            //    Pour le MVP : cellule fixe sur terre. À terme : choix du joueur.
+            let starting_cell = GridCell { q: 0, r: 0 };
+            let starting_chunk = shared::TerrainChunkId { x: 0, y: 0 };
+
+            // 5. Construire l'avatar_url à partir du portrait_layers
+            //    Le portrait du lord est le patchwork de couches, pas un avatar serveur.
+            //    On stocke une URL placeholder — le client reconstruit le portrait depuis les layers.
+            let portrait_variant_id = "lord".to_string();
+            let avatar_url = format!("lord_{}_{}", gender, player_id);
+
+            // 6. Créer l'unité lord
+            let profession = shared::ProfessionEnum::Unknown; // Le lord n'a pas de profession artisane
+
+            match db_tables
+                .units
+                .create_unit(
+                    Some(player_id),
+                    first_name.clone(),
+                    family_name.clone(),
+                    gender.clone(),
+                    portrait_variant_id,
+                    avatar_url,
+                    starting_cell,
+                    starting_chunk,
+                    profession,
+                    true,                  // is_lord = true
+                    Some(portrait_layers), // portrait_layers
+                )
+                .await
+            {
+                Ok(unit_id) => {
+                    tracing::info!(
+                        "✓ Lord created: {} {} (ID: {}) for player {}",
+                        first_name,
+                        family_name,
+                        unit_id,
+                        player_id
+                    );
+
+                    // 7. Créer aussi le Character dans game.characters
+                    let _ = shared::types::game::methods::create_character(
+                        &db_tables.pool,
+                        player_id as i64,
+                        &first_name,
+                        &family_name,
+                        None, // second_name
+                        None, // nickname
+                        None, // motto
+                    )
+                    .await;
+
+                    // 8. Charger et renvoyer les données complètes
+                    match db_tables.units.load_unit(unit_id).await {
+                        Ok(unit_data) => {
+                            vec![ServerMessage::LordCreated { unit_data }]
+                        }
+                        Err(e) => {
+                            tracing::error!("Lord created but failed to reload: {}", e);
+                            vec![ServerMessage::LordCreateError {
+                                reason: format!("Lord créé mais erreur au chargement: {}", e),
+                            }]
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create lord: {}", e);
+                    vec![ServerMessage::LordCreateError {
+                        reason: format!("Erreur lors de la création: {}", e),
+                    }]
+                }
+            }
+        }
+
+        // ====================================================================
         // DEBUG COMMANDS
         // ====================================================================
         ClientMessage::DebugCreateOrganization {
@@ -1455,6 +1649,8 @@ async fn handle_client_message(
                     cell,
                     shared::TerrainChunkId { x: 0, y: 0 },
                     shared::ProfessionEnum::Merchant,
+                    false,
+                    None,
                 )
                 .await;
 
@@ -1971,6 +2167,8 @@ async fn handle_client_message(
                     cell,
                     default_chunk,
                     profession,
+                    false,
+                    None,
                 )
                 .await
             {

@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use crate::{camera::MainCamera, ui::resources::ContextMenuState};
 use crate::grid::resources::SelectedHexes;
 use crate::state::resources::WorldCache;
 use crate::states::GameView;
-use crate::ui::resources::CellState;
-use crate::camera::MainCamera;
+use crate::ui::resources::{CellState, UnitSelectionState};
 
 use hexx::Hex;
 use shared::grid::{GridCell, GridConfig};
@@ -139,4 +139,70 @@ pub fn handle_cell_view_entry(
             *last_click = Some((clicked_hex, current_time));
         }
     }
+}
+
+// TODO : Lord movement should be done only if the lord is selected.
+// TODO : Furthermore, every selected units that can actually move should move toward the target cell
+// TODO : Unit that can move: No pending action (move, train, production, building, attack, etc..), not stuck for any reason, alive, ...
+/// Clic droit sur la carte = ouvrir le menu contextuel (si unités sélectionnées)
+pub fn handle_map_right_click(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    grid_config: Res<GridConfig>,
+    unit_selection: Res<UnitSelectionState>,
+    mut context_menu: ResMut<ContextMenuState>,
+    game_view: Option<Res<State<GameView>>>,
+    ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
+) {
+    let Some(gv) = game_view else { return };
+    if *gv.get() != GameView::Map { return; }
+
+    if !mouse_button.just_pressed(MouseButton::Right) { return; }
+
+    // Fermer le menu s'il est déjà ouvert (re-clic droit)
+    if context_menu.open {
+        context_menu.close();
+        return;
+    }
+
+    // Pas de sélection → pas de menu
+    if !unit_selection.has_selection() { return; }
+
+    // Ne pas ouvrir si clic sur l'UI
+    let is_over_ui = ui_interaction_query.iter().any(|(interaction, pickable)| {
+        pickable.should_block_lower
+            && matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+    });
+    if is_over_ui { return; }
+
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
+
+    // Position écran du curseur
+    let Some(cursor_pos) = window.cursor_position() else { return };
+
+    // Position monde → hex
+    let Some(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos).ok() 
+    else { return };
+
+    let target_hex = grid_config.layout.world_pos_to_hex(world_pos);
+    let target_cell = shared::grid::GridCell::from_hex(&target_hex);
+
+    // TODO: calculer le chunk cible à partir de la position monde
+    // Pour le MVP on utilise le chunk (0,0) — à améliorer
+    let target_chunk = shared::TerrainChunkId { x: 0, y: 0 };
+
+    // Construire la liste d'actions disponibles
+    let mut actions = Vec::new();
+    actions.push(crate::ui::resources::ContextMenuAction::Move);
+    // Futures: vérifier le contexte pour proposer Build, Harvest, etc.
+
+    info!(
+        "Opening context menu at ({},{}) for {} selected units",
+        target_cell.q, target_cell.r,
+        unit_selection.count()
+    );
+
+    context_menu.open_at(cursor_pos, target_cell, target_chunk, actions);
 }

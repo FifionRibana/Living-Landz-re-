@@ -11,6 +11,7 @@ mod cell_view;
 mod chat_panel;
 mod chat_panel_setup;
 mod clock;
+pub mod context_menu;
 mod map_units_panel;
 mod menu_buttons;
 mod player_info;

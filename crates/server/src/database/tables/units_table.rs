@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use shared::{
-    EquipmentSlotEnum, FullUnitData, InventoryItem, ProfessionEnum,
-    SkillEnum, TerrainChunkId, UnitBaseStats, UnitData, UnitDerivedStats,
-    UnitSkill, grid::GridCell, EquippedItem,
+    EquipmentSlotEnum, EquippedItem, FullUnitData, InventoryItem, ProfessionEnum, SkillEnum,
+    TerrainChunkId, UnitBaseStats, UnitData, UnitDerivedStats, UnitSkill, grid::GridCell,
 };
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
@@ -31,6 +30,8 @@ impl UnitsTable {
         cell: GridCell,
         chunk: TerrainChunkId,
         profession: ProfessionEnum,
+        is_lord: bool,
+        portrait_layers: Option<String>,
     ) -> Result<u64, String> {
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
 
@@ -39,8 +40,9 @@ impl UnitsTable {
             r#"
             INSERT INTO units.units
             (player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
-             current_cell_q, current_cell_r, current_chunk_x, current_chunk_y, profession_id, money)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
+             profession_id, money, is_lord, portrait_layers)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING id
             "#,
         )
@@ -57,6 +59,8 @@ impl UnitsTable {
         .bind(chunk.y)
         .bind(profession.to_id())
         .bind(0i64) // money = 0
+        .bind(is_lord)
+        .bind(&portrait_layers)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| format!("Failed to create unit: {}", e))?;
@@ -113,7 +117,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money, slot_type, slot_index
+                   profession_id, money, slot_type, slot_index, is_lord, portrait_layers
             FROM units.units
             WHERE id = $1
             "#,
@@ -145,6 +149,8 @@ impl UnitsTable {
             profession: ProfessionEnum::from_id(row.get("profession_id"))
                 .unwrap_or(ProfessionEnum::Unknown),
             money: row.get("money"),
+            is_lord: row.get("is_lord"),
+            portrait_layers: row.get("portrait_layers"),
         })
     }
 
@@ -154,7 +160,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money, slot_type, slot_index
+                   profession_id, money, slot_type, slot_index, is_lord, portrait_layers
             FROM units.units
             WHERE player_id = $1
             "#,
@@ -188,6 +194,8 @@ impl UnitsTable {
                 profession: ProfessionEnum::from_id(row.get("profession_id"))
                     .unwrap_or(ProfessionEnum::Unknown),
                 money: row.get("money"),
+                is_lord: row.get("is_lord"),
+                portrait_layers: row.get("portrait_layers"),
             })
             .collect())
     }
@@ -198,7 +206,7 @@ impl UnitsTable {
             r#"
             SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
                    current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
-                   profession_id, money, slot_type, slot_index
+                   profession_id, money, slot_type, slot_index, is_lord, portrait_layers
             FROM units.units
             WHERE current_chunk_x = $1 AND current_chunk_y = $2
             "#,
@@ -233,8 +241,53 @@ impl UnitsTable {
                 profession: ProfessionEnum::from_id(row.get("profession_id"))
                     .unwrap_or(ProfessionEnum::Unknown),
                 money: row.get("money"),
+                is_lord: row.get("is_lord"),
+                portrait_layers: row.get("portrait_layers"),
             })
             .collect())
+    }
+
+    /// Charge le lord d'un joueur (s'il existe)
+    pub async fn load_lord_for_player(&self, player_id: u64) -> Result<Option<UnitData>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, player_id, first_name, last_name, gender, level, avatar_url, portrait_variant_id,
+                   current_cell_q, current_cell_r, current_chunk_x, current_chunk_y,
+                   profession_id, money, slot_type, slot_index, is_lord, portrait_layers
+            FROM units.units
+            WHERE player_id = $1 AND is_lord = true
+            "#,
+        )
+        .bind(player_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load lord: {}", e))?;
+
+        Ok(row.map(|row| UnitData {
+            id: row.get::<i64, _>("id") as u64,
+            player_id: row.get::<Option<i64>, _>("player_id").map(|id| id as u64),
+            first_name: row.get("first_name"),
+            last_name: row.get("last_name"),
+            gender: row.get("gender"),
+            level: row.get("level"),
+            avatar_url: row.get("avatar_url"),
+            portrait_variant_id: row.get("portrait_variant_id"),
+            current_cell: GridCell {
+                q: row.get("current_cell_q"),
+                r: row.get("current_cell_r"),
+            },
+            current_chunk: TerrainChunkId {
+                x: row.get("current_chunk_x"),
+                y: row.get("current_chunk_y"),
+            },
+            slot_type: row.get("slot_type"),
+            slot_index: row.get("slot_index"),
+            profession: ProfessionEnum::from_id(row.get("profession_id"))
+                .unwrap_or(ProfessionEnum::Unknown),
+            money: row.get("money"),
+            is_lord: row.get("is_lord"),
+            portrait_layers: row.get("portrait_layers"),
+        }))
     }
 
     // ============ STATS ============
@@ -344,6 +397,33 @@ impl UnitsTable {
         Ok(())
     }
 
+    /// Met à jour la position d'une unité (cellule + chunk)
+    pub async fn update_unit_position(
+        &self,
+        unit_id: u64,
+        cell: &GridCell,
+        chunk: &TerrainChunkId,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE units.units
+            SET current_cell_q = $1, current_cell_r = $2,
+                current_chunk_x = $3, current_chunk_y = $4
+            WHERE id = $5
+            "#,
+        )
+        .bind(cell.q)
+        .bind(cell.r)
+        .bind(chunk.x)
+        .bind(chunk.y)
+        .bind(unit_id as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update unit position: {}", e))?;
+
+        Ok(())
+    }
+
     /// Met à jour la profession d'une unité (après formation)
     pub async fn update_unit_profession(
         &self,
@@ -376,7 +456,10 @@ impl UnitsTable {
     // ============ SKILLS ============
 
     /// Charge tous les skills d'une unité
-    pub async fn load_unit_skills(&self, unit_id: u64) -> Result<HashMap<SkillEnum, UnitSkill>, String> {
+    pub async fn load_unit_skills(
+        &self,
+        unit_id: u64,
+    ) -> Result<HashMap<SkillEnum, UnitSkill>, String> {
         let rows = sqlx::query(
             r#"
             SELECT skill_id, xp, level
@@ -408,11 +491,7 @@ impl UnitsTable {
     }
 
     /// Ajoute ou met à jour un skill pour une unité
-    pub async fn upsert_unit_skill(
-        &self,
-        unit_id: u64,
-        skill: &UnitSkill,
-    ) -> Result<(), String> {
+    pub async fn upsert_unit_skill(&self, unit_id: u64, skill: &UnitSkill) -> Result<(), String> {
         sqlx::query(
             r#"
             INSERT INTO units.unit_skills (unit_id, skill_id, xp, level)
@@ -661,7 +740,11 @@ impl UnitsTable {
     }
 
     /// Count units on a specific cell
-    pub async fn count_units_on_cell(&self, cell: &GridCell, chunk: &TerrainChunkId) -> Result<usize, String> {
+    pub async fn count_units_on_cell(
+        &self,
+        cell: &GridCell,
+        chunk: &TerrainChunkId,
+    ) -> Result<usize, String> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*)

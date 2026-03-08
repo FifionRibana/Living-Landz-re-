@@ -1,6 +1,11 @@
 use bevy::prelude::*;
-use shared::{ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::GridCell, protocol::ServerMessage};
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use shared::{
+    ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::GridCell, protocol::ServerMessage,
+};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 use crate::database::client::DatabaseTables;
@@ -9,8 +14,8 @@ use crate::road::RoadSegment;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
 fn cell_to_world_pos(cell: &GridCell) -> Vec2 {
-    use shared::constants::{HEX_SIZE, HEX_RATIO};
     use hexx::{Hex, HexLayout};
+    use shared::constants::{HEX_RATIO, HEX_SIZE};
 
     // Utiliser le même HexLayout que le terrain pour garantir la cohérence
     let layout = HexLayout::flat()
@@ -56,7 +61,18 @@ impl ActionProcessor {
 
         let mut active_actions = self.active_actions.write().await;
 
-        for (action_id, player_id, chunk_id, cell, action_type, status, start_time, duration_ms, completion_time) in actions {
+        for (
+            action_id,
+            player_id,
+            chunk_id,
+            cell,
+            action_type,
+            status,
+            start_time,
+            duration_ms,
+            completion_time,
+        ) in actions
+        {
             let action_info = ActionInfo {
                 action_id,
                 player_id,
@@ -78,7 +94,10 @@ impl ActionProcessor {
 
     /// Ajoute une nouvelle action au cache
     pub async fn add_action(&self, action_info: ActionInfo) {
-        tracing::info!("Adding new action {} to active actions", action_info.action_id);
+        tracing::info!(
+            "Adding new action {} to active actions",
+            action_info.action_id
+        );
         let mut active_actions = self.active_actions.write().await;
         active_actions.insert(action_info.action_id, action_info);
     }
@@ -118,15 +137,27 @@ impl ActionProcessor {
                 action_info.status = ActionStatusEnum::InProgress;
 
                 // Mettre à jour la DB via la table
-                if let Err(e) = self.db_tables.actions.update_action_status(action_id, ActionStatusEnum::InProgress).await {
+                if let Err(e) = self
+                    .db_tables
+                    .actions
+                    .update_action_status(action_id, ActionStatusEnum::InProgress)
+                    .await
+                {
                     tracing::error!("Failed to update action {} to InProgress: {}", action_id, e);
                     continue;
                 }
 
                 // Si c'est une action BuildBuilding, créer le bâtiment en construction
                 if action_info.action_type == ActionTypeEnum::BuildBuilding {
-                    if let Err(e) = self.create_building_for_action(action_id, action_info).await {
-                        tracing::error!("Failed to create building for action {}: {}", action_id, e);
+                    if let Err(e) = self
+                        .create_building_for_action(action_id, action_info)
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to create building for action {}: {}",
+                            action_id,
+                            e
+                        );
                         // Continue quand même, l'action peut se terminer mais sans bâtiment
                     }
                 }
@@ -150,7 +181,8 @@ impl ActionProcessor {
                     completion_time: action_info.completion_time,
                 };
 
-                self.send_message_to_player(action_info.player_id, message).await;
+                self.send_message_to_player(action_info.player_id, message)
+                    .await;
 
                 tracing::info!(
                     "Action {} started (InProgress) for player {}",
@@ -188,14 +220,24 @@ impl ActionProcessor {
                 action_info.status = ActionStatusEnum::Completed;
 
                 // Mettre à jour la DB via la table
-                if let Err(e) = self.db_tables.actions.update_action_status(action_id, ActionStatusEnum::Completed).await {
+                if let Err(e) = self
+                    .db_tables
+                    .actions
+                    .update_action_status(action_id, ActionStatusEnum::Completed)
+                    .await
+                {
                     tracing::error!("Failed to update action {} to Completed: {}", action_id, e);
                     continue;
                 }
 
                 // Si c'est une action BuildBuilding, marquer le bâtiment comme construit
                 if action_info.action_type == ActionTypeEnum::BuildBuilding {
-                    if let Err(e) = self.db_tables.buildings.mark_building_as_built(action_id).await {
+                    if let Err(e) = self
+                        .db_tables
+                        .buildings
+                        .mark_building_as_built(action_id)
+                        .await
+                    {
                         tracing::error!("Failed to mark building {} as built: {}", action_id, e);
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
@@ -204,7 +246,8 @@ impl ActionProcessor {
 
                 // Si c'est une action BuildRoad, régénérer et envoyer la SDF de route
                 if action_info.action_type == ActionTypeEnum::BuildRoad {
-                    tracing::info!("Road segment {} completed at chunk ({}, {}) cell ({}, {})",
+                    tracing::info!(
+                        "Road segment {} completed at chunk ({}, {}) cell ({}, {})",
                         action_id,
                         action_info.chunk_id.x,
                         action_info.chunk_id.y,
@@ -215,7 +258,8 @@ impl ActionProcessor {
                     // Note: La SDF a déjà été envoyée lors de la création du segment,
                     // mais on la régénère à nouveau pour garantir la cohérence
                     // On régénère pour le chunk et ses voisins pour gérer les routes diagonales
-                    self.regenerate_road_sdf_for_chunk_and_neighbors(&action_info.chunk_id).await;
+                    self.regenerate_road_sdf_for_chunk_and_neighbors(&action_info.chunk_id)
+                        .await;
                 }
 
                 // Si c'est une action TrainUnit, mettre à jour la profession de l'unité
@@ -223,12 +267,23 @@ impl ActionProcessor {
                     match self.db_tables.actions.load_train_unit_data(action_id).await {
                         Ok(Some((unit_id, target_profession))) => {
                             // Update profession in DB
-                            if let Err(e) = self.db_tables.units.update_unit_profession(unit_id, target_profession).await {
-                                tracing::error!("Failed to update unit {} profession: {}", unit_id, e);
+                            if let Err(e) = self
+                                .db_tables
+                                .units
+                                .update_unit_profession(unit_id, target_profession)
+                                .await
+                            {
+                                tracing::error!(
+                                    "Failed to update unit {} profession: {}",
+                                    unit_id,
+                                    e
+                                );
                             } else {
                                 tracing::info!(
                                     "Unit {} trained to {:?} (action {})",
-                                    unit_id, target_profession, action_id
+                                    unit_id,
+                                    target_profession,
+                                    action_id
                                 );
 
                                 // Notify the player that unit profession changed
@@ -236,14 +291,91 @@ impl ActionProcessor {
                                     unit_id,
                                     new_profession: target_profession,
                                 };
-                                self.send_message_to_player(action_info.player_id, profession_msg).await;
+                                self.send_message_to_player(action_info.player_id, profession_msg)
+                                    .await;
                             }
                         }
                         Ok(None) => {
                             tracing::error!("No train_unit data found for action {}", action_id);
                         }
                         Err(e) => {
-                            tracing::error!("Failed to load train_unit data for action {}: {}", action_id, e);
+                            tracing::error!(
+                                "Failed to load train_unit data for action {}: {}",
+                                action_id,
+                                e
+                            );
+                        }
+                    }
+                }
+
+                // Si c'est une action MoveUnit, mettre à jour la position de l'unité
+                if action_info.action_type == ActionTypeEnum::MoveUnit {
+                    // Charger les données de l'action pour récupérer unit_id
+                    match self.db_tables.actions.load_move_unit_data(action_id).await {
+                        Ok(Some((unit_id, target_cell, target_chunk))) => {
+                            // Récupérer la position actuelle avant la mise à jour
+                            let from_cell;
+                            let from_chunk;
+                            match self.db_tables.units.load_unit(unit_id).await {
+                                Ok(unit) => {
+                                    from_cell = unit.current_cell;
+                                    from_chunk = unit.current_chunk;
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to load unit {} for move: {}",
+                                        unit_id,
+                                        e
+                                    );
+                                    from_cell = action_info.cell;
+                                    from_chunk = action_info.chunk_id;
+                                }
+                            }
+
+                            // Mettre à jour la position en DB
+                            if let Err(e) = self
+                                .db_tables
+                                .units
+                                .update_unit_position(unit_id, &target_cell, &target_chunk)
+                                .await
+                            {
+                                tracing::error!(
+                                    "Failed to update unit {} position: {}",
+                                    unit_id,
+                                    e
+                                );
+                            } else {
+                                tracing::info!(
+                                    "Unit {} moved from ({},{}) to ({},{}) (action {})",
+                                    unit_id,
+                                    from_cell.q,
+                                    from_cell.r,
+                                    target_cell.q,
+                                    target_cell.r,
+                                    action_id
+                                );
+
+                                // Notifier le joueur
+                                let move_msg = ServerMessage::UnitPositionUpdated {
+                                    unit_id,
+                                    from_cell,
+                                    from_chunk,
+                                    to_cell: target_cell,
+                                    to_chunk: target_chunk,
+                                };
+                                self.send_message_to_player(action_info.player_id, move_msg)
+                                    .await;
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::error!("No move_unit data found for action {}", action_id);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to load move_unit data for action {}: {}",
+                                action_id,
+                                e
+                            );
                         }
                     }
                 }
@@ -259,7 +391,8 @@ impl ActionProcessor {
                     completion_time: action_info.completion_time,
                 };
 
-                self.send_message_to_player(action_info.player_id, status_message).await;
+                self.send_message_to_player(action_info.player_id, status_message)
+                    .await;
 
                 // Au prochain tick, on enverra le résultat aux joueurs du chunk
                 // Pour l'instant on envoie immédiatement
@@ -270,7 +403,8 @@ impl ActionProcessor {
                     action_type: action_info.action_type,
                 };
 
-                self.broadcast_to_chunk(&action_info.chunk_id, completion_message).await;
+                self.broadcast_to_chunk(&action_info.chunk_id, completion_message)
+                    .await;
 
                 tracing::info!(
                     "Action {} completed for player {} at chunk ({}, {}) cell ({}, {})",
@@ -289,25 +423,40 @@ impl ActionProcessor {
     }
 
     /// Crée un bâtiment en construction pour une action BuildBuilding
-    async fn create_building_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+    async fn create_building_for_action(
+        &self,
+        action_id: u64,
+        action_info: &ActionInfo,
+    ) -> Result<(), String> {
         use shared::{
             AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum,
-            BuildingBaseData, BuildingData, BuildingSpecific, BuildingTypeEnum,
-            CommerceData, CommerceTypeEnum, CultData, CultTypeEnum,
-            EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData,
-            ManufacturingWorkshopTypeEnum,
+            BuildingBaseData, BuildingData, BuildingSpecific, BuildingTypeEnum, CommerceData,
+            CommerceTypeEnum, CultData, CultTypeEnum, EntertainmentData, EntertainmentTypeEnum,
+            ManufacturingWorkshopData, ManufacturingWorkshopTypeEnum,
         };
 
         // Récupérer le type de bâtiment depuis la base de données
-        let building_type_id = self.db_tables.actions.get_build_building_type(action_id).await?
+        let building_type_id = self
+            .db_tables
+            .actions
+            .get_build_building_type(action_id)
+            .await?
             .ok_or_else(|| format!("No building type found for action {}", action_id))?;
 
-        tracing::info!("Building type id: {} for action {}", building_type_id, action_id);
+        tracing::info!(
+            "Building type id: {} for action {}",
+            building_type_id,
+            action_id
+        );
         // Convertir building_type_id en BuildingTypeEnum
         let building_type = BuildingTypeEnum::from_id(building_type_id)
             .ok_or_else(|| format!("Invalid building type ID: {}", building_type_id))?;
 
-        tracing::info!("Building type: {:?} for action {}", building_type, action_id);
+        tracing::info!(
+            "Building type: {:?} for action {}",
+            building_type,
+            action_id
+        );
 
         // Déterminer la catégorie et le type spécifique
         let building_specific_type = building_type.to_specific_type();
@@ -410,7 +559,10 @@ impl ActionProcessor {
         };
 
         // Créer le bâtiment en construction (is_built = false)
-        self.db_tables.buildings.create_building(&building_data).await?;
+        self.db_tables
+            .buildings
+            .create_building(&building_data)
+            .await?;
 
         tracing::info!(
             "Created building {:?} (in construction) for action {} at chunk ({}, {}) cell ({}, {})",
@@ -426,18 +578,30 @@ impl ActionProcessor {
     }
 
     /// Crée un segment de route pour une action BuildRoad
-    async fn create_road_for_action(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+    async fn create_road_for_action(
+        &self,
+        action_id: u64,
+        action_info: &ActionInfo,
+    ) -> Result<(), String> {
         use crate::road::RoadSegment;
-        use shared::grid::pathfinding::{find_path, PathfindingOptions, NeighborType};
+        use shared::grid::pathfinding::{NeighborType, PathfindingOptions, find_path};
 
         // Charger les cellules start et end depuis la DB
-        let (start_cell, end_cell) = self.db_tables.actions.get_build_road_cells(action_id).await?;
+        let (start_cell, end_cell) = self
+            .db_tables
+            .actions
+            .get_build_road_cells(action_id)
+            .await?;
 
         let chunk_id = action_info.chunk_id;
 
         tracing::info!(
             "Building road from ({},{}) to ({},{}) for action {}",
-            start_cell.q, start_cell.r, end_cell.q, end_cell.r, action_id
+            start_cell.q,
+            start_cell.r,
+            end_cell.q,
+            end_cell.r,
+            action_id
         );
 
         // Calculer le chemin entre start_cell et end_cell
@@ -456,13 +620,20 @@ impl ActionProcessor {
                 // Pas voisins: utiliser le pathfinding
                 tracing::info!(
                     "Cells are not neighbors, using pathfinding from ({},{}) to ({},{})",
-                    start_cell.q, start_cell.r, end_cell.q, end_cell.r
+                    start_cell.q,
+                    start_cell.r,
+                    end_cell.q,
+                    end_cell.r
                 );
 
-                match find_path(start_cell, end_cell, PathfindingOptions {
-                    neighbor_type: NeighborType::Both,
-                    ..Default::default()
-                }) {
+                match find_path(
+                    start_cell,
+                    end_cell,
+                    PathfindingOptions {
+                        neighbor_type: NeighborType::Both,
+                        ..Default::default()
+                    },
+                ) {
                     Some(path) => {
                         tracing::info!("Found path with {} cells", path.len());
                         path
@@ -506,7 +677,9 @@ impl ActionProcessor {
         };
 
         // Sauvegarder le segment
-        let segment_id = self.db_tables.road_segments
+        let segment_id = self
+            .db_tables
+            .road_segments
             .save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y)
             .await
             .map_err(|e| format!("Failed to save road segment: {}", e))?;
@@ -515,8 +688,10 @@ impl ActionProcessor {
             "Created road segment {} with {} cells from ({},{}) to ({},{}) for action {}",
             segment_id,
             cell_path.len(),
-            segment.start_cell.q, segment.start_cell.r,
-            segment.end_cell.q, segment.end_cell.r,
+            segment.start_cell.q,
+            segment.start_cell.r,
+            segment.end_cell.q,
+            segment.end_cell.r,
             action_id
         );
 
@@ -536,36 +711,48 @@ impl ActionProcessor {
         use std::collections::HashSet;
 
         // Charger le segment nouvellement créé
-        let segment = self.db_tables.road_segments
+        let segment = self
+            .db_tables
+            .road_segments
             .load_road_segment(segment_id)
             .await
             .map_err(|e| format!("Failed to load segment: {}", e))?
             .ok_or_else(|| format!("Segment {} not found", segment_id))?;
 
         // Charger tous les segments connectés aux extrémités (sauf le segment lui-même)
-        let start_connected = self.db_tables.road_segments
+        let start_connected = self
+            .db_tables
+            .road_segments
             .load_connected_segments(&segment.start_cell)
             .await
             .unwrap_or_default();
 
-        let end_connected = self.db_tables.road_segments
+        let end_connected = self
+            .db_tables
+            .road_segments
             .load_connected_segments(&segment.end_cell)
             .await
             .unwrap_or_default();
 
         // Filtrer pour exclure le segment actuel
-        let start_connected: Vec<_> = start_connected.into_iter()
+        let start_connected: Vec<_> = start_connected
+            .into_iter()
             .filter(|s| s.id != segment_id)
             .collect();
-        let end_connected: Vec<_> = end_connected.into_iter()
+        let end_connected: Vec<_> = end_connected
+            .into_iter()
             .filter(|s| s.id != segment_id)
             .collect();
 
         tracing::info!(
             "Segment {}: {} segments connected to start ({},{}), {} to end ({},{})",
             segment_id,
-            start_connected.len(), segment.start_cell.q, segment.start_cell.r,
-            end_connected.len(), segment.end_cell.q, segment.end_cell.r
+            start_connected.len(),
+            segment.start_cell.q,
+            segment.start_cell.r,
+            end_connected.len(),
+            segment.end_cell.q,
+            segment.end_cell.r
         );
 
         // Si aucune connexion, pas de fusion nécessaire
@@ -579,8 +766,15 @@ impl ActionProcessor {
         visited.insert(segment_id);
 
         // Suivre la chaîne depuis le start_cell (en remontant)
-        if let Some(prev) = self.find_linear_chain_segment(&segment, &segment.start_cell, &start_connected, &visited) {
-            let chain = self.collect_chain_backwards(prev, &segment.start_cell, &mut visited).await;
+        if let Some(prev) = self.find_linear_chain_segment(
+            &segment,
+            &segment.start_cell,
+            &start_connected,
+            &visited,
+        ) {
+            let chain = self
+                .collect_chain_backwards(prev, &segment.start_cell, &mut visited)
+                .await;
             segments_to_merge.extend(chain);
         }
 
@@ -588,8 +782,12 @@ impl ActionProcessor {
         segments_to_merge.push(segment.clone());
 
         // Suivre la chaîne depuis le end_cell (en avançant)
-        if let Some(next) = self.find_linear_chain_segment(&segment, &segment.end_cell, &end_connected, &visited) {
-            let chain = self.collect_chain_forwards(next, &segment.end_cell, &mut visited).await;
+        if let Some(next) =
+            self.find_linear_chain_segment(&segment, &segment.end_cell, &end_connected, &visited)
+        {
+            let chain = self
+                .collect_chain_forwards(next, &segment.end_cell, &mut visited)
+                .await;
             segments_to_merge.extend(chain);
         }
 
@@ -599,8 +797,11 @@ impl ActionProcessor {
             return Ok(segment_id);
         }
 
-        tracing::info!("Merging {} segments into one: {:?}", segments_to_merge.len(),
-            segments_to_merge.iter().map(|s| s.id).collect::<Vec<_>>());
+        tracing::info!(
+            "Merging {} segments into one: {:?}",
+            segments_to_merge.len(),
+            segments_to_merge.iter().map(|s| s.id).collect::<Vec<_>>()
+        );
 
         // Fusionner les cell_path de tous les segments
         let merged_path = self.merge_segment_paths(&segments_to_merge);
@@ -621,7 +822,11 @@ impl ActionProcessor {
             end_cell: *merged_path.last().unwrap(),
             cell_path: merged_path,
             points,
-            importance: segments_to_merge.iter().map(|s| s.importance).max().unwrap_or(1),
+            importance: segments_to_merge
+                .iter()
+                .map(|s| s.importance)
+                .max()
+                .unwrap_or(1),
             road_type: segment.road_type.clone(),
         };
 
@@ -631,16 +836,27 @@ impl ActionProcessor {
         let (chunk_x, chunk_y) = (chunk_id.x, chunk_id.y);
 
         // Sauvegarder le segment fusionné
-        let merged_id = self.db_tables.road_segments
+        let merged_id = self
+            .db_tables
+            .road_segments
             .save_road_segment_with_chunk(&merged_segment, chunk_x, chunk_y)
             .await
             .map_err(|e| format!("Failed to save merged segment: {}", e))?;
 
-        tracing::info!("Created merged segment {} from {} segments", merged_id, segments_to_merge.len());
+        tracing::info!(
+            "Created merged segment {} from {} segments",
+            merged_id,
+            segments_to_merge.len()
+        );
 
         // Supprimer tous les anciens segments
         for old_segment in &segments_to_merge {
-            if let Err(e) = self.db_tables.road_segments.delete_road_segment(old_segment.id).await {
+            if let Err(e) = self
+                .db_tables
+                .road_segments
+                .delete_road_segment(old_segment.id)
+                .await
+            {
                 tracing::warn!("Failed to delete old segment {}: {}", old_segment.id, e);
             }
         }
@@ -648,13 +864,21 @@ impl ActionProcessor {
         // Régénérer les SDF pour tous les chunks affectés par les anciens segments
         let mut affected_chunks = HashSet::new();
         for old_segment in &segments_to_merge {
-            if let Ok(chunks) = self.db_tables.road_segments.get_chunks_for_segment(old_segment.id).await {
+            if let Ok(chunks) = self
+                .db_tables
+                .road_segments
+                .get_chunks_for_segment(old_segment.id)
+                .await
+            {
                 affected_chunks.extend(chunks);
             }
         }
 
         for (chunk_x, chunk_y) in affected_chunks {
-            let chunk_id = shared::TerrainChunkId { x: chunk_x, y: chunk_y };
+            let chunk_id = shared::TerrainChunkId {
+                x: chunk_x,
+                y: chunk_y,
+            };
             self.regenerate_and_send_road_sdf(&chunk_id).await;
         }
 
@@ -668,10 +892,11 @@ impl ActionProcessor {
         _current: &RoadSegment,
         _connection_cell: &shared::grid::GridCell,
         connected: &[RoadSegment],
-        visited: &HashSet<i64>
+        visited: &HashSet<i64>,
     ) -> Option<RoadSegment> {
         // Filtrer les segments déjà visités
-        let available: Vec<_> = connected.iter()
+        let available: Vec<_> = connected
+            .iter()
             .filter(|s| !visited.contains(&s.id))
             .collect();
 
@@ -693,7 +918,7 @@ impl ActionProcessor {
         &self,
         mut current: RoadSegment,
         connection_cell: &shared::grid::GridCell,
-        visited: &mut HashSet<i64>
+        visited: &mut HashSet<i64>,
     ) -> Vec<RoadSegment> {
         let mut chain = Vec::new();
         let mut current_cell = *connection_cell;
@@ -727,7 +952,9 @@ impl ActionProcessor {
             chain.push(ordered_segment);
 
             // Charger les segments connectés à l'autre extrémité
-            let next_connected = self.db_tables.road_segments
+            let next_connected = self
+                .db_tables
+                .road_segments
                 .load_connected_segments(other_end)
                 .await
                 .unwrap_or_default();
@@ -752,7 +979,7 @@ impl ActionProcessor {
         &self,
         mut current: RoadSegment,
         connection_cell: &shared::grid::GridCell,
-        visited: &mut HashSet<i64>
+        visited: &mut HashSet<i64>,
     ) -> Vec<RoadSegment> {
         let mut chain = Vec::new();
         let mut current_cell = *connection_cell;
@@ -786,7 +1013,9 @@ impl ActionProcessor {
             chain.push(ordered_segment);
 
             // Charger les segments connectés à l'autre extrémité
-            let next_connected = self.db_tables.road_segments
+            let next_connected = self
+                .db_tables
+                .road_segments
                 .load_connected_segments(other_end)
                 .await
                 .unwrap_or_default();
@@ -833,7 +1062,11 @@ impl ActionProcessor {
 
     /// OBSOLETE - Ancienne logique de création de route point par point
     /// Conservée pour référence, pourrait être supprimée
-    async fn _create_road_for_action_old(&self, action_id: u64, action_info: &ActionInfo) -> Result<(), String> {
+    async fn _create_road_for_action_old(
+        &self,
+        action_id: u64,
+        action_info: &ActionInfo,
+    ) -> Result<(), String> {
         use crate::road::RoadSegment;
 
         let cell = action_info.cell;
@@ -841,7 +1074,9 @@ impl ActionProcessor {
 
         // Charger les routes existantes dans le chunk ET les chunks voisins pour détecter les connexions
         // Ceci permet de connecter les routes qui traversent les frontières de chunks
-        let existing_segments = self.db_tables.road_segments
+        let existing_segments = self
+            .db_tables
+            .road_segments
             .load_road_segments_with_neighbors(chunk_id.x, chunk_id.y)
             .await
             .unwrap_or_default();
@@ -865,7 +1100,11 @@ impl ActionProcessor {
                 if segment.cell_path.first() == Some(neighbor) {
                     tracing::debug!(
                         "Found road endpoint at start: segment {} has first cell ({},{}) adjacent to new cell ({},{})",
-                        segment.id, neighbor.q, neighbor.r, cell.q, cell.r
+                        segment.id,
+                        neighbor.q,
+                        neighbor.r,
+                        cell.q,
+                        cell.r
                     );
                     adjacent_endpoints.push((segment, true));
                 }
@@ -873,7 +1112,11 @@ impl ActionProcessor {
                 else if segment.cell_path.last() == Some(neighbor) {
                     tracing::debug!(
                         "Found road endpoint at end: segment {} has last cell ({},{}) adjacent to new cell ({},{})",
-                        segment.id, neighbor.q, neighbor.r, cell.q, cell.r
+                        segment.id,
+                        neighbor.q,
+                        neighbor.r,
+                        cell.q,
+                        cell.r
                     );
                     adjacent_endpoints.push((segment, false));
                 }
@@ -881,7 +1124,9 @@ impl ActionProcessor {
                 else if segment.cell_path.contains(neighbor) {
                     tracing::info!(
                         "Cell ({},{}) is adjacent to middle of road segment {} - intersection requires manual action",
-                        cell.q, cell.r, segment.id
+                        cell.q,
+                        cell.r,
+                        segment.id
                     );
                     adjacent_to_middle = true;
                 }
@@ -905,9 +1150,12 @@ impl ActionProcessor {
             // Plusieurs extrémités adjacentes : choisir la route la plus longue
             tracing::info!(
                 "Cell ({},{}) is adjacent to {} road endpoints - selecting longest",
-                cell.q, cell.r, adjacent_endpoints.len()
+                cell.q,
+                cell.r,
+                adjacent_endpoints.len()
             );
-            adjacent_endpoints.iter()
+            adjacent_endpoints
+                .iter()
                 .max_by_key(|(seg, _)| seg.cell_path.len())
                 .copied()
         };
@@ -916,7 +1164,8 @@ impl ActionProcessor {
             Some((seg, is_start)) => {
                 tracing::info!(
                     "Selected road segment {} with {} cells (connecting to {})",
-                    seg.id, seg.cell_path.len(),
+                    seg.id,
+                    seg.cell_path.len(),
                     if is_start { "start" } else { "end" }
                 );
                 (Some(seg), is_start)
@@ -934,7 +1183,8 @@ impl ActionProcessor {
             tracing::info!(
                 "Extending road path {} by adding cell ({},{}) - connecting to {} (start={}, end={})",
                 existing.id,
-                cell.q, cell.r,
+                cell.q,
+                cell.r,
                 if is_start_connection { "start" } else { "end" },
                 is_start_connection,
                 is_end_connection
@@ -952,16 +1202,15 @@ impl ActionProcessor {
             }
 
             // Étendre la spline en conservant les points existants et en régénérant N cellules pour le lissage
-            use crate::road::{extend_spline, RoadConfig};
+            use crate::road::{RoadConfig, extend_spline};
 
             let config = RoadConfig::default();
             let samples_per_segment = config.samples_per_segment;
             let smoothing_influence = config.smoothing_influence;
 
             // Convertir les cellules existantes en positions monde
-            let existing_cell_positions: Vec<bevy::prelude::Vec2> = existing.cell_path.iter()
-                .map(cell_to_world_pos)
-                .collect();
+            let existing_cell_positions: Vec<bevy::prelude::Vec2> =
+                existing.cell_path.iter().map(cell_to_world_pos).collect();
 
             let (new_start, new_end, new_points) = if is_start_connection {
                 // Ajouter au début du chemin
@@ -974,7 +1223,7 @@ impl ActionProcessor {
                     cell_pos,
                     true, // at_start = true
                     samples_per_segment,
-                    smoothing_influence
+                    smoothing_influence,
                 );
 
                 (cell, *new_cell_path.last().unwrap(), extended_points)
@@ -989,7 +1238,7 @@ impl ActionProcessor {
                     cell_pos,
                     false, // at_start = false
                     samples_per_segment,
-                    smoothing_influence
+                    smoothing_influence,
                 );
 
                 (*new_cell_path.first().unwrap(), cell, extended_points)
@@ -1018,12 +1267,15 @@ impl ActionProcessor {
             // Supprimer l'ancien segment et sauvegarder le nouveau
             // (On pourrait aussi faire une mise à jour, mais c'est plus simple de recréer)
             tracing::info!("Deleting old road segment with id {}", existing.id);
-            self.db_tables.road_segments
+            self.db_tables
+                .road_segments
                 .delete_road_segment(existing.id)
                 .await
                 .map_err(|e| format!("Failed to delete old road segment: {}", e))?;
 
-            let segment_id = self.db_tables.road_segments
+            let segment_id = self
+                .db_tables
+                .road_segments
                 .save_road_segment_with_chunk(&updated_segment, chunk_id.x, chunk_id.y)
                 .await
                 .map_err(|e| format!("Failed to save updated road segment: {}", e))?;
@@ -1032,9 +1284,12 @@ impl ActionProcessor {
                 "Updated road segment {} with {} cells from ({},{}) to ({},{}) in chunk ({},{}) for action {}",
                 segment_id,
                 new_cell_path.len(),
-                new_start.q, new_start.r,
-                new_end.q, new_end.r,
-                chunk_id.x, chunk_id.y,
+                new_start.q,
+                new_start.r,
+                new_end.q,
+                new_end.r,
+                chunk_id.x,
+                chunk_id.y,
                 action_id
             );
 
@@ -1046,20 +1301,23 @@ impl ActionProcessor {
             // La route sera juste un point sur cette cellule
             tracing::info!(
                 "Creating new single-point road on cell ({},{})",
-                cell.q, cell.r
+                cell.q,
+                cell.r
             );
 
             let segment = RoadSegment {
                 id: 0,
                 start_cell: cell,
-                end_cell: cell,  // Même cellule pour indiquer un point unique
+                end_cell: cell,         // Même cellule pour indiquer un point unique
                 cell_path: vec![cell],  // Une seule cellule dans le chemin
-                points: vec![cell_pos],  // Un seul point
+                points: vec![cell_pos], // Un seul point
                 importance: 1,
                 road_type: shared::RoadType::default(), // Chemin de terre par défaut
             };
 
-            let segment_id = self.db_tables.road_segments
+            let segment_id = self
+                .db_tables
+                .road_segments
                 .save_road_segment_with_chunk(&segment, chunk_id.x, chunk_id.y)
                 .await
                 .map_err(|e| format!("Failed to save road segment: {}", e))?;
@@ -1067,8 +1325,10 @@ impl ActionProcessor {
             tracing::info!(
                 "Created single-point road segment {} at cell ({},{}) in chunk ({},{}) for action {}",
                 segment_id,
-                cell.q, cell.r,
-                chunk_id.x, chunk_id.y,
+                cell.q,
+                cell.r,
+                chunk_id.x,
+                chunk_id.y,
                 action_id
             );
 
@@ -1083,7 +1343,11 @@ impl ActionProcessor {
     /// Régénère la SDF de route pour un chunk et ses 8 voisins
     /// Utile pour garantir la cohérence visuelle des routes diagonales
     async fn regenerate_road_sdf_for_chunk_and_neighbors(&self, chunk_id: &shared::TerrainChunkId) {
-        tracing::info!("Regenerating road SDF for chunk ({},{}) and its neighbors", chunk_id.x, chunk_id.y);
+        tracing::info!(
+            "Regenerating road SDF for chunk ({},{}) and its neighbors",
+            chunk_id.x,
+            chunk_id.y
+        );
 
         // Régénérer pour le chunk central et ses 8 voisins
         for dx in -1..=1 {
@@ -1101,7 +1365,9 @@ impl ActionProcessor {
     /// Utilisé quand on modifie un segment qui peut traverser plusieurs chunks
     async fn regenerate_road_sdf_for_segment(&self, segment_id: i64) {
         // Récupérer tous les chunks où ce segment est visible
-        let chunks = match self.db_tables.road_segments
+        let chunks = match self
+            .db_tables
+            .road_segments
             .get_chunks_for_segment(segment_id)
             .await
         {
@@ -1121,7 +1387,10 @@ impl ActionProcessor {
 
         // Régénérer le SDF pour chaque chunk affecté
         for (chunk_x, chunk_y) in chunks {
-            let chunk_id = shared::TerrainChunkId { x: chunk_x, y: chunk_y };
+            let chunk_id = shared::TerrainChunkId {
+                x: chunk_x,
+                y: chunk_y,
+            };
             self.regenerate_and_send_road_sdf(&chunk_id).await;
         }
     }
@@ -1129,7 +1398,9 @@ impl ActionProcessor {
     /// Régénère la SDF de route pour un chunk et l'envoie à tous les joueurs
     async fn regenerate_and_send_road_sdf(&self, chunk_id: &shared::TerrainChunkId) {
         // Charger les segments visibles dans ce chunk via la table de visibilité
-        match self.db_tables.road_segments
+        match self
+            .db_tables
+            .road_segments
             .load_road_segments_by_chunk_new(chunk_id.x, chunk_id.y)
             .await
         {
@@ -1145,9 +1416,14 @@ impl ActionProcessor {
                 for (i, seg) in road_segments.iter().enumerate() {
                     tracing::info!(
                         "  Segment {}: id={}, cells={}, points={}, start=({},{}), end=({},{})",
-                        i, seg.id, seg.cell_path.len(), seg.points.len(),
-                        seg.start_cell.q, seg.start_cell.r,
-                        seg.end_cell.q, seg.end_cell.r
+                        i,
+                        seg.id,
+                        seg.cell_path.len(),
+                        seg.points.len(),
+                        seg.start_cell.q,
+                        seg.start_cell.r,
+                        seg.end_cell.q,
+                        seg.end_cell.r
                     );
                 }
 
@@ -1160,7 +1436,7 @@ impl ActionProcessor {
                     &intersections,
                     &config,
                     chunk_id.x,
-                    chunk_id.y
+                    chunk_id.y,
                 );
 
                 tracing::info!(
@@ -1180,7 +1456,11 @@ impl ActionProcessor {
                 self.broadcast_to_chunk(chunk_id, road_update).await;
             }
             Ok(_) => {
-                tracing::debug!("No road segments found for chunk ({},{})", chunk_id.x, chunk_id.y);
+                tracing::debug!(
+                    "No road segments found for chunk ({},{})",
+                    chunk_id.x,
+                    chunk_id.y
+                );
             }
             Err(e) => {
                 tracing::warn!(
@@ -1201,13 +1481,21 @@ impl ActionProcessor {
             action_info.status = ActionStatusEnum::Failed;
 
             // Mettre à jour la DB
-            self.db_tables.actions.update_action_status(action_id, ActionStatusEnum::Failed).await?;
+            self.db_tables
+                .actions
+                .update_action_status(action_id, ActionStatusEnum::Failed)
+                .await?;
 
             // Si c'est une action BuildBuilding qui était InProgress, supprimer le bâtiment
             if action_info.action_type == ActionTypeEnum::BuildBuilding
-                && action_info.status != ActionStatusEnum::Pending {
+                && action_info.status != ActionStatusEnum::Pending
+            {
                 if let Err(e) = self.db_tables.buildings.delete_building(action_id).await {
-                    tracing::error!("Failed to delete building {} after action failure: {}", action_id, e);
+                    tracing::error!(
+                        "Failed to delete building {} after action failure: {}",
+                        action_id,
+                        e
+                    );
                 } else {
                     tracing::info!("Building {} deleted after action failure", action_id);
                 }
@@ -1224,9 +1512,14 @@ impl ActionProcessor {
                 completion_time: action_info.completion_time,
             };
 
-            self.send_message_to_player(action_info.player_id, message).await;
+            self.send_message_to_player(action_info.player_id, message)
+                .await;
 
-            tracing::info!("Action {} failed for player {}", action_id, action_info.player_id);
+            tracing::info!(
+                "Action {} failed for player {}",
+                action_id,
+                action_info.player_id
+            );
         }
 
         Ok(())
@@ -1237,26 +1530,53 @@ impl ActionProcessor {
         let message_type = match &message {
             ServerMessage::LoginSuccess { .. } => "LoginSuccess",
             ServerMessage::LoginError { .. } => "LoginError",
-            ServerMessage::RegisterSuccess{ .. } => "RegisterSuccess",
-            ServerMessage::RegisterError{ .. } => "RegisterError",
+            ServerMessage::RegisterSuccess { .. } => "RegisterSuccess",
+            ServerMessage::RegisterError { .. } => "RegisterError",
+            ServerMessage::LordData { .. } => "LordData",
+            ServerMessage::LordCreated { .. } => "LordCreated",
+            ServerMessage::LordCreateError { .. } => "LordCreateError",
             ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
             ServerMessage::OceanData { .. } => "OceanData",
             ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
-                tracing::info!("Sending RoadChunkSdfUpdate to player {} for chunk ({},{})", player_id, chunk_id.x, chunk_id.y);
+                tracing::info!(
+                    "Sending RoadChunkSdfUpdate to player {} for chunk ({},{})",
+                    player_id,
+                    chunk_id.x,
+                    chunk_id.y
+                );
                 "RoadChunkSdfUpdate"
-            },
+            }
             ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
-                tracing::info!("Sending TerritoryContourUpdate to player {} for chunk ({},{}) with {} contours", player_id, chunk_id.x, chunk_id.y, contours.len());
+                tracing::info!(
+                    "Sending TerritoryContourUpdate to player {} for chunk ({},{}) with {} contours",
+                    player_id,
+                    chunk_id.x,
+                    chunk_id.y,
+                    contours.len()
+                );
                 "TerritoryContourUpdate"
-            },
+            }
             ServerMessage::TerritoryBorderSdfUpdate { chunk_id, .. } => {
-                tracing::info!("Sending TerritoryBorderSdfUpdate to player {} for chunk ({},{})", player_id, chunk_id.x, chunk_id.y);
+                tracing::info!(
+                    "Sending TerritoryBorderSdfUpdate to player {} for chunk ({},{})",
+                    player_id,
+                    chunk_id.x,
+                    chunk_id.y
+                );
                 "TerritoryBorderSdfUpdate"
-            },
-            ServerMessage::TerritoryBorderCells { organization_id, border_cells } => {
-                tracing::info!("Sending TerritoryBorderCells to player {} for org {} ({} cells)", player_id, organization_id, border_cells.len());
+            }
+            ServerMessage::TerritoryBorderCells {
+                organization_id,
+                border_cells,
+            } => {
+                tracing::info!(
+                    "Sending TerritoryBorderCells to player {} for org {} ({} cells)",
+                    player_id,
+                    organization_id,
+                    border_cells.len()
+                );
                 "TerritoryBorderCells"
-            },
+            }
             ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
             ServerMessage::ActionCompleted { .. } => "ActionCompleted",
             ServerMessage::ActionSuccess { .. } => "ActionSuccess",
@@ -1266,6 +1586,7 @@ impl ActionProcessor {
             ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
             ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
             ServerMessage::DebugError { .. } => "DebugError",
+            ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
             ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
             ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
             ServerMessage::Pong => "Pong",
@@ -1276,7 +1597,12 @@ impl ActionProcessor {
         }
 
         if let Err(e) = self.sessions.send_to_player(player_id, message).await {
-            tracing::warn!("Failed to send {} to player {}: {}", message_type, player_id, e);
+            tracing::warn!(
+                "Failed to send {} to player {}: {}",
+                message_type,
+                player_id,
+                e
+            );
         }
     }
 
@@ -1284,7 +1610,9 @@ impl ActionProcessor {
     async fn broadcast_to_chunk(&self, _chunk_id: &TerrainChunkId, message: ServerMessage) {
         // TODO: Implémenter le broadcast aux joueurs d'un chunk spécifique
         // Pour l'instant on broadcast à tous les joueurs
-        tracing::debug!("Broadcasting message to all players (chunk-specific broadcast not yet implemented)");
+        tracing::debug!(
+            "Broadcasting message to all players (chunk-specific broadcast not yet implemented)"
+        );
         self.sessions.broadcast(message).await;
     }
 }

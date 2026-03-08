@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use shared::protocol::ServerMessage;
 
 use crate::networking::events::ServerEvent;
-use crate::state::resources::{UnitsCache, UnitsDataCache};
+use crate::state::resources::{PlayerInfo, UnitsCache, UnitsDataCache};
 use crate::ui::components::{SlotIndicator, SlotUnitPortrait};
 use crate::ui::systems::panels::InSlot;
 
@@ -11,6 +11,7 @@ pub fn handle_unit_events(
     mut events: MessageReader<ServerEvent>,
     mut units_cache: Option<ResMut<UnitsCache>>,
     mut units_data_cache: Option<ResMut<UnitsDataCache>>,
+    mut player_info: ResMut<PlayerInfo>,
     mut commands: Commands,
     unit_query: Query<(Entity, &InSlot, &SlotUnitPortrait)>,
     slot_query: Query<(Entity, &SlotIndicator)>,
@@ -22,7 +23,9 @@ pub fn handle_unit_events(
                 cell,
                 slot_position,
             } => {
-                let Some(ref mut units_cache) = units_cache else { continue };
+                let Some(ref mut units_cache) = units_cache else {
+                    continue;
+                };
                 info!(
                     "Unit {} slot updated at cell {:?}: {:?}",
                     unit_id, cell, slot_position
@@ -54,8 +57,12 @@ pub fn handle_unit_events(
             }
 
             ServerMessage::DebugUnitSpawned { unit_data } => {
-                let Some(ref mut units_cache) = units_cache else { continue };
-                let Some(ref mut units_data_cache) = units_data_cache else { continue };
+                let Some(ref mut units_cache) = units_cache else {
+                    continue;
+                };
+                let Some(ref mut units_data_cache) = units_data_cache else {
+                    continue;
+                };
                 info!(
                     "✓ Unit {} spawned at {:?} with slot {:?} {}",
                     unit_data.id,
@@ -96,7 +103,9 @@ pub fn handle_unit_events(
                 unit_id,
                 new_profession,
             } => {
-                let Some(ref mut units_data_cache) = units_data_cache else { continue };
+                let Some(ref mut units_data_cache) = units_data_cache else {
+                    continue;
+                };
                 info!(
                     "✓ Unit {} profession changed to {:?}",
                     unit_id, new_profession
@@ -111,6 +120,41 @@ pub fn handle_unit_events(
                     );
                 } else {
                     warn!("Unit {} not found in cache for profession update", unit_id);
+                }
+            }
+            ServerMessage::UnitPositionUpdated {
+                unit_id,
+                from_cell,
+                from_chunk,
+                to_cell,
+                to_chunk,
+            } => {
+                info!(
+                    "Unit {} moved from ({},{}) to ({},{})",
+                    unit_id, from_cell.q, from_cell.r, to_cell.q, to_cell.r
+                );
+
+                // Mettre à jour le cache des unités par cellule
+                if let Some(ref mut cache) = units_cache {
+                    cache.remove_unit(*unit_id);
+                    cache.add_unit(*to_cell, *unit_id);
+                }
+
+                // Mettre à jour les données de l'unité
+                if let Some(ref mut data_cache) = units_data_cache {
+                    if let Some(unit) = data_cache.get_unit_mut(*unit_id) {
+                        unit.current_cell = *to_cell;
+                        unit.current_chunk = *to_chunk;
+                    }
+                }
+
+                // Si c'est le lord, mettre à jour PlayerInfo
+                if let Some(ref mut lord) = player_info.lord {
+                    if lord.id == *unit_id {
+                        lord.current_cell = *to_cell;
+                        lord.current_chunk = *to_chunk;
+                        info!("Lord position updated to ({},{})", to_cell.q, to_cell.r);
+                    }
                 }
             }
 

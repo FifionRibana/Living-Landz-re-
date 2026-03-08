@@ -11,7 +11,7 @@ use shared::protocol::ClientMessage;
 
 /// System to handle login button click
 pub fn handle_login_button_click(
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginSubmitButton>)>,
+    interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginSubmitButton>)>,
     family_name_query: Query<&TextInputBuffer, With<LoginFamilyNameInput>>,
     password_query: Query<
         &TextInputBuffer,
@@ -87,7 +87,7 @@ pub fn handle_login_button_click(
 
 /// System to handle "Create account" button click
 pub fn handle_to_register_button_click(
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginToRegisterButton>)>,
+    interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginToRegisterButton>)>,
     mut next_auth: ResMut<NextState<AuthScreen>>,
 ) {
     for interaction in &interaction_query {

@@ -3,7 +3,7 @@ use hexx::Hex;
 
 use crate::{
     // grid::components::UnitIndicator,
-    state::resources::UnitsCache,
+    state::resources::{PlayerInfo, UnitsCache, UnitsDataCache},
     ui::resources::UnitSelectionState,
 };
 use shared::grid::GridConfig;
@@ -13,9 +13,13 @@ use shared::grid::GridConfig;
 pub fn draw_unit_indicators(
     mut gizmos: Gizmos,
     units_cache: Res<UnitsCache>,
+    units_data_cache: Res<UnitsDataCache>,
     unit_selection: Res<UnitSelectionState>,
+    player_info: Res<PlayerInfo>,
     grid_config: Res<GridConfig>,
 ) {
+    let lord_id = player_info.lord.as_ref().map(|l| l.id);
+
     for (cell, units) in units_cache.get_all_cells_with_units() {
         let hex = Hex::new(cell.q, cell.r);
         let base_pos = grid_config.layout.hex_to_world_pos(hex);
@@ -33,11 +37,14 @@ pub fn draw_unit_indicators(
             let unit_id = units[i];
 
             let is_selected = unit_selection.is_selected(unit_id);
+            let is_lord = lord_id == Some(unit_id);
 
             let color = if is_selected {
-                Color::srgb(0.3, 1.0, 0.3)
+                Color::srgb(0.3, 1.0, 0.3) // Vert = sélectionné
+            } else if is_lord {
+                Color::srgb(0.9, 0.75, 0.2) // Or = lord
             } else {
-                Color::WHITE
+                Color::WHITE // Blanc = NPC
             };
 
             // Dessiner plusieurs cercles pour créer une bordure épaisse
@@ -49,6 +56,22 @@ pub fn draw_unit_indicators(
                 let t = s as f32 / steps as f32;
                 let radius = inner_radius + (outer_radius - inner_radius) * t;
                 gizmos.circle_2d(pos, radius, color);
+            }
+
+            // Croix au centre pour le lord (pour mieux le distinguer)
+            if is_lord {
+                let cross_size = 0.12;
+                let lord_color = Color::srgb(0.9, 0.75, 0.2);
+                gizmos.line_2d(
+                    pos + Vec2::new(-cross_size, 0.0),
+                    pos + Vec2::new(cross_size, 0.0),
+                    lord_color,
+                );
+                gizmos.line_2d(
+                    pos + Vec2::new(0.0, -cross_size),
+                    pos + Vec2::new(0.0, cross_size),
+                    lord_color,
+                );
             }
         }
     }
