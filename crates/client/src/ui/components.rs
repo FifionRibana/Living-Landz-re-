@@ -358,3 +358,15 @@ pub struct UnitDetailsCloseButton;
 
 // Authentication components - re-export from auth module
 pub use crate::ui::systems::panels::auth::components::*;
+
+// ── Context menu ──
+
+/// Marqueur du root node du menu contextuel
+#[derive(Component)]
+pub struct ContextMenuRoot;
+
+/// Un bouton/entrée dans le menu contextuel
+#[derive(Component)]
+pub struct ContextMenuEntry {
+    pub action: crate::ui::resources::ContextMenuAction,
+}

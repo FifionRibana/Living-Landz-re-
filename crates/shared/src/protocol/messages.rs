@@ -156,6 +156,16 @@ pub enum ClientMessage {
     },
 
     // ========================================================================
+    // LORD CREATION
+    // ========================================================================
+    /// Create the player's Lord/Lady (main avatar)
+    CreateLord {
+        first_name: String,
+        gender: String,           // "male" / "female"
+        portrait_layers: String,  // "bust_idx,face_idx,clothes_idx,hair_idx"
+    },
+
+    // ========================================================================
     // DEBUG COMMANDS
     // ========================================================================
     /// Debug: Create an organization at a specific cell
@@ -209,6 +219,22 @@ pub enum ServerMessage {
 
     /// Registration failed
     RegisterError {
+        reason: String,
+    },
+
+    /// Lord/Lady data sent after successful login (None if no lord yet)
+    /// The client uses this to decide: InGame or CharacterCreation
+    LordData {
+        lord: Option<UnitData>,
+    },
+
+    /// Lord created successfully after character creation
+    LordCreated {
+        unit_data: UnitData,
+    },
+
+    /// Lord creation failed
+    LordCreateError {
         reason: String,
     },
 
@@ -278,6 +304,15 @@ pub enum ServerMessage {
         chunk_id: TerrainChunkId,
         cell: GridCell,
         action_type: crate::ActionTypeEnum,
+    },
+
+    /// Unit position changed (after move action completion)
+    UnitPositionUpdated {
+        unit_id: u64,
+        from_cell: GridCell,
+        from_chunk: TerrainChunkId,
+        to_cell: GridCell,
+        to_chunk: TerrainChunkId,
     },
 
     /// Unit slot position updated (broadcast to all clients viewing the cell)

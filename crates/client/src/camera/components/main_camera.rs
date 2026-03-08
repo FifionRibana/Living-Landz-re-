@@ -4,8 +4,9 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
 };
+use shared::grid::GridConfig;
 
-use crate::camera::resources::{DISPLAY_LAYER, GAME_LAYER, SceneRenderTarget};
+use crate::{camera::resources::{DISPLAY_LAYER, GAME_LAYER, SceneRenderTarget}, state::resources::PlayerInfo};
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -66,4 +67,27 @@ pub fn setup_camera(
         },
         DISPLAY_LAYER,
     ));
+}
+
+
+// TODO : Move to a correct place
+pub fn center_camera_on_lord(
+    player_info: Res<PlayerInfo>,
+    grid_config: Res<GridConfig>,
+    mut camera: Query<&mut Transform, With<MainCamera>>,
+) {
+    if let Some(lord) = &player_info.lord {
+        let hex = lord.current_cell.to_hex();
+        let world_pos = grid_config.layout.hex_to_world_pos(hex);
+        
+        if let Ok(mut transform) = camera.single_mut() {
+            transform.translation.x = world_pos.x;
+            transform.translation.y = world_pos.y;
+            info!(
+                "Camera centered on lord at ({},{}) → world ({:.0},{:.0})",
+                lord.current_cell.q, lord.current_cell.r,
+                world_pos.x, world_pos.y
+            );
+        }
+    }
 }

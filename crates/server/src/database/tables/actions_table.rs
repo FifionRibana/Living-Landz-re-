@@ -370,8 +370,8 @@ impl ScheduledActionsTable {
 
                     let unit_id = train_row.get::<i64, &str>("unit_id") as u64;
                     let profession_id: i16 = train_row.get("target_profession_id");
-                    let target_profession = ProfessionEnum::from_id(profession_id)
-                        .unwrap_or(ProfessionEnum::Unknown);
+                    let target_profession =
+                        ProfessionEnum::from_id(profession_id).unwrap_or(ProfessionEnum::Unknown);
 
                     SpecificAction::TrainUnit(TrainUnitAction {
                         player_id,
@@ -485,9 +485,44 @@ impl ScheduledActionsTable {
         Ok(row.map(|r| {
             let unit_id = r.get::<i64, &str>("unit_id") as u64;
             let profession_id: i16 = r.get("target_profession_id");
-            let profession = ProfessionEnum::from_id(profession_id)
-                .unwrap_or(ProfessionEnum::Unknown);
+            let profession =
+                ProfessionEnum::from_id(profession_id).unwrap_or(ProfessionEnum::Unknown);
             (unit_id, profession)
+        }))
+    }
+
+    /// Charge les données spécifiques d'une action MoveUnit
+    /// Table: actions.move_unit_actions (action_id, unit_id, target_q, target_r)
+    /// Le chunk cible est dans la table parent scheduled_actions (chunk_x, chunk_y)
+    pub async fn load_move_unit_data(
+        &self,
+        action_id: u64,
+    ) -> Result<Option<(u64, GridCell, TerrainChunkId)>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT m.unit_id, m.target_q, m.target_r,
+                   s.chunk_x, s.chunk_y
+            FROM actions.move_unit_actions m
+            JOIN actions.scheduled_actions s ON s.id = m.action_id
+            WHERE m.action_id = $1
+            "#,
+        )
+        .bind(action_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load move_unit data: {}", e))?;
+
+        Ok(row.map(|r| {
+            let unit_id = r.get::<i64, _>("unit_id") as u64;
+            let cell = GridCell {
+                q: r.get("target_q"),
+                r: r.get("target_r"),
+            };
+            let chunk = TerrainChunkId {
+                x: r.get("chunk_x"),
+                y: r.get("chunk_y"),
+            };
+            (unit_id, cell, chunk)
         }))
     }
 

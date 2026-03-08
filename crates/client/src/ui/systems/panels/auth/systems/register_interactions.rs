@@ -11,7 +11,7 @@ use shared::protocol::ClientMessage;
 
 /// System to handle register button click
 pub fn handle_register_button_click(
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterSubmitButton>)>,
+    interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterSubmitButton>)>,
     family_name_query: Query<&TextInputBuffer, With<RegisterFamilyNameInput>>,
     password_query: Query<
         &TextInputBuffer,
@@ -123,7 +123,7 @@ pub fn handle_register_button_click(
 
 /// System to handle back button click
 pub fn handle_back_button_click(
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterBackButton>)>,
+    interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterBackButton>)>,
     mut next_auth: ResMut<NextState<AuthScreen>>,
 ) {
     for interaction in &interaction_query {

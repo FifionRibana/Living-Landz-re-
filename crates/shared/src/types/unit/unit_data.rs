@@ -31,6 +31,10 @@ pub struct UnitData {
 
     // Argent
     pub money: i64,
+
+    // Lord system
+    pub is_lord: bool,
+    pub portrait_layers: Option<String>,
 }
 
 impl UnitData {
@@ -44,6 +48,24 @@ impl UnitData {
 
     pub fn is_npc(&self) -> bool {
         self.player_id.is_none()
+    }
+
+    /// Parse les indices de couches du portrait (bust, face, clothes, hair)
+    pub fn parse_portrait_layers(&self) -> Option<[usize; 4]> {
+        self.portrait_layers.as_ref().and_then(|s| {
+            let parts: Vec<&str> = s.split(',').collect();
+            if parts.len() == 4 {
+                let indices: Result<Vec<usize>, _> = parts.iter().map(|p| p.trim().parse()).collect();
+                indices.ok().map(|v| [v[0], v[1], v[2], v[3]])
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Encode les indices de couches en string
+    pub fn encode_portrait_layers(bust: usize, face: usize, clothes: usize, hair: usize) -> String {
+        format!("{},{},{},{}", bust, face, clothes, hair)
     }
 }
 

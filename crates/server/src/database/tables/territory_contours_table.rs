@@ -1,4 +1,3 @@
-use bevy::math::Vec2;
 use shared::{ContourSegment, ContourSegmentData, TerrainChunkId, TerritoryChunkData};
 use sqlx::{PgPool, Row};
 

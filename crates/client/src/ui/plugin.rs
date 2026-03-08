@@ -6,27 +6,31 @@ use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 
 use super::{
+    carousel,
     resources::{ActionContextState, ActionState, CellViewState, ChatState, UIState},
-    systems, carousel
+    systems,
 };
-use crate::state::resources;
 use crate::states::{AppState, GameView, Overlay};
 use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
 use crate::ui::systems::panels::character_creation::resources::CharacterCreationState;
 use crate::ui::systems::panels::coat_of_arms_creation::resources::CoatOfArmsCreationState;
+use crate::{state::resources, ui::resources::ContextMenuState};
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_plugins(bevy_ui_text_input::TextInputPlugin)
+        app.add_plugins(bevy_ui_text_input::TextInputPlugin)
             // Auth screens managed by AuthPlugin via AuthScreen state
             .add_plugins(AuthPlugin)
             // ─── Character creation ───────────────────────────────────
             .add_systems(
                 OnEnter(AppState::CharacterCreation),
-                (init_character_creation, systems::panels::character_creation::setup_character_creation).chain(),
+                (
+                    init_character_creation,
+                    systems::panels::character_creation::setup_character_creation,
+                )
+                    .chain(),
             )
             .add_systems(
                 OnExit(AppState::CharacterCreation),
@@ -57,7 +61,11 @@ impl Plugin for UiPlugin {
             // ─── Coat of arms creation ──────────────────────────────────
             .add_systems(
                 OnEnter(AppState::CoatOfArmsCreation),
-                (init_coat_of_arms_creation, systems::panels::coat_of_arms_creation::setup_coat_of_arms_creation).chain(),
+                (
+                    init_coat_of_arms_creation,
+                    systems::panels::coat_of_arms_creation::setup_coat_of_arms_creation,
+                )
+                    .chain(),
             )
             .add_systems(
                 OnExit(AppState::CoatOfArmsCreation),
@@ -112,10 +120,7 @@ impl Plugin for UiPlugin {
                 )
                     .chain(),
             )
-            .add_systems(
-                OnEnter(GameView::Cell),
-                systems::setup_unit_details_panel,
-            )
+            .add_systems(OnEnter(GameView::Cell), systems::setup_unit_details_panel)
             .add_systems(
                 OnEnter(GameView::CityManagement),
                 systems::panels::setup_management_panel,
@@ -158,7 +163,8 @@ impl Plugin for UiPlugin {
                     carousel::systems::update_carousel_items,
                     carousel::systems::update_carousel_icons,
                     // carousel::systems::apply_carousel_snap, // Disabled cause it reacts too quickly even when increasing the no scroll timer
-                ).run_if(in_state(AppState::InGame)),
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             // Clean up when leaving Cell view
             .add_systems(OnExit(GameView::Cell), on_exit_cell_view)
@@ -174,7 +180,8 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::handle_cell_view_back_button,
-                    systems::panels::setup_cell_layout.run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
+                    systems::panels::setup_cell_layout
+                        .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
                     systems::panels::setup_cell_slots
                         .before(systems::panels::setup_cell_layout)
                         .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
@@ -216,6 +223,17 @@ impl Plugin for UiPlugin {
                     systems::collapse_on_deselect,
                 )
                     .run_if(in_state(GameView::Cell)),
+            )
+            // ─── Context menu ─────────────────────────────────────
+            .add_systems(
+                Update,
+                (
+                    systems::context_menu::update_context_menu,
+                    systems::context_menu::handle_context_menu_click,
+                    systems::context_menu::update_context_menu_hover,
+                    systems::context_menu::dismiss_context_menu,
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             // Map view systems — units sidebar panel
             .add_systems(
@@ -315,6 +333,7 @@ fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(super::resources::UnitSelectionState::default());
     commands.insert_resource(super::resources::MapUnitsPanelState::default());
     commands.insert_resource(super::resources::VisibleUnitsInRange::default());
+    commands.insert_resource(ContextMenuState::default());
 }
 
 fn cleanup_view_resources(mut commands: Commands) {
@@ -328,6 +347,7 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<super::resources::UnitSelectionState>();
     commands.remove_resource::<super::resources::MapUnitsPanelState>();
     commands.remove_resource::<super::resources::VisibleUnitsInRange>();
+    commands.remove_resource::<ContextMenuState>();
 }
 
 fn init_character_creation(mut commands: Commands) {
@@ -362,7 +382,9 @@ fn handle_escape_key(
     }
 
     // Priority 1: close pause menu if open
-    if let Some(ref ov) = overlay && *ov.get() == Overlay::PauseMenu {
+    if let Some(ref ov) = overlay
+        && *ov.get() == Overlay::PauseMenu
+    {
         info!("Closing pause menu");
         next_overlay.set(Overlay::None);
         return;

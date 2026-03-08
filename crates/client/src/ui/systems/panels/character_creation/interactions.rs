@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use bevy_ui_text_input::{TextInputBuffer, TextInputQueue, actions::TextInputAction, actions::TextInputEdit};
+use bevy_ui_text_input::{
+    TextInputBuffer, TextInputQueue, actions::TextInputAction, actions::TextInputEdit,
+};
 
 use crate::networking::client::NetworkClient;
 use crate::state::resources::ConnectionStatus;
@@ -50,7 +52,10 @@ pub fn handle_arrow_clicks(
 }
 
 pub fn update_arrow_hover(
-    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<LayerArrowButton>)>,
+    mut query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<LayerArrowButton>),
+    >,
 ) {
     for (interaction, mut bg) in query.iter_mut() {
         *bg = match interaction {
@@ -77,7 +82,12 @@ pub fn handle_gender_click(
 /// Update gender button visuals when gender changes.
 pub fn update_gender_visuals(
     creation_state: Res<CharacterCreationState>,
-    mut query: Query<(&GenderActiveIndicator, &mut BackgroundColor, &mut BorderColor, &Children)>,
+    mut query: Query<(
+        &GenderActiveIndicator,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &Children,
+    )>,
     mut text_query: Query<&mut TextColor>,
 ) {
     if !creation_state.is_changed() {
@@ -86,8 +96,16 @@ pub fn update_gender_visuals(
 
     for (indicator, mut bg, mut border, children) in query.iter_mut() {
         let is_active = indicator.gender == creation_state.gender;
-        *bg = BackgroundColor(if is_active { GENDER_ACTIVE_BG } else { GENDER_INACTIVE_BG });
-        *border = BorderColor::all(if is_active { GENDER_ACTIVE_BORDER } else { GENDER_INACTIVE_BORDER });
+        *bg = BackgroundColor(if is_active {
+            GENDER_ACTIVE_BG
+        } else {
+            GENDER_INACTIVE_BG
+        });
+        *border = BorderColor::all(if is_active {
+            GENDER_ACTIVE_BORDER
+        } else {
+            GENDER_INACTIVE_BORDER
+        });
 
         // Update child text color
         for child in children.iter() {
@@ -190,7 +208,6 @@ pub fn handle_validate_click(
     query: Query<&Interaction, (Changed<Interaction>, With<ValidateButton>)>,
     creation_state: Res<CharacterCreationState>,
     mut network_client: Option<ResMut<NetworkClient>>,
-    mut next_state: ResMut<NextState<AppState>>,
 ) {
     for interaction in query.iter() {
         if *interaction != Interaction::Pressed {
@@ -199,28 +216,41 @@ pub fn handle_validate_click(
 
         let first_name = creation_state.first_name.trim();
         if first_name.is_empty() {
-            warn!("Cannot create character: first name is empty");
+            warn!("Cannot create lord: first name is empty");
             return;
         }
 
         info!(
-            "Validating character: '{}' ({:?})",
+            "Creating lord: '{}' ({:?})",
             first_name, creation_state.gender
         );
 
-        let selections: Vec<(String, usize)> = creation_state
+        // Encoder les sélections de couches en string "bust,face,clothes,hair"
+        let portrait_layers = creation_state
             .layers
             .iter()
-            .map(|l| (l.category.folder().to_string(), l.current))
-            .collect();
+            .map(|l| l.current.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
 
-        info!("Layer selections: {:?}", selections);
+        let gender = match creation_state.gender {
+            super::resources::Gender::Male => "male",
+            super::resources::Gender::Female => "female",
+        };
 
+        info!("Portrait layers: {}", portrait_layers);
+
+        // Envoyer au serveur
         if let Some(ref mut client) = network_client {
-            let _ = client;
+            client.send_message(shared::protocol::ClientMessage::CreateLord {
+                first_name: first_name.to_string(),
+                gender: gender.to_string(),
+                portrait_layers,
+            });
+            info!("CreateLord message sent to server");
+        } else {
+            warn!("No network client available — cannot create lord");
         }
-
-        next_state.set(AppState::InGame);
     }
 }
 
@@ -275,6 +305,8 @@ pub fn push_name_to_input(
     for mut queue in query.iter_mut() {
         // queue.add(TextInputAction::Edit(TextInputEdit::SelectAll));
         // queue.add(TextInputAction::Edit(TextInputEdit::Delete));
-        queue.add(TextInputAction::Edit(TextInputEdit::Paste(new_name.clone())));
+        queue.add(TextInputAction::Edit(TextInputEdit::Paste(
+            new_name.clone(),
+        )));
     }
 }

@@ -96,13 +96,10 @@ impl SpecificActionData for MoveUnitAction {
         ActionTypeEnum::MoveUnit
     }
 
-    fn duration_ms(&self, context: &ActionContext) -> u64 {
-        // Distance-based duration
-        let distance = context
-            .grid_cell
-            .to_hex()
-            .distance_to(context.grid_cell.to_hex());
-        (distance as u64) * 1000 // 1s par hex
+    fn duration_ms(&self, _context: &ActionContext) -> u64 {
+        // Durée par défaut — le serveur override avec la distance réelle
+        // car ActionContext ne connaît pas la position de départ
+        1000
     }
 
     fn validate(&self, _context: &ValidationContext) -> Result<(), String> {

@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::states::AppState;
+
 use super::components;
 use super::input;
 use super::resources;
@@ -11,6 +13,7 @@ impl Plugin for CameraPlugin {
         app
             .init_resource::<resources::CameraSettings>()
             .add_systems(Startup, components::setup_camera)
-            .add_systems(Update, (input::camera_movement, input::camera_zoom));
+            .add_systems(Update, (input::camera_movement, input::camera_zoom))
+            .add_systems(OnEnter(AppState::InGame), components::center_camera_on_lord);
     }
 }

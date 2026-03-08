@@ -5,10 +5,10 @@ use crate::networking::events::ServerEvent;
 use crate::state::resources::{ConnectionStatus, PlayerInfo};
 use crate::states::AppState;
 
-/// Handles authentication responses (login/register).
+/// Handles authentication responses (login/register) AND lord lifecycle.
 /// Runs at all times since auth happens before InGame.
 pub fn handle_auth_events(
-    mut events: EventReader<ServerEvent>,
+    mut events: MessageReader<ServerEvent>,
     mut connection: ResMut<ConnectionStatus>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
@@ -43,15 +43,47 @@ pub fn handle_auth_events(
                         "Character '{}' loaded (ID: {})",
                         character_name, character_data.id
                     );
+                }
 
-                    // Has character → enter game
+                // Ne PAS naviguer ici — on attend LordData pour décider
+                // (le serveur envoie LordData juste après LoginSuccess)
+            }
+
+            // ── NOUVEAU : LordData reçu après LoginSuccess ──
+            ServerMessage::LordData { lord } => {
+                if let Some(lord_data) = lord {
+                    info!(
+                        "✓ Lord loaded: {} (ID: {}) at ({},{})",
+                        lord_data.full_name(),
+                        lord_data.id,
+                        lord_data.current_cell.q,
+                        lord_data.current_cell.r,
+                    );
+                    player_info.set_lord(lord_data.clone());
                     next_app_state.set(AppState::InGame);
                 } else {
-                    // No character yet → character creation screen
-                    info!("No character found, entering character creation");
+                    info!("No lord found — entering character creation");
                     next_app_state.set(AppState::CharacterCreation);
                 }
             }
+
+            // ── NOUVEAU : Lord créé avec succès ──
+            ServerMessage::LordCreated { unit_data } => {
+                info!(
+                    "✓ Lord created: {} (ID: {})",
+                    unit_data.full_name(),
+                    unit_data.id,
+                );
+                player_info.set_lord(unit_data.clone());
+                next_app_state.set(AppState::InGame);
+            }
+
+            // ── NOUVEAU : Échec de création du lord ──
+            ServerMessage::LordCreateError { reason } => {
+                warn!("Failed to create lord: {}", reason);
+                // Rester sur CharacterCreation — TODO: afficher l'erreur dans l'UI
+            }
+
             ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);
             }

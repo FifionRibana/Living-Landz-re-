@@ -3,7 +3,7 @@ use shared::protocol::ServerMessage;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 pub type MessageSender = mpsc::UnboundedSender<ServerMessage>;
 
@@ -53,9 +53,16 @@ impl Sessions {
             session_data.player_id = Some(player_id);
 
             // Créer le mapping player_id -> session_id
-            self.player_to_session.write().await.insert(player_id, session_id);
+            self.player_to_session
+                .write()
+                .await
+                .insert(player_id, session_id);
 
-            tracing::info!("Session {} authenticated as player {}", session_id, player_id);
+            tracing::info!(
+                "Session {} authenticated as player {}",
+                session_id,
+                player_id
+            );
         }
     }
 
@@ -76,16 +83,23 @@ impl Sessions {
     }
 
     /// Envoie un message à un joueur spécifique (par player_id)
-    pub async fn send_to_player(&self, player_id: u64, message: ServerMessage) -> Result<(), String> {
+    pub async fn send_to_player(
+        &self,
+        player_id: u64,
+        message: ServerMessage,
+    ) -> Result<(), String> {
         // Trouver la session correspondant au player_id
         let player_to_session = self.player_to_session.read().await;
-        let session_id = player_to_session.get(&player_id)
+        let session_id = player_to_session
+            .get(&player_id)
             .ok_or_else(|| format!("Player {} not found in sessions", player_id))?;
 
         // Envoyer le message via la session
         let sessions = self.sessions.read().await;
         if let Some(session_data) = sessions.get(session_id) {
-            session_data.sender.send(message)
+            session_data
+                .sender
+                .send(message)
                 .map_err(|e| format!("Failed to send message to player {}: {}", player_id, e))?;
             Ok(())
         } else {
@@ -99,5 +113,11 @@ impl Sessions {
         for (_session_id, session_data) in sessions.iter() {
             let _ = session_data.sender.send(message.clone());
         }
+    }
+
+    /// Récupère le player_id d'une session (si authentifiée)
+    pub async fn get_player_id(&self, session_id: u64) -> Option<u64> {
+        let sessions = self.sessions.read().await;
+        sessions.get(&session_id).and_then(|s| s.player_id)
     }
 }
