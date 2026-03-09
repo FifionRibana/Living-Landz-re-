@@ -143,7 +143,7 @@ fn spawn_org_content(
 
     // Stats
     let stats = [
-        ("Population", format!("{}", org.population)),
+        ("Population", format!("{} / {} (logements)", org.population, "?")),
         ("Type", format!("{:?}", org.organization_type)),
     ];
 

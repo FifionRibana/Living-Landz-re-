@@ -1592,6 +1592,7 @@ impl ActionProcessor {
             ServerMessage::HamletFounded { .. } => "HamletFounded",
             ServerMessage::HamletFoundError { .. } => "HamletFoundError",
             ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
+            ServerMessage::PopulationChanged { .. } => "PouplationChanged",
             ServerMessage::Pong => "Pong",
         };
 

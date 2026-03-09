@@ -359,6 +359,14 @@ pub enum ServerMessage {
         organization: Option<OrganizationSummary>,
     },
 
+    /// Population changed for an organization (immigration/death)
+    PopulationChanged {
+        organization_id: u64,
+        new_population: i32,
+        /// The unit that just arrived (if immigration)
+        immigrant: Option<UnitData>,
+    },
+
     // ========================================================================
     // DEBUG RESPONSES
     // ========================================================================

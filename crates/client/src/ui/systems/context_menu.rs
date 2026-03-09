@@ -251,6 +251,7 @@ pub fn dismiss_context_menu(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut context_menu: ResMut<ContextMenuState>,
     menu_query: Query<&Interaction, With<ContextMenuRoot>>,
+    entry_query: Query<&Interaction, With<ContextMenuEntry>>,
 ) {
     if !context_menu.open {
         return;
@@ -262,12 +263,14 @@ pub fn dismiss_context_menu(
         return;
     }
 
-    // Clic gauche en dehors du menu → fermer
     if mouse_button.just_pressed(MouseButton::Left) {
-        // Vérifier si le clic est SUR le menu (interaction Hovered/Pressed)
+        // Vérifier si le clic est sur le root OU sur une entrée
         let clicking_menu = menu_query
             .iter()
-            .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
+            .any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed))
+            || entry_query
+                .iter()
+                .any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed));
 
         if !clicking_menu {
             context_menu.close();
