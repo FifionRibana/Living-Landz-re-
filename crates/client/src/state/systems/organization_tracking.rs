@@ -56,3 +56,43 @@ pub fn track_hovered_cell_organization(
 
     Ok(())
 }
+
+/// Tracks the cell at the CENTER of the camera and requests organization info
+pub fn track_camera_center_organization(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    grid_config: Res<GridConfig>,
+    mut current_organization: ResMut<CurrentOrganization>,
+    mut network_client: ResMut<NetworkClient>,
+) -> Result {
+    let window = windows.single()?;
+    let (camera, camera_transform) = cameras.single()?;
+
+    // Use center of window instead of cursor position
+    let center = Vec2::new(window.width() / 2.0, window.height() / 2.0);
+
+    if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, center) {
+        let hex_position = grid_config.layout.world_pos_to_hex(world_pos);
+        let current_cell = GridCell {
+            q: hex_position.x,
+            r: hex_position.y,
+        };
+
+        // Only send request if cell has changed
+        let should_request = match &current_organization.last_queried_cell {
+            Some(last_cell) => last_cell.q != current_cell.q || last_cell.r != current_cell.r,
+            None => true,
+        };
+
+        if should_request {
+            network_client.send_message(
+                shared::protocol::ClientMessage::RequestOrganizationAtCell {
+                    cell: current_cell,
+                },
+            );
+            current_organization.last_queried_cell = Some(current_cell);
+        }
+    }
+
+    Ok(())
+}

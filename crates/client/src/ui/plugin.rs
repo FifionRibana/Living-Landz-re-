@@ -262,7 +262,11 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 Update,
-                (systems::update_organization_info,).run_if(in_state(AppState::InGame)),
+                (
+                    systems::update_organization_info,
+                    systems::update_organization_badge,
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             // ─── Action panel (new contextual system) ──────────────────
             .add_systems(

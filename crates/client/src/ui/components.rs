@@ -370,3 +370,11 @@ pub struct ContextMenuRoot;
 pub struct ContextMenuEntry {
     pub action: crate::ui::resources::ContextMenuAction,
 }
+
+/// Marqueur du badge d'organisation (coin de l'écran)
+#[derive(Component)]
+pub struct OrganizationBadge;
+
+/// Texte du nom de l'organisation dans le badge
+#[derive(Component)]
+pub struct OrganizationBadgeText;

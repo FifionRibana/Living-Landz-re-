@@ -1,7 +1,11 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
+    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData,
+    OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum,
+    RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData,
+    grid::{CellData, GridCell},
+    types::TerrainChunkData,
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -161,9 +165,15 @@ pub enum ClientMessage {
     /// Create the player's Lord/Lady (main avatar)
     CreateLord {
         first_name: String,
-        gender: String,           // "male" / "female"
-        portrait_layers: String,  // "bust_idx,face_idx,clothes_idx,hair_idx"
+        gender: String,          // "male" / "female"
+        portrait_layers: String, // "bust_idx,face_idx,clothes_idx,hair_idx"
     },
+
+    // ========================================================================
+    // ORGANIZATION ACTION
+    // ========================================================================
+    /// Found a hamlet at the lord's current position
+    FoundHamlet,
 
     // ========================================================================
     // DEBUG COMMANDS
@@ -326,6 +336,27 @@ pub enum ServerMessage {
     UnitProfessionChanged {
         unit_id: u64,
         new_profession: ProfessionEnum,
+    },
+
+    // ========================================================================
+    // ORGANIZATION ACTIONS
+    // ========================================================================
+    /// Hamlet founded successfully
+    HamletFounded {
+        organization_id: u64,
+        name: String,
+        headquarters: GridCell,
+        territory_cells: Vec<GridCell>,
+    },
+
+    /// Hamlet founding failed
+    HamletFoundError {
+        reason: String,
+    },
+
+    /// Player's own organization data (sent after login)
+    PlayerOrganizationData {
+        organization: Option<OrganizationSummary>,
     },
 
     // ========================================================================

@@ -1589,6 +1589,9 @@ impl ActionProcessor {
             ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
             ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
             ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
+            ServerMessage::HamletFounded { .. } => "HamletFounded",
+            ServerMessage::HamletFoundError { .. } => "HamletFoundError",
+            ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
             ServerMessage::Pong => "Pong",
         };
 
