@@ -333,6 +333,57 @@ impl BuildingTypeEnum {
         }
     }
 
+    // TODO : Move this to database
+    /// Nombre d'unités que ce bâtiment peut loger
+    pub fn housing_capacity(&self) -> u32 {
+        match self {
+            // Ateliers — chaque atelier loge son artisan
+            Self::Blacksmith => 2,
+            Self::BlastFurnace => 1,
+            Self::Bloomery => 1,
+            Self::CarpenterShop => 2,
+            Self::GlassFactory => 1,
+            // Agriculture — une ferme loge une famille
+            Self::Farm => 3,
+            // Élevage — berger/vacher
+            Self::Cowshed => 1,
+            Self::Piggery => 1,
+            Self::Sheepfold => 1,
+            Self::Stable => 1,
+            // Commerce
+            Self::Bakehouse => 2,
+            Self::Brewery => 2,
+            Self::Distillery => 1,
+            Self::Slaughterhouse => 1,
+            Self::IceHouse => 0,
+            Self::Market => 2,
+            // Autres
+            Self::Theater => 0,
+            Self::Temple => 1,
+            // Arbres — pas de logement
+            Self::Cedar | Self::Larch | Self::Oak => 0,
+        }
+    }
+    
+    // TODO : This will be "What unit this building can train."
+    // TODO : The base unit should simply be: Settler then the settler has to be trained
+    /// Professions pertinentes pour ce bâtiment (pour le spawn d'immigrants)
+    pub fn relevant_professions(&self) -> &'static [crate::ProfessionEnum] {
+        use crate::ProfessionEnum::*;
+        match self {
+            Self::Blacksmith | Self::BlastFurnace | Self::Bloomery => &[Blacksmith],
+            Self::CarpenterShop => &[Carpenter],
+            Self::GlassFactory => &[Mason],
+            Self::Farm => &[Farmer],
+            Self::Cowshed | Self::Piggery | Self::Sheepfold | Self::Stable => &[Farmer],
+            Self::Bakehouse => &[Baker],
+            Self::Brewery => &[Brewer],
+            Self::Market => &[Merchant],
+            Self::Temple => &[Scholar],
+            _ => &[Farmer],  // default
+        }
+    }
+
     pub fn category(&self) -> BuildingCategoryEnum {
         match self {
             Self::Blacksmith

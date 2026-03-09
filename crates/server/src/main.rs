@@ -7,6 +7,7 @@ mod auth;
 mod action_processor;
 mod database;
 mod networking;
+mod population;
 mod road;
 mod units;
 mod utils;
@@ -107,6 +108,14 @@ async fn main() {
 
     // Démarrer le processeur d'actions en arrière-plan
     action_processor::start_action_processor(action_processor.clone());
+
+    // Démarrer le système de population en arrière-plan
+    let population_system = Arc::new(population::PopulationSystem::new(
+        db_tables_arc.clone(),
+        sessions.clone(),
+        name_generator.clone(),
+    ));
+    population::start_population_tick(population_system);
 
     tokio::task::spawn_blocking(move || {
         App::new()

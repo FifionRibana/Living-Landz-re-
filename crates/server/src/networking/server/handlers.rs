@@ -203,6 +203,7 @@ pub async fn handle_connection(
                     ServerMessage::HamletFounded { .. } => "HamletFounded",
                     ServerMessage::HamletFoundError { .. } => "HamletFoundError",
                     ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
+                    ServerMessage::PopulationChanged { .. } => "PouplationChanged",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -527,7 +528,10 @@ async fn handle_client_message(
                             );
 
                             let _ = sessions
-                                .send_to_player(player_id_u64, ServerMessage::LordData { lord: lord.clone() })
+                                .send_to_player(
+                                    player_id_u64,
+                                    ServerMessage::LordData { lord: lord.clone() },
+                                )
                                 .await;
 
                             // Chercher l'organisation du joueur (via le lord)
@@ -549,7 +553,9 @@ async fn handle_client_message(
                                         Some(shared::OrganizationSummary {
                                             id: id as u64,
                                             name,
-                                            organization_type: shared::OrganizationType::from_id(type_id),
+                                            organization_type: shared::OrganizationType::from_id(
+                                                type_id,
+                                            ),
                                             leader_unit_id: leader_id.map(|l| l as u64),
                                             population: pop,
                                             emblem_url: emblem,
@@ -558,12 +564,14 @@ async fn handle_client_message(
                                     _ => None,
                                 };
 
-                                let _ = sessions.send_to_player(
-                                    player_id_u64,
-                                    ServerMessage::PlayerOrganizationData {
-                                        organization: org_summary,
-                                    },
-                                ).await;
+                                let _ = sessions
+                                    .send_to_player(
+                                        player_id_u64,
+                                        ServerMessage::PlayerOrganizationData {
+                                            organization: org_summary,
+                                        },
+                                    )
+                                    .await;
                             }
 
                             login_response
