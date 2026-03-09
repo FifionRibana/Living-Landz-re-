@@ -2,7 +2,7 @@ use futures::{SinkExt, StreamExt};
 use shared::grid::GridCell;
 use shared::{
     ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
-    ActionTypeEnum, BuildBuildingAction, BuildRoadAction, CraftResourceAction,
+    ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction,
     HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData,
     TerrainChunkData, TrainUnitAction,
 };
@@ -47,6 +47,50 @@ async fn add_action_and_cache(
         .await;
 
     Ok(action_id)
+}
+
+/// Claim une cellule et ses 6 voisins pour une organisation (fallback si pas de Voronoï)
+async fn claim_cell_and_neighbors(
+    db_tables: &DatabaseTables,
+    org_id: u64,
+    center: &shared::grid::GridCell,
+    claimed_cells: &mut Vec<shared::grid::GridCell>,
+) {
+    // Cellule centrale
+    if db_tables
+        .organizations
+        .add_territory_cell(org_id, center)
+        .await
+        .is_ok()
+    {
+        claimed_cells.push(*center);
+    }
+
+    // 6 voisins directs
+    for neighbor in center.neighbors() {
+        // Vérifier que le voisin n'est pas déjà pris
+        let already_taken = sqlx::query_scalar::<_, i64>(
+            "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2"
+        )
+        .bind(neighbor.q)
+        .bind(neighbor.r)
+        .fetch_optional(&db_tables.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+        if !already_taken {
+            if db_tables
+                .organizations
+                .add_territory_cell(org_id, &neighbor)
+                .await
+                .is_ok()
+            {
+                claimed_cells.push(neighbor);
+            }
+        }
+    }
 }
 
 pub async fn handle_connection(
@@ -156,6 +200,9 @@ pub async fn handle_connection(
                     ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
                     ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
                     ServerMessage::UnitProfessionChanged { .. } => "UnitProfessionChanged",
+                    ServerMessage::HamletFounded { .. } => "HamletFounded",
+                    ServerMessage::HamletFoundError { .. } => "HamletFoundError",
+                    ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -480,8 +527,44 @@ async fn handle_client_message(
                             );
 
                             let _ = sessions
-                                .send_to_player(player_id_u64, ServerMessage::LordData { lord })
+                                .send_to_player(player_id_u64, ServerMessage::LordData { lord: lord.clone() })
                                 .await;
+
+                            // Chercher l'organisation du joueur (via le lord)
+                            if let Some(ref lord) = lord {
+                                let player_org = sqlx::query_as::<_, (i64, String, i16, Option<i64>, i32, Option<String>)>(
+                                    r#"
+                                    SELECT o.id, o.name, o.organization_type_id, o.leader_unit_id, o.population, o.emblem_url
+                                    FROM organizations.organizations o
+                                    WHERE o.leader_unit_id = $1
+                                    LIMIT 1
+                                    "#,
+                                )
+                                .bind(lord.id as i64)
+                                .fetch_optional(&db_tables.pool)
+                                .await;
+
+                                let org_summary = match player_org {
+                                    Ok(Some((id, name, type_id, leader_id, pop, emblem))) => {
+                                        Some(shared::OrganizationSummary {
+                                            id: id as u64,
+                                            name,
+                                            organization_type: shared::OrganizationType::from_id(type_id),
+                                            leader_unit_id: leader_id.map(|l| l as u64),
+                                            population: pop,
+                                            emblem_url: emblem,
+                                        })
+                                    }
+                                    _ => None,
+                                };
+
+                                let _ = sessions.send_to_player(
+                                    player_id_u64,
+                                    ServerMessage::PlayerOrganizationData {
+                                        organization: org_summary,
+                                    },
+                                ).await;
+                            }
 
                             login_response
                         }
@@ -1146,10 +1229,14 @@ async fn handle_client_message(
                 Ok(action_id) => {
                     tracing::info!(
                         "Unit {} moving {} hexes from ({},{}) to ({},{}) — {}ms (action {})",
-                        unit_id, hex_distance,
-                        unit_data.current_cell.q, unit_data.current_cell.r,
-                        cell.q, cell.r,
-                        duration_ms, action_id
+                        unit_id,
+                        hex_distance,
+                        unit_data.current_cell.q,
+                        unit_data.current_cell.r,
+                        cell.q,
+                        cell.r,
+                        duration_ms,
+                        action_id
                     );
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
@@ -1590,6 +1677,280 @@ async fn handle_client_message(
                     }]
                 }
             }
+        }
+
+        // ====================================================================
+        // ORGANIZATION ACTIONS
+        // ====================================================================
+        ClientMessage::FoundHamlet => {
+            tracing::info!("Session {} requesting to found a hamlet", session_id);
+
+            // 1. Récupérer le player_id
+            let player_id = match sessions.get_player_id(session_id).await {
+                Some(id) => id,
+                None => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: "Non authentifié".to_string(),
+                    }];
+                }
+            };
+
+            // 2. Charger le lord du joueur
+            let lord = match db_tables.units.load_lord_for_player(player_id).await {
+                Ok(Some(lord)) => lord,
+                Ok(None) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: "Vous n'avez pas de Lord/Lady".to_string(),
+                    }];
+                }
+                Err(e) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: format!("Erreur: {}", e),
+                    }];
+                }
+            };
+
+            let cell = lord.current_cell;
+
+            // 3. Vérifier que la cellule n'appartient pas déjà à une organisation
+            match sqlx::query_scalar::<_, i64>(
+                "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2"
+            )
+            .bind(cell.q)
+            .bind(cell.r)
+            .fetch_optional(&db_tables.pool)
+            .await
+            {
+                Ok(Some(_)) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: "Cette cellule appartient déjà à un territoire".to_string(),
+                    }];
+                }
+                Ok(None) => { /* libre, on continue */ }
+                Err(e) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: format!("Erreur DB: {}", e),
+                    }];
+                }
+            }
+
+            // 4. Vérifier que le joueur n'a pas déjà une organisation
+            //    (pour le MVP, un seul hameau par joueur)
+            match sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+            )
+            .bind(lord.id as i64)
+            .fetch_optional(&db_tables.pool)
+            .await
+            {
+                Ok(Some(existing_org_id)) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: format!(
+                            "Vous avez déjà une organisation (ID: {})",
+                            existing_org_id
+                        ),
+                    }];
+                }
+                Ok(None) => { /* OK */ }
+                Err(e) => {
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: format!("Erreur DB: {}", e),
+                    }];
+                }
+            }
+
+            // 5. Récupérer le nom de famille du joueur
+            let family_name = match shared::types::game::methods::get_player_by_id(
+                &db_tables.pool,
+                player_id as i64,
+            )
+            .await
+            {
+                Ok(Some(player)) => player.family_name,
+                _ => "Inconnu".to_string(),
+            };
+
+            let hamlet_name = format!("Hameau de {}", family_name);
+
+            // 6. Créer l'organisation
+            let request = shared::CreateOrganizationRequest {
+                name: hamlet_name.clone(),
+                organization_type: shared::OrganizationType::Hamlet,
+                headquarters_cell: Some(cell),
+                parent_organization_id: None,
+                founder_unit_id: lord.id,
+            };
+
+            let org_id = match db_tables.organizations.create_organization(request).await {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!("Failed to create hamlet: {}", e);
+                    return vec![ServerMessage::HamletFoundError {
+                        reason: format!("Échec de la création: {}", e),
+                    }];
+                }
+            };
+
+            tracing::info!(
+                "✓ Hamlet '{}' created with ID {} for player {}",
+                hamlet_name,
+                org_id,
+                player_id
+            );
+
+            // 7. Claim territoire — Voronoï si disponible, sinon voisins
+            let mut claimed_cells = Vec::new();
+
+            match db_tables.voronoi_zones.get_zone_at_cell(cell).await {
+                Ok(Some(zone_id)) => {
+                    match db_tables.voronoi_zones.is_zone_available(zone_id).await {
+                        Ok(true) => {
+                            // Claim toute la zone Voronoï
+                            match db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                                Ok(zone_cells) => {
+                                    tracing::info!(
+                                        "Claiming {} cells from Voronoi zone {}",
+                                        zone_cells.len(),
+                                        zone_id
+                                    );
+                                    for zone_cell in &zone_cells {
+                                        if db_tables
+                                            .organizations
+                                            .add_territory_cell(org_id, zone_cell)
+                                            .await
+                                            .is_ok()
+                                        {
+                                            claimed_cells.push(*zone_cell);
+                                        }
+                                    }
+
+                                    // Lier la zone à l'organisation
+                                    let _ = sqlx::query(
+                                        "UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2"
+                                    )
+                                    .bind(zone_id)
+                                    .bind(org_id as i64)
+                                    .execute(&db_tables.pool)
+                                    .await;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to get zone cells: {}, using fallback",
+                                        e
+                                    );
+                                    claim_cell_and_neighbors(
+                                        db_tables,
+                                        org_id,
+                                        &cell,
+                                        &mut claimed_cells,
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        _ => {
+                            tracing::info!(
+                                "Voronoi zone {} not available, using fallback",
+                                zone_id
+                            );
+                            claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells)
+                                .await;
+                        }
+                    }
+                }
+                _ => {
+                    tracing::info!("No Voronoi zone at cell, using fallback (cell + neighbors)");
+                    claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                }
+            }
+
+            tracing::info!(
+                "✓ Hamlet {} claimed {} territory cells",
+                org_id,
+                claimed_cells.len()
+            );
+
+            // 8. Générer les contours territoriaux
+            let mut contour_messages = Vec::new();
+
+            match db_tables.organizations.load_territory_cells(org_id).await {
+                Ok(territory_cells) if !territory_cells.is_empty() => {
+                    use hexx::Hex;
+                    let territory_hex: std::collections::HashSet<Hex> =
+                        territory_cells.iter().map(|c| c.to_hex()).collect();
+
+                    use shared::grid::GridConfig;
+                    let grid_config = GridConfig::new(
+                        shared::constants::HEX_SIZE,
+                        hexx::HexOrientation::Flat,
+                        bevy::math::Vec2::new(
+                            shared::constants::HEX_RATIO.x,
+                            shared::constants::HEX_RATIO.y,
+                        ),
+                        3,
+                    );
+
+                    let contour_points = &world::territory::build_contour(
+                        &grid_config.layout,
+                        &territory_hex,
+                        0.0,
+                        org_id as u64,
+                    );
+
+                    let contour_chunks = utils::chunks::split_contour_into_chunks(contour_points);
+
+                    tracing::info!(
+                        "Generated {} contour chunks for hamlet {}",
+                        contour_chunks.len(),
+                        org_id
+                    );
+
+                    // Stocker les contours en DB
+                    for (chunk_id, contour_segments) in &contour_chunks {
+                        let _ = db_tables
+                            .territory_contours
+                            .store_contour(org_id, chunk_id.x, chunk_id.y, contour_segments)
+                            .await;
+                    }
+
+                    // Préparer les messages TerritoryContourUpdate à envoyer au client
+                    // Regrouper par chunk_id
+                    for (chunk_id, contour_segments) in &contour_chunks {
+                        let (border_color, fill_color) =
+                            world::territory::generate_org_colors(org_id);
+
+                        contour_messages.push(ServerMessage::TerritoryContourUpdate {
+                            chunk_id: *chunk_id,
+                            contours: vec![shared::protocol::TerritoryContourChunkData {
+                                organization_id: org_id,
+                                chunk_id: *chunk_id,
+                                segments: contour_segments
+                                    .iter()
+                                    .map(ContourSegmentData::from_contour_segment)
+                                    .collect(),
+                                border_color: ColorData::from_array(border_color),
+                                fill_color: ColorData::from_array(fill_color),
+                            }],
+                        });
+                    }
+                }
+                _ => {
+                    tracing::warn!("No territory cells after founding hamlet {}", org_id);
+                }
+            }
+
+            // 9. Envoyer les réponses
+            let mut responses = vec![ServerMessage::HamletFounded {
+                organization_id: org_id,
+                name: hamlet_name,
+                headquarters: cell,
+                territory_cells: claimed_cells,
+            }];
+
+            // Ajouter les contours pour que le client les affiche immédiatement
+            responses.extend(contour_messages);
+
+            responses
         }
 
         // ====================================================================

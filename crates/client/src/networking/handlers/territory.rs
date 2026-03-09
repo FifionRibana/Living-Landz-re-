@@ -5,18 +5,48 @@ use crate::networking::events::ServerEvent;
 use crate::rendering::territory::{
     TerritoryBorderCellsDebug, TerritoryBorderSdfCache, TerritoryContourCache,
 };
-use crate::state::resources::CurrentOrganization;
+use crate::state::resources::{CurrentOrganization, PlayerInfo};
 
 /// Handles territory-related messages (contours, border SDF, border cells, organization at cell).
 pub fn handle_territory_events(
     mut events: MessageReader<ServerEvent>,
     mut territory_border_cache: ResMut<TerritoryBorderSdfCache>,
     mut territory_contour_cache: ResMut<TerritoryContourCache>,
+    mut player_info: ResMut<PlayerInfo>,
     mut current_organization: Option<ResMut<CurrentOrganization>>,
     mut commands: Commands,
 ) {
     for event in events.read() {
         match &event.0 {
+            ServerMessage::HamletFounded {
+                organization_id,
+                name,
+                headquarters,
+                territory_cells,
+            } => {
+                info!(
+                    "✓ Hamlet '{}' founded (ID: {}) with {} territory cells",
+                    name,
+                    organization_id,
+                    territory_cells.len(),
+                );
+
+                // Stocker l'organisation dans PlayerInfo
+                player_info.organization = Some(shared::OrganizationSummary {
+                    id: *organization_id,
+                    name: name.clone(),
+                    organization_type: shared::OrganizationType::Hamlet,
+                    leader_unit_id: player_info.lord.as_ref().map(|l| l.id),
+                    population: 0,
+                    emblem_url: None,
+                });
+            }
+
+            ServerMessage::HamletFoundError { reason } => {
+                warn!("Failed to found hamlet: {}", reason);
+                // TODO: afficher l'erreur dans l'UI
+            }
+
             ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
                 info!(
                     "✓ Received {} territory contours for chunk ({},{})",

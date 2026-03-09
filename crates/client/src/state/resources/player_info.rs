@@ -11,6 +11,7 @@ pub struct PlayerInfo {
     pub temp_character_name: Option<String>,
     // Lord
     pub lord: Option<UnitData>,
+    pub organization: Option<shared::OrganizationSummary>,
 }
 
 impl Default for PlayerInfo {
@@ -22,6 +23,7 @@ impl Default for PlayerInfo {
             temp_player_name: None,
             temp_character_name: None,
             lord: None,
+            organization: None,
         }
     }
 }

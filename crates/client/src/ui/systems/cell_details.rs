@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
+use bevy::{ecs::relationship::RelatedSpawnerCommands, prelude::*};
 use shared::{
     atlas::{BuildingAtlas, GaugeAtlas, MoonAtlas},
     grid::GridCell,
@@ -7,11 +7,11 @@ use shared::{
 
 use crate::{
     grid::resources::SelectedHexes,
-    state::resources::{WorldCache, CurrentOrganization},
+    state::resources::{CurrentOrganization, WorldCache},
     states::AppState,
     ui::components::{
-        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsOrganizationText, CellDetailsPanelMarker,
-        CellDetailsQualityGaugeContainer, CellDetailsTitleText,
+        CellDetailsBiomeText, CellDetailsBuildingImage, CellDetailsOrganizationText,
+        CellDetailsPanelMarker, CellDetailsQualityGaugeContainer, CellDetailsTitleText,
     },
 };
 
@@ -56,6 +56,9 @@ pub fn setup_ui(
 
             // Chat panel and icon
             setup_chat_panel(parent, &asset_server);
+
+            // Organization badge (bottom-left corner)
+            spawn_organization_badge(parent, &asset_server);
         });
 }
 
@@ -274,6 +277,85 @@ pub fn update_organization_info(
             );
         } else {
             **text = "No organization".to_string();
+        }
+    }
+}
+
+fn spawn_organization_badge(
+    parent: &mut RelatedSpawnerCommands<ChildOf>,
+    asset_server: &Res<AssetServer>,
+) {
+    // let font: Handle<Font> = asset_server.load("fonts/FiraSans-Bold.ttf");
+    let font_regular = asset_server.load("fonts/FiraSans-Regular.ttf");
+
+    parent
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(12.0),
+                left: Val::Px(12.0),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(8.0),
+                padding: UiRect::new(Val::Px(8.0), Val::Px(12.0), Val::Px(6.0), Val::Px(6.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.12, 0.09, 0.06, 0.85)),
+            BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.6)),
+            BorderRadius::all(Val::Px(4.0)),
+            crate::ui::components::OrganizationBadge,
+            Pickable {
+                should_block_lower: true,
+                is_hoverable: false,
+            },
+        ))
+        .with_children(|badge| {
+            // Shield/emblem icon (placeholder)
+            badge.spawn((
+                Node {
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                ImageNode {
+                    image: asset_server.load("ui/icons/griffin-shield.png"),
+                    image_mode: NodeImageMode::Auto,
+                    color: Color::srgb(0.79, 0.66, 0.30),
+                    ..default()
+                },
+            ));
+
+            // Organization name text
+            badge.spawn((
+                Text::new("—"),
+                TextFont {
+                    font: font_regular,
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.85, 0.78, 0.65)),
+                crate::ui::components::OrganizationBadgeText,
+            ));
+        });
+}
+
+pub fn update_organization_badge(
+    current_organization: Res<CurrentOrganization>,
+    mut text_query: Query<&mut Text, With<crate::ui::components::OrganizationBadgeText>>,
+    mut badge_query: Query<&mut Visibility, With<crate::ui::components::OrganizationBadge>>,
+) {
+    if !current_organization.is_changed() {
+        return;
+    }
+
+    for mut text in &mut text_query {
+        if let Some(org) = &current_organization.organization {
+            **text = org.name.clone();
+        } else {
+            **text = "Terres sauvages".to_string();
         }
     }
 }

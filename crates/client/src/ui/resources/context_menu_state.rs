@@ -6,22 +6,26 @@ use shared::TerrainChunkId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextMenuAction {
     Move,
+    Found,
+    Build(shared::BuildingTypeEnum),
     // Futures actions :
-    // Build,
     // Harvest,
-    // Found,
 }
 
 impl ContextMenuAction {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Move => "Déplacer",
+            Self::Found => "Fonder un hameau",
+            Self::Build(bt) => bt.to_name_lowercase(),
         }
     }
 
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Move => "➤",
+            Self::Found => "⛫",
+            Self::Build(_) => "🔨",
         }
     }
 }

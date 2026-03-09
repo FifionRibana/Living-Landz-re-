@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 
-use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
-use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
 use crate::networking::client::NetworkClient;
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
+use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
+use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
 
 // ─── Palette ────────────────────────────────────────────────────────
 
@@ -24,7 +24,9 @@ pub fn update_context_menu(
     existing_menu: Query<Entity, With<ContextMenuRoot>>,
     asset_server: Res<AssetServer>,
 ) {
-    if !context_menu.is_changed() { return; }
+    if !context_menu.is_changed() {
+        return;
+    }
 
     // Despawn l'ancien menu
     for entity in existing_menu.iter() {
@@ -32,8 +34,12 @@ pub fn update_context_menu(
     }
 
     // Si le menu doit être ouvert, spawn un nouveau
-    if !context_menu.open { return; }
-    if context_menu.available_actions.is_empty() { return; }
+    if !context_menu.open {
+        return;
+    }
+    if context_menu.available_actions.is_empty() {
+        return;
+    }
 
     let font = asset_server.load("fonts/FiraSans-Regular.ttf");
     let font_bold = asset_server.load("fonts/FiraSans-Bold.ttf");
@@ -77,8 +83,10 @@ pub fn update_context_menu(
                     TextColor(TEXT_DIM),
                     Node {
                         padding: UiRect::new(
-                            Val::Px(10.0), Val::Px(10.0),
-                            Val::Px(4.0), Val::Px(4.0),
+                            Val::Px(10.0),
+                            Val::Px(10.0),
+                            Val::Px(4.0),
+                            Val::Px(4.0),
                         ),
                         ..default()
                     },
@@ -92,8 +100,10 @@ pub fn update_context_menu(
                         flex_direction: FlexDirection::Row,
                         align_items: AlignItems::Center,
                         padding: UiRect::new(
-                            Val::Px(10.0), Val::Px(10.0),
-                            Val::Px(6.0), Val::Px(6.0),
+                            Val::Px(10.0),
+                            Val::Px(10.0),
+                            Val::Px(6.0),
+                            Val::Px(6.0),
                         ),
                         column_gap: Val::Px(8.0),
                         ..default()
@@ -139,18 +149,28 @@ pub fn handle_context_menu_click(
     mut network_client: Option<ResMut<NetworkClient>>,
 ) {
     for (interaction, entry) in entry_query.iter() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
 
-        let Some(target_cell) = context_menu.target_cell else { continue; }; 
-        let Some(target_chunk) = context_menu.target_chunk else { continue; };
-        let Some(player_id) = connection.player_id else { continue; };
+        let Some(target_cell) = context_menu.target_cell else {
+            continue;
+        };
+        let Some(target_chunk) = context_menu.target_chunk else {
+            continue;
+        };
+        let Some(player_id) = connection.player_id else {
+            continue;
+        };
 
         match entry.action {
             ContextMenuAction::Move => {
                 let selected_ids = unit_selection.selected_ids().to_vec();
                 info!(
                     "Move {} units to ({},{})",
-                    selected_ids.len(), target_cell.q, target_cell.r
+                    selected_ids.len(),
+                    target_cell.q,
+                    target_cell.r
                 );
 
                 if let Some(ref mut client) = network_client {
@@ -167,16 +187,38 @@ pub fn handle_context_menu_click(
                             continue;
                         }
 
-                        client.send_message(
-                            shared::protocol::ClientMessage::ActionMoveUnit {
-                                player_id,
-                                unit_id: *unit_id,
-                                chunk_id: target_chunk,
-                                cell: target_cell,
-                            },
-                        );
+                        client.send_message(shared::protocol::ClientMessage::ActionMoveUnit {
+                            player_id,
+                            unit_id: *unit_id,
+                            chunk_id: target_chunk,
+                            cell: target_cell,
+                        });
                         info!("Sent move command for unit {}", unit_id);
                     }
+                }
+            }
+            ContextMenuAction::Found => {
+                info!("Founding hamlet!");
+
+                if let Some(ref mut client) = network_client {
+                    client.send_message(shared::protocol::ClientMessage::FoundHamlet);
+                    info!("Sent FoundHamlet to server");
+                }
+            }
+            ContextMenuAction::Build(building_type) => {
+                info!(
+                    "Building {:?} at ({},{})",
+                    building_type, target_cell.q, target_cell.r
+                );
+
+                if let Some(ref mut client) = network_client {
+                    client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
+                        player_id,
+                        chunk_id: target_chunk,
+                        cell: target_cell,
+                        building_type,
+                    });
+                    info!("✓ Build {:?} request sent", building_type);
                 }
             }
         }
@@ -210,7 +252,9 @@ pub fn dismiss_context_menu(
     mut context_menu: ResMut<ContextMenuState>,
     menu_query: Query<&Interaction, With<ContextMenuRoot>>,
 ) {
-    if !context_menu.open { return; }
+    if !context_menu.open {
+        return;
+    }
 
     // ESC → fermer
     if keyboard.just_pressed(KeyCode::Escape) {
@@ -221,9 +265,9 @@ pub fn dismiss_context_menu(
     // Clic gauche en dehors du menu → fermer
     if mouse_button.just_pressed(MouseButton::Left) {
         // Vérifier si le clic est SUR le menu (interaction Hovered/Pressed)
-        let clicking_menu = menu_query.iter().any(|interaction| {
-            matches!(interaction, Interaction::Hovered | Interaction::Pressed)
-        });
+        let clicking_menu = menu_query
+            .iter()
+            .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
 
         if !clicking_menu {
             context_menu.close();

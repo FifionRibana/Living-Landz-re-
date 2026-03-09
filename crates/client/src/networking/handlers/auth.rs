@@ -84,6 +84,18 @@ pub fn handle_auth_events(
                 // Rester sur CharacterCreation — TODO: afficher l'erreur dans l'UI
             }
 
+            ServerMessage::PlayerOrganizationData { organization } => {
+                if let Some(org) = organization {
+                    info!(
+                        "✓ Player organization loaded: {} (ID: {})",
+                        org.name, org.id
+                    );
+                    player_info.organization = Some(org.clone());
+                } else {
+                    info!("No organization found for player");
+                }
+            }
+
             ServerMessage::LoginError { reason } => {
                 warn!("Error while logging in: {}", reason);
             }
