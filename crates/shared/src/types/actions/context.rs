@@ -14,6 +14,8 @@ pub struct GameDataRef<'a> {
     pub construction_costs: &'a [ConstructionCostNet],
     /// Pre-resolved translated item names (item_id -> display name)
     pub item_names: HashMap<i32, String>,
+    /// Current lord inventory: item_id -> quantity (for executable checks)
+    pub inventory: HashMap<i32, i32>,
 }
 
 impl GameDataRef<'_> {
@@ -163,14 +165,21 @@ impl ActionEntry {
         .with_icon("ui/icons/cog.png")
         .with_duration(recipe.craft_duration_seconds as u32);
 
+        // Check if all ingredients are available
+        let mut can_craft = true;
         for ing in &recipe.ingredients {
             let name = game_data.item_name(ing.item_id);
             entry = entry.with_cost(&name, ing.quantity as u32);
+
+            let have = game_data.inventory.get(&ing.item_id).copied().unwrap_or(0);
+            if have < ing.quantity {
+                can_craft = false;
+            }
         }
 
-        // Output
         let result_name = game_data.item_name(recipe.result_item_id);
         entry = entry.with_output(&result_name, recipe.result_quantity as u32);
+        entry.executable = can_craft;
 
         entry
     }

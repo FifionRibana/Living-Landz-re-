@@ -103,7 +103,17 @@ impl Plugin for UiPlugin {
                     systems::setup_ui,
                     systems::setup_map_units_panel,
                     systems::action_panel::setup_action_panel,
+                    systems::notifications::setup_notification_container,
                 ),
+            )
+            // ─── Notifications ──────────────────────────────────────────
+            .add_systems(
+                Update,
+                (
+                    systems::notifications::spawn_notifications,
+                    systems::notifications::despawn_notifications,
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             // ─── GameView panel lifecycle ─────────────────────────────────
             // Each panel spawns on OnEnter and is auto-despawned via DespawnOnExit

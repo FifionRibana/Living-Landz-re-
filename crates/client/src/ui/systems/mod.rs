@@ -17,6 +17,7 @@ mod menu_buttons;
 mod player_info;
 mod top_bar;
 
+pub mod notifications;
 pub mod panels;
 
 pub use action_menu::*;

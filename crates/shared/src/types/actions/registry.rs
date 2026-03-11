@@ -161,12 +161,19 @@ fn constructible_buildings(
         .with_icon("ui/icons/village.png")
         .with_duration(10);
 
-        // Get costs from DB data
+        // Check if player has enough resources
         let costs = gd.building_costs(bt_id);
-        for cost in costs {
+        let mut can_build = true;
+        for cost in &costs {
             let item_name = gd.item_name(cost.item_id);
             entry = entry.with_cost(&item_name, cost.quantity as u32);
+
+            let have = gd.inventory.get(&cost.item_id).copied().unwrap_or(0);
+            if have < cost.quantity {
+                can_build = false;
+            }
         }
+        entry.executable = can_build;
 
         entries.push(entry);
     }
