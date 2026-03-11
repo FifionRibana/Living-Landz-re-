@@ -432,6 +432,7 @@ pub enum ServerMessage {
     UnitProfessionChanged {
         unit_id: u64,
         new_profession: ProfessionEnum,
+        new_avatar_url: Option<String>,
     },
 
     // ========================================================================
