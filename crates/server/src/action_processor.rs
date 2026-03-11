@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use crate::database::client::DatabaseTables;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
+use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
 fn cell_to_world_pos(cell: &GridCell) -> Vec2 {
@@ -43,15 +44,21 @@ pub struct ActionInfo {
 pub struct ActionProcessor {
     db_tables: Arc<DatabaseTables>,
     sessions: Sessions,
+    game_state: Arc<GameState>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
 }
 
 impl ActionProcessor {
-    pub fn new(db_tables: Arc<DatabaseTables>, sessions: Sessions) -> Self {
+    pub fn new(
+        db_tables: Arc<DatabaseTables>,
+        sessions: Sessions,
+        game_state: Arc<GameState>,
+    ) -> Self {
         Self {
             db_tables,
             sessions,
+            game_state,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -387,76 +394,85 @@ impl ActionProcessor {
                 if action_info.action_type == ActionTypeEnum::HarvestResource {
                     match self.db_tables.actions.load_harvest_data(action_id).await {
                         Ok(Some((_player_id, resource_type))) => {
-                            let (item_id, quantity, quality) = match resource_type {
-                                shared::ResourceSpecificTypeEnum::Wood => (1, 3, 0.8),
-                                shared::ResourceSpecificTypeEnum::Ore => (3, 2, 0.7),
-                                shared::ResourceSpecificTypeEnum::Metal => (3, 1, 0.9),
-                                shared::ResourceSpecificTypeEnum::Mineral => (2, 2, 0.8),
-                                _ => (2, 1, 0.5),
-                            };
+                            // Read harvest yields from GameState cache
+                            let yields = self
+                                .game_state
+                                .harvest_yields_for(resource_type.to_id());
 
-                            match self.find_lord_unit_id(action_info.player_id).await {
-                                Ok(Some(lord_unit_id)) => {
-                                    match self
-                                        .db_tables
-                                        .resources
-                                        .create_items_for_unit(
-                                            lord_unit_id,
-                                            item_id,
-                                            quantity,
-                                            quality,
-                                        )
-                                        .await
-                                    {
-                                        Ok(created_ids) => {
-                                            tracing::info!(
-                                                "Harvest completed (action {}): created {} instances of item {} for unit {} (player {})",
-                                                action_id,
-                                                created_ids.len(),
-                                                item_id,
-                                                lord_unit_id,
-                                                action_info.player_id
-                                            );
+                            if yields.is_empty() {
+                                tracing::error!(
+                                    "No harvest yields defined for resource type {:?} (action {})",
+                                    resource_type, action_id
+                                );
+                            } else {
+                                match self.find_lord_unit_id(action_info.player_id).await {
+                                    Ok(Some(lord_unit_id)) => {
+                                        for hy in &yields {
+                                            let quality = (hy.quality_min + hy.quality_max) / 2.0;
+                                            let quantity = hy.base_quantity;
 
-                                            let inv_msg = ServerMessage::InventoryUpdate {
-                                                unit_id: lord_unit_id,
-                                                item_id,
-                                                quantity_delta: quantity,
-                                                new_total: self
-                                                    .db_tables
-                                                    .resources
-                                                    .count_item_for_unit(lord_unit_id, item_id)
-                                                    .await
-                                                    .unwrap_or(quantity),
-                                            };
-                                            self.send_message_to_player(
-                                                action_info.player_id,
-                                                inv_msg,
-                                            )
-                                            .await;
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Failed to create harvest items for action {}: {}",
-                                                action_id,
-                                                e
-                                            );
+                                            match self
+                                                .db_tables
+                                                .resources
+                                                .create_items_for_unit(
+                                                    lord_unit_id,
+                                                    hy.result_item_id,
+                                                    quantity,
+                                                    quality,
+                                                )
+                                                .await
+                                            {
+                                                Ok(created_ids) => {
+                                                    tracing::info!(
+                                                        "Harvest completed (action {}): created {} x item {} for unit {}",
+                                                        action_id,
+                                                        created_ids.len(),
+                                                        hy.result_item_id,
+                                                        lord_unit_id
+                                                    );
+
+                                                    let inv_msg =
+                                                        ServerMessage::InventoryUpdate {
+                                                            unit_id: lord_unit_id,
+                                                            item_id: hy.result_item_id,
+                                                            quantity_delta: quantity,
+                                                            new_total: self
+                                                                .db_tables
+                                                                .resources
+                                                                .count_item_for_unit(
+                                                                    lord_unit_id,
+                                                                    hy.result_item_id,
+                                                                )
+                                                                .await
+                                                                .unwrap_or(quantity),
+                                                        };
+                                                    self.send_message_to_player(
+                                                        action_info.player_id,
+                                                        inv_msg,
+                                                    )
+                                                    .await;
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to create harvest items for action {}: {}",
+                                                        action_id, e
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                                Ok(None) => {
-                                    tracing::error!(
-                                        "No lord found for player {} (action {})",
-                                        action_info.player_id,
-                                        action_id
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Failed to find lord for player {}: {}",
-                                        action_info.player_id,
-                                        e
-                                    );
+                                    Ok(None) => {
+                                        tracing::error!(
+                                            "No lord found for player {} (action {})",
+                                            action_info.player_id, action_id
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to find lord for player {}: {}",
+                                            action_info.player_id, e
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -479,7 +495,6 @@ impl ActionProcessor {
                 if action_info.action_type == ActionTypeEnum::CraftResource {
                     match self.db_tables.actions.load_craft_data(action_id).await {
                         Ok(Some((_player_id, recipe_id_str, quantity))) => {
-                            let recipe_id: i32 = recipe_id_str.parse().unwrap_or(0);
                             // Charger la recette — par ID numérique ou par slug
                             let recipe = match recipe_id_str.parse::<i32>() {
                                 Ok(numeric_id) => {

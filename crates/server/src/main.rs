@@ -112,6 +112,7 @@ async fn main() {
     let action_processor = Arc::new(action_processor::ActionProcessor::new(
         db_tables_arc.clone(),
         sessions.clone(),
+        game_state_arc.clone(),
     ));
 
     // Charger les actions actives au démarrage
