@@ -349,6 +349,21 @@ impl GameState {
             .collect()
     }
 
+    /// Recipe by numeric ID
+    pub fn get_recipe(&self, recipe_id: i32) -> Option<&Recipe> {
+        self.recipes.iter().find(|r| r.id == recipe_id)
+    }
+
+    /// Recipe by ID (string: try numeric first, then slug lookup via DB name)
+    pub fn find_recipe(&self, recipe_id_str: &str) -> Option<&Recipe> {
+        if let Ok(id) = recipe_id_str.parse::<i32>() {
+            return self.get_recipe(id);
+        }
+        self.recipes
+            .iter()
+            .find(|r| r.name.eq_ignore_ascii_case(recipe_id_str))
+    }
+
     /// Item definition by ID
     pub fn get_item_definition(&self, item_id: i32) -> Option<&ItemDefinition> {
         self.item_definitions.iter().find(|i| i.id == item_id)
