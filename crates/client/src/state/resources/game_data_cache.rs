@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{log::tracing, prelude::*};
 use std::collections::HashMap;
 
 use shared::protocol::{
@@ -16,6 +16,7 @@ pub struct GameDataCache {
     /// Translations indexed by (entity_type, entity_id, language_id, field) → value
     translations: HashMap<(String, i32, i16, String), String>,
     pub loaded: bool,
+    pub dev_mode: bool,
 }
 
 impl GameDataCache {
@@ -33,6 +34,10 @@ impl GameDataCache {
         }
 
         self.loaded = true;
+        self.dev_mode = payload.dev_mode;
+        if self.dev_mode {
+            tracing::warn!("⚡ DEV MODE — resource checks disabled client-side");
+        }
     }
 
     /// Translated name for an item (falls back to definition name).

@@ -82,6 +82,7 @@ pub struct GameDataPayload {
     pub construction_costs: Vec<ConstructionCostNet>,
     pub harvest_yields: Vec<HarvestYieldNet>,
     pub translations: Vec<TranslationEntry>,
+    pub dev_mode: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
