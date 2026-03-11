@@ -136,11 +136,22 @@ impl BuildingCache {
         let mut removed_ids = Vec::new();
         let mut removed = Vec::new();
 
-        self.loaded.retain(|_, data| {
+        self.loaded.retain(|cell, data| {
             let keep =
-                (data.base_data.chunk.x - center.x).abs() <= max_distance && (data.base_data.chunk.y - center.y).abs() <= max_distance;
+                (data.base_data.chunk.x - center.x).abs() <= max_distance 
+                && (data.base_data.chunk.y - center.y).abs() <= max_distance;
 
             if !keep {
+                // DEBUG: afficher le chunk du bâtiment vs le centre
+                warn!(
+                    "📦 Unloading building id={} cell=({},{}) chunk=({},{}) center=({},{}) dist=({},{})",
+                    data.base_data.id,
+                    cell.q, cell.r,
+                    data.base_data.chunk.x, data.base_data.chunk.y,
+                    center.x, center.y,
+                    (data.base_data.chunk.x - center.x).abs(),
+                    (data.base_data.chunk.y - center.y).abs(),
+                );
                 removed_ids.push(data.base_data.id as i64);
                 removed.push(data.clone());
             }
@@ -149,10 +160,7 @@ impl BuildingCache {
         });
 
         if !removed_ids.is_empty() {
-            warn!(
-                "📦 Unloaded {} buildings",
-                removed_ids.len()
-            );
+            warn!("📦 Unloaded {} buildings", removed_ids.len());
         }
 
         (removed_ids, removed)

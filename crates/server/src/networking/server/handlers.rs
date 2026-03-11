@@ -15,8 +15,11 @@ use crate::auth::password;
 use crate::database::client::DatabaseTables;
 use crate::units::NameGenerator;
 use crate::{utils, world};
-use shared::protocol::{ClientMessage, ColorData, ServerMessage, GameDataPayload, ItemDefinitionNet, RecipeNet, RecipeIngredientNet, ConstructionCostNet, HarvestYieldNet, TranslationEntry};
 use shared::GameState;
+use shared::protocol::{
+    ClientMessage, ColorData, ConstructionCostNet, GameDataPayload, HarvestYieldNet,
+    ItemDefinitionNet, RecipeIngredientNet, RecipeNet, ServerMessage, TranslationEntry,
+};
 
 use super::super::Sessions;
 
@@ -741,8 +744,22 @@ async fn handle_client_message(
                     .load_chunk_buildings(terrain_chunk_id)
                     .await
                 {
-                    Ok(building_data) => building_data,
-                    _ => {
+                    Ok(building_data) => {
+                        tracing::debug!(
+                            "Loaded {} buildings for chunk ({},{})",
+                            building_data.len(),
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y
+                        );
+                        building_data
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to load buildings for chunk ({},{}): {}",
+                            terrain_chunk_id.x,
+                            terrain_chunk_id.y,
+                            e
+                        );
                         vec![]
                     }
                 };
@@ -986,11 +1003,7 @@ async fn handle_client_message(
             // ── Validation ──────────────────────────────────
 
             // 1. Find the lord
-            let lord_unit_id = match db_tables
-                .units
-                .load_lord_for_player(player_id)
-                .await
-            {
+            let lord_unit_id = match db_tables.units.load_lord_for_player(player_id).await {
                 Ok(Some(lord)) => lord.id,
                 Ok(None) => {
                     return vec![ServerMessage::ActionError {
@@ -1064,8 +1077,7 @@ async fn handle_client_message(
                 .as_secs();
             // Duration from DB
             let bt_id = building_type.to_id() as i32;
-            let duration_ms =
-                (game_state.building_duration_seconds(bt_id) as u64) * 1000;
+            let duration_ms = (game_state.building_duration_seconds(bt_id) as u64) * 1000;
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1208,7 +1220,8 @@ async fn handle_client_message(
                 None => {
                     tracing::warn!(
                         "Player {} requested unknown recipe '{}'",
-                        player_id, recipe_id
+                        player_id,
+                        recipe_id
                     );
                     return vec![ServerMessage::ActionError {
                         reason: format!("Recette inconnue : {}", recipe_id),
@@ -1217,11 +1230,7 @@ async fn handle_client_message(
             };
 
             // 2. Find the lord
-            let lord_unit_id = match db_tables
-                .units
-                .load_lord_for_player(player_id)
-                .await
-            {
+            let lord_unit_id = match db_tables.units.load_lord_for_player(player_id).await {
                 Ok(Some(lord)) => lord.id,
                 Ok(None) => {
                     return vec![ServerMessage::ActionError {
@@ -1257,9 +1266,7 @@ async fn handle_client_message(
                     let needed = ingredient.quantity * quantity as i32;
                     let have = inventory.get(&ingredient.item_id).copied().unwrap_or(0);
                     if have < needed {
-                        let item_name = game_state
-                            .item_name(ingredient.item_id, 1)
-                            .clone();
+                        let item_name = game_state.item_name(ingredient.item_id, 1).clone();
                         missing.push(format!(
                             "{} (besoin: {}, possédé: {})",
                             item_name, needed, have
@@ -1269,10 +1276,7 @@ async fn handle_client_message(
 
                 if !missing.is_empty() {
                     return vec![ServerMessage::ActionError {
-                        reason: format!(
-                            "Ressources manquantes : {}",
-                            missing.join(", ")
-                        ),
+                        reason: format!("Ressources manquantes : {}", missing.join(", ")),
                     }];
                 }
             }
@@ -1297,8 +1301,7 @@ async fn handle_client_message(
                 .as_secs();
 
             // Duration from DB recipe instead of hardcoded
-            let duration_ms =
-                (recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64);
+            let duration_ms = (recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1327,7 +1330,10 @@ async fn handle_client_message(
                     tracing::info!(
                         "Craft action {} scheduled: recipe '{}' x{} for player {} \
                          (duration: {}s)",
-                        action_id, recipe.name, quantity, player_id,
+                        action_id,
+                        recipe.name,
+                        quantity,
+                        player_id,
                         duration_ms / 1000
                     );
                     responses.push(ServerMessage::ActionStatusUpdate {
@@ -1359,8 +1365,7 @@ async fn handle_client_message(
             // ── Validation ──────────────────────────────────
 
             // 1. Check harvest yields exist for this resource type
-            let yields = game_state
-                .harvest_yields_for(resource_specific_type.to_id());
+            let yields = game_state.harvest_yields_for(resource_specific_type.to_id());
 
             if yields.is_empty() {
                 return vec![ServerMessage::ActionError {
@@ -1391,13 +1396,12 @@ async fn handle_client_message(
 
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
-            let specific_data =
-                SpecificAction::HarvestResource(HarvestResourceAction {
-                    player_id,
-                    chunk_id,
-                    cell,
-                    resource_specific_type,
-                });
+            let specific_data = SpecificAction::HarvestResource(HarvestResourceAction {
+                player_id,
+                chunk_id,
+                cell,
+                resource_specific_type,
+            });
 
             let start_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
