@@ -57,6 +57,52 @@ impl InventoryCache {
         }
     }
 
+    /// Applique un update incrémental avec les infos de l'item résolues
+    pub fn apply_update_with_info(
+        &mut self,
+        unit_id: u64,
+        item_id: i32,
+        new_total: i32,
+        item_name: &str,
+        item_type: shared::ItemTypeEnum,
+        weight_kg: f32,
+    ) {
+        if let Some(items) = self.inventories.get_mut(&unit_id) {
+            if let Some(item) = items.iter_mut().find(|i| i.item_id == item_id) {
+                item.quantity = new_total;
+            } else if new_total > 0 {
+                items.push(InventoryItemData {
+                    instance_id: 0,
+                    item_id,
+                    name: item_name.to_string(),
+                    item_type,
+                    quality: 1.0,
+                    weight_kg,
+                    quantity: new_total,
+                    is_equipped: false,
+                    equipment_slot: None,
+                });
+            }
+
+            items.retain(|i| i.quantity > 0);
+        } else if new_total > 0 {
+            self.inventories.insert(
+                unit_id,
+                vec![InventoryItemData {
+                    instance_id: 0,
+                    item_id,
+                    name: item_name.to_string(),
+                    item_type,
+                    quality: 1.0,
+                    weight_kg,
+                    quantity: new_total,
+                    is_equipped: false,
+                    equipment_slot: None,
+                }],
+            );
+        }
+    }
+
     pub fn get_inventory(&self, unit_id: u64) -> Option<&Vec<InventoryItemData>> {
         self.inventories.get(&unit_id)
     }

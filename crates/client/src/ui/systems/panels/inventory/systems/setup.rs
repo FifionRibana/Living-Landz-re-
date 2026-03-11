@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 
 use crate::camera::resources::SceneRenderTarget;
+use crate::networking::client::NetworkClient;
 use crate::state::resources::{InventoryCache, PlayerInfo};
 use crate::states::GameView;
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
@@ -13,6 +14,7 @@ pub fn setup_inventory_panel(
     render_target: Res<SceneRenderTarget>,
     player_info: Res<PlayerInfo>,
     inventory_cache: Res<InventoryCache>,
+    mut network_client: Option<ResMut<NetworkClient>>,
 ) {
     let config = FrostedGlassConfig::dialog()
         .with_border_radius(8.0)
@@ -23,6 +25,12 @@ pub fn setup_inventory_panel(
 
     // Get lord unit_id to fetch inventory
     let lord_unit_id = player_info.lord.as_ref().map(|l| l.id);
+
+    // Re-request fresh inventory data
+    if let (Some(uid), Some(client)) = (lord_unit_id, &mut network_client) {
+        client.send_message(shared::protocol::ClientMessage::RequestInventory { unit_id: uid });
+    }
+
     let lord_name = player_info
         .lord
         .as_ref()
