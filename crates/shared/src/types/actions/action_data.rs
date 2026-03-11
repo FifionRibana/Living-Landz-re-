@@ -40,9 +40,9 @@ impl SpecificActionData for BuildBuildingAction {
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
-        match self.building_specific_type {
-            _ => 15_000,
-        }
+        // FALLBACK — the handler overrides this with DB value
+        // (game_state.building_duration_seconds)
+        15_000
     }
 
     fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
@@ -162,6 +162,8 @@ impl SpecificActionData for HarvestResourceAction {
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
+        // FALLBACK — the handler overrides this with DB value
+        // (harvest_yield.duration_seconds)
         5_000
     }
 
@@ -189,7 +191,9 @@ impl SpecificActionData for CraftResourceAction {
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
-        (self.quantity as u64) * 2_000 // 2s par item
+        // FALLBACK — the handler overrides this with DB value
+        // (recipe.craft_duration_seconds * quantity)
+        (self.quantity as u64) * 2_000
     }
 
     fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
@@ -219,7 +223,8 @@ impl SpecificActionData for TrainUnitAction {
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
-        30_000 // 30s base training time
+        // TODO: Move to DB (profession training durations)
+        30_000
     }
 
     fn validate(&self, _context: &ValidationContext) -> Result<(), String> {

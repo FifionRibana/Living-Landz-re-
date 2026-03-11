@@ -45,6 +45,13 @@ CREATE INDEX IF NOT EXISTS idx_translations_entity
     ON game.translations(entity_type, entity_id);
 
 -- ═══════════════════════════════════════════════════════════
+-- Construction duration on building types
+-- ═══════════════════════════════════════════════════════════
+
+ALTER TABLE buildings.building_types
+    ADD COLUMN IF NOT EXISTS construction_duration_seconds INT NOT NULL DEFAULT 15;
+
+-- ═══════════════════════════════════════════════════════════
 -- Construction costs
 -- ═══════════════════════════════════════════════════════════
 

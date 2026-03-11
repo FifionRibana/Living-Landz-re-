@@ -322,16 +322,19 @@ class Seeder:
             cur.execute(
                 "INSERT INTO buildings.building_types "
                 "(id, slug, name, category_id, specific_type_id, "
-                "description, archived) "
-                "VALUES (%s,%s,%s,%s,%s,%s,FALSE) "
+                "description, construction_duration_seconds, archived) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,FALSE) "
                 "ON CONFLICT (id) DO UPDATE SET "
                 "slug=EXCLUDED.slug, name=EXCLUDED.name, "
                 "category_id=EXCLUDED.category_id, "
                 "specific_type_id=EXCLUDED.specific_type_id, "
-                "description=EXCLUDED.description, archived=FALSE",
+                "description=EXCLUDED.description, "
+                "construction_duration_seconds=EXCLUDED.construction_duration_seconds, "
+                "archived=FALSE",
                 (
                     bt.id, bt.slug, bt.name, bt.category_id,
                     bt.specific_type_id, bt.description,
+                    bt.construction_duration_seconds,
                 ),
             )
         archived = self._archive_missing(

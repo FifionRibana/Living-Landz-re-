@@ -142,6 +142,7 @@ class BuildingTypeDef:
     category_id: int
     specific_type_id: int
     description: str = ""
+    construction_duration_seconds: int = 15
     construction_costs: list[ConstructionCost] = field(default_factory=list)
 
 
@@ -345,6 +346,7 @@ def _parse_buildings(
                 "building_specific_type", bt["specific_type"]
             ),
             description=bt.get("description", ""),
+            construction_duration_seconds=bt.get("construction_duration_seconds", 15),
             construction_costs=costs,
         )
         resolver.register("building_type", slug, parsed.id)

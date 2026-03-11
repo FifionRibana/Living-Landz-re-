@@ -238,15 +238,103 @@ impl ActionProcessor {
                     continue;
                 }
 
-                // Si c'est une action BuildBuilding, marquer le bâtiment comme construit
+                // Si c'est une action BuildBuilding, consommer les matériaux puis marquer comme construit
                 if action_info.action_type == ActionTypeEnum::BuildBuilding {
+                    // 1. Get building type ID from action
+                    let bt_id = self
+                        .db_tables
+                        .actions
+                        .get_build_building_type(action_id)
+                        .await
+                        .ok()
+                        .flatten();
+
+                    // 2. Consume construction materials
+                    if let Some(bt_id) = bt_id {
+                        let costs = self.game_state.building_costs(bt_id as i32);
+
+                        if !costs.is_empty() {
+                            match self.find_lord_unit_id(action_info.player_id).await {
+                                Ok(Some(lord_unit_id)) => {
+                                    for cost in costs {
+                                        match self
+                                            .db_tables
+                                            .resources
+                                            .consume_items(
+                                                lord_unit_id,
+                                                cost.item_id,
+                                                cost.quantity,
+                                            )
+                                            .await
+                                        {
+                                            Ok(_) => {
+                                                // Notify client
+                                                let remaining = self
+                                                    .db_tables
+                                                    .resources
+                                                    .count_item_for_unit(
+                                                        lord_unit_id, cost.item_id,
+                                                    )
+                                                    .await
+                                                    .unwrap_or(0);
+                                                let msg = ServerMessage::InventoryUpdate {
+                                                    unit_id: lord_unit_id,
+                                                    item_id: cost.item_id,
+                                                    quantity_delta: -cost.quantity,
+                                                    new_total: remaining,
+                                                };
+                                                self.send_message_to_player(
+                                                    action_info.player_id,
+                                                    msg,
+                                                )
+                                                .await;
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "Failed to consume building material \
+                                                     item {} for action {}: {}",
+                                                    cost.item_id,
+                                                    action_id,
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    tracing::info!(
+                                        "Consumed construction materials for building \
+                                         type {} (action {})",
+                                        bt_id,
+                                        action_id
+                                    );
+                                }
+                                Ok(None) => {
+                                    tracing::error!(
+                                        "No lord for player {} (build action {})",
+                                        action_info.player_id,
+                                        action_id
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to find lord for build: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Mark building as built
                     if let Err(e) = self
                         .db_tables
                         .buildings
                         .mark_building_as_built(action_id)
                         .await
                     {
-                        tracing::error!("Failed to mark building {} as built: {}", action_id, e);
+                        tracing::error!(
+                            "Failed to mark building {} as built: {}",
+                            action_id, e
+                        );
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
                     }

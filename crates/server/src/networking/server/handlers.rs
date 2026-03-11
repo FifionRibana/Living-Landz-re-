@@ -1059,10 +1059,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
-                player_id,
-                grid_cell: cell,
-            });
+            // Duration from DB
+            let bt_id = building_type.to_id() as i32;
+            let duration_ms =
+                (game_state.building_duration_seconds(bt_id) as u64) * 1000;
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
