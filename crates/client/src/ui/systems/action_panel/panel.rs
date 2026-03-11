@@ -656,6 +656,7 @@ pub fn handle_action_entry_click(
                 "lumberjack" => shared::ProfessionEnum::Lumberjack,
                 "mason" => shared::ProfessionEnum::Mason,
                 "brewer" => shared::ProfessionEnum::Brewer,
+                "settler" => shared::ProfessionEnum::Settler,
                 other => {
                     warn!("Unknown profession: {}", other);
                     return;

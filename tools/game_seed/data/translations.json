@@ -122,6 +122,7 @@
     "fisherman":  {"name": {"fr": "Pêcheur",      "en": "Fisherman"}},
     "lumberjack": {"name": {"fr": "Bûcheron",     "en": "Lumberjack"}},
     "mason":      {"name": {"fr": "Maçon",        "en": "Mason"}},
-    "brewer":     {"name": {"fr": "Brasseur",     "en": "Brewer"}}
+    "brewer":     {"name": {"fr": "Brasseur",     "en": "Brewer"}},
+    "settler":    {"name": {"fr": "Colon",        "en": "Settler"}}
   }
 }

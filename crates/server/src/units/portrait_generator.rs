@@ -52,7 +52,8 @@ impl PortraitGenerator {
             ProfessionEnum::Merchant => "Jeweller",
             ProfessionEnum::Scholar => "Architect",
             ProfessionEnum::Warrior => "Knight",
-            ProfessionEnum::Unknown => "Farmer", // Défaut
+            ProfessionEnum::Settler => "colonist",
+            ProfessionEnum::Unknown => "colonist", // Défaut
         }
     }
 
@@ -71,11 +72,16 @@ impl PortraitGenerator {
         profession: ProfessionEnum,
     ) -> String {
         let profession_name = Self::profession_to_filename(profession);
-
-        format!(
-            "sprites/portraits/{}/{}/{}_{}.jpg",
-            gender, variant_id, variant_id, profession_name
-        )
+        match profession {
+            ProfessionEnum::Settler | ProfessionEnum::Unknown => format!(
+                "sprites/portraits/{}/{}_{}.jpg",
+                gender, variant_id, profession_name
+            ),
+            _ => format!(
+                "sprites/portraits/{}/{}/{}_{}.jpg",
+                gender, variant_id, variant_id, profession_name
+            ),
+        }
     }
 
     /// Génère à la fois un variant_id aléatoire et l'URL du portrait
