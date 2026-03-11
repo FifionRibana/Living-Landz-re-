@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use shared::grid::GridCell;
+use shared::grid::{GridCell, GridConfig};
 use shared::{
     ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
     ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction,
@@ -189,6 +189,7 @@ pub async fn handle_connection(
     action_processor: Arc<ActionProcessor>,
     name_generator: Arc<NameGenerator>,
     game_state: Arc<GameState>,
+    grid_config: Arc<GridConfig>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -221,7 +222,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -324,6 +325,7 @@ async fn handle_client_message(
     action_processor: &ActionProcessor,
     name_generator: &NameGenerator,
     game_state: &GameState,
+    grid_config: &GridConfig,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -2178,17 +2180,6 @@ async fn handle_client_message(
                     let territory_hex: std::collections::HashSet<Hex> =
                         territory_cells.iter().map(|c| c.to_hex()).collect();
 
-                    use shared::grid::GridConfig;
-                    let grid_config = GridConfig::new(
-                        shared::constants::HEX_SIZE,
-                        hexx::HexOrientation::Flat,
-                        bevy::math::Vec2::new(
-                            shared::constants::HEX_RATIO.x,
-                            shared::constants::HEX_RATIO.y,
-                        ),
-                        3,
-                    );
-
                     let contour_points = &world::territory::build_contour(
                         &grid_config.layout,
                         &territory_hex,
@@ -2503,18 +2494,6 @@ async fn handle_client_message(
                                     use hexx::Hex;
                                     let territory_hex: std::collections::HashSet<Hex> =
                                         territory_cells.iter().map(|cell| cell.to_hex()).collect();
-
-                                    // Use grid config for layout
-                                    use shared::grid::GridConfig;
-                                    let grid_config = GridConfig::new(
-                                        shared::constants::HEX_SIZE,
-                                        hexx::HexOrientation::Flat,
-                                        bevy::math::Vec2::new(
-                                            shared::constants::HEX_RATIO.x,
-                                            shared::constants::HEX_RATIO.y,
-                                        ),
-                                        3,
-                                    );
 
                                     let contour_points = &world::territory::build_contour(
                                         &grid_config.layout,
