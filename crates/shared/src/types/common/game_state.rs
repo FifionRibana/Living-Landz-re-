@@ -84,12 +84,13 @@ impl GameState {
         // Charger les caches principaux
         self.building_types = sqlx::query_as::<_, BuildingType>(
             r#"
-            SELECT 
+            SELECT
                 id,
                 name,
                 category_id,
                 specific_type_id,
                 description,
+                construction_duration_seconds,
                 archived
             FROM buildings.building_types
             WHERE archived = FALSE
@@ -339,6 +340,16 @@ impl GameState {
             .get(&building_type_id)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Construction duration for a building type (in seconds).
+    /// Returns 15 as default if not found.
+    pub fn building_duration_seconds(&self, building_type_id: i32) -> i32 {
+        self.building_types
+            .iter()
+            .find(|bt| bt.id == building_type_id)
+            .map(|bt| bt.construction_duration_seconds)
+            .unwrap_or(15)
     }
 
     /// Harvest yields for a resource type
