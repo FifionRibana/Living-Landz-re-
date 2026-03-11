@@ -8,6 +8,7 @@ mod messages;
 mod ranking;
 mod records;
 mod settings;
+mod inventory;
 
 pub use auth::*;
 pub use calendar::*;
@@ -17,6 +18,7 @@ pub use messages::*;
 pub use ranking::*;
 pub use records::*;
 pub use settings::*;
+pub use inventory::*;
 
 pub mod pause_menu;
 pub mod character_creation;

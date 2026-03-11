@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
-use shared::{ActionEntry, ActionModeEnum};
+use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
+use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo};
 use crate::states::AppState;
 use crate::ui::resources::{ActionContextState, UIState};
 
@@ -19,6 +20,7 @@ pub struct ActionPanelList;
 #[derive(Component)]
 pub struct ActionPanelEntry {
     pub action_id: String,
+    pub executable: bool,
 }
 
 /// Title text of the panel.
@@ -179,8 +181,11 @@ pub fn update_action_panel_content(
     mut subtitle_query: Query<&mut Text, (With<ActionPanelSubtitle>, Without<ActionPanelTitle>, Without<ActionPanelEmpty>)>,
     mut empty_query: Query<(&mut Text, &mut Visibility), (With<ActionPanelEmpty>, Without<ActionPanelTitle>, Without<ActionPanelSubtitle>)>,
     mut list_vis_query: Query<&mut Visibility, (With<ActionPanelList>, Without<ActionPanelEmpty>)>,
+    game_data_cache: Res<GameDataCache>,
+    inventory_cache: Res<InventoryCache>,
+    player_info: Res<PlayerInfo>,
 ) {
-    if !ui_state.is_changed() && !action_context.is_changed() {
+    if !ui_state.is_changed() && !action_context.is_changed() && !inventory_cache.is_changed() {
         return;
     }
 
@@ -202,8 +207,37 @@ pub fn update_action_panel_content(
         **text = mode.to_name().to_string();
     }
 
+    // Build GameDataRef from cache for DB-driven actions
+    let game_data_ref = if game_data_cache.loaded {
+        let item_names: std::collections::HashMap<i32, String> = game_data_cache
+            .items
+            .iter()
+            .map(|i| (i.id, game_data_cache.item_name(i.id, 1)))
+            .collect();
+
+        // Build inventory summary from cache
+        let inventory: std::collections::HashMap<i32, i32> = player_info
+            .lord
+            .as_ref()
+            .and_then(|lord| inventory_cache.get_inventory(lord.id))
+            .map(|items| {
+                items.iter().map(|i| (i.item_id, i.quantity)).collect()
+            })
+            .unwrap_or_default();
+
+        Some(GameDataRef {
+            items: &game_data_cache.items,
+            recipes: &game_data_cache.recipes,
+            construction_costs: &game_data_cache.construction_costs,
+            item_names,
+            inventory,
+        })
+    } else {
+        None
+    };
+
     // Get available actions
-    let actions = mode.available_actions(ctx);
+    let actions = mode.available_actions(ctx, game_data_ref.as_ref());
 
     // Update subtitle with context info
     for mut text in &mut subtitle_query {
@@ -249,12 +283,32 @@ pub fn update_action_panel_content(
     };
 
     for action in actions {
+        // Colors based on executability
+        let (name_color, desc_color, cost_color, output_color, opacity) = if action.executable {
+            (
+                Color::srgb_u8(67, 60, 37),
+                Color::srgb_u8(120, 110, 90),
+                Color::srgb_u8(160, 100, 60),
+                Color::srgb_u8(60, 130, 80),
+                1.0_f32,
+            )
+        } else {
+            (
+                Color::srgba_u8(67, 60, 37, 100),
+                Color::srgba_u8(120, 110, 90, 80),
+                Color::srgba_u8(200, 60, 60, 120),
+                Color::srgba_u8(60, 130, 80, 80),
+                0.5,
+            )
+        };
+
         let entry_entity = commands
             .spawn((
                 Button,
                 ImageNode {
                     image: paper_btn_image.clone(),
                     image_mode: NodeImageMode::Sliced(paper_btn_slicer.clone()),
+                    color: Color::srgba(1.0, 1.0, 1.0, opacity),
                     ..default()
                 },
                 Node {
@@ -272,6 +326,7 @@ pub fn update_action_panel_content(
                 },
                 ActionPanelEntry {
                     action_id: action.id.clone(),
+                    executable: action.executable,
                 },
             ))
             .with_children(|parent| {
@@ -316,7 +371,7 @@ pub fn update_action_panel_content(
                                 font_size: 12.0,
                                 ..default()
                             },
-                            TextColor(Color::srgb_u8(67, 60, 37)),
+                            TextColor(name_color),
                             Pickable {
                                 should_block_lower: false,
                                 is_hoverable: false,
@@ -331,7 +386,7 @@ pub fn update_action_panel_content(
                                     font_size: 10.0,
                                     ..default()
                                 },
-                                TextColor(Color::srgb_u8(120, 110, 90)),
+                                TextColor(desc_color),
                                 Pickable {
                                     should_block_lower: false,
                                     is_hoverable: false,
@@ -360,7 +415,7 @@ pub fn update_action_panel_content(
                                         font_size: 9.0,
                                         ..default()
                                     },
-                                    TextColor(Color::srgb_u8(160, 100, 60)),
+                                    TextColor(cost_color),
                                     Pickable {
                                         should_block_lower: false,
                                         is_hoverable: false,
@@ -373,7 +428,7 @@ pub fn update_action_panel_content(
                                             font_size: 9.0,
                                             ..default()
                                         },
-                                        TextColor(Color::srgb_u8(160, 100, 60)),
+                                        TextColor(cost_color),
                                         Pickable {
                                             should_block_lower: false,
                                             is_hoverable: false,
@@ -404,7 +459,7 @@ pub fn update_action_panel_content(
                                         font_size: 9.0,
                                         ..default()
                                     },
-                                    TextColor(Color::srgb_u8(60, 130, 80)),
+                                    TextColor(output_color),
                                     Pickable {
                                         should_block_lower: false,
                                         is_hoverable: false,
@@ -417,7 +472,7 @@ pub fn update_action_panel_content(
                                             font_size: 9.0,
                                             ..default()
                                         },
-                                        TextColor(Color::srgb_u8(60, 130, 80)),
+                                        TextColor(output_color),
                                         Pickable {
                                             should_block_lower: false,
                                             is_hoverable: false,
@@ -462,6 +517,12 @@ pub fn handle_action_entry_click(
 ) {
     for (interaction, entry) in &entry_query {
         if !matches!(interaction, Interaction::Pressed) {
+            continue;
+        }
+
+        // Block non-executable actions
+        if !entry.executable {
+            info!("Action {} is not executable (missing resources)", entry.action_id);
             continue;
         }
 

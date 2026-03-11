@@ -23,3 +23,11 @@ pub struct CalendarPanel;
 #[derive(Component)]
 pub struct SettingsPanel;
 
+#[derive(Component)]
+pub struct InventoryPanel;
+
+/// Marker for inventory item rows (for interaction/updating)
+#[derive(Component)]
+pub struct InventoryItemRow {
+    pub item_id: i32,
+}
