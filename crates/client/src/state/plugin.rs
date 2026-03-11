@@ -18,6 +18,7 @@ impl Plugin for ClientStatePlugin {
             .init_resource::<resources::ConnectionStatus>()
             .init_resource::<resources::PlayerInfo>()
             .init_resource::<resources::GameDataCache>()
+            .init_resource::<resources::NotificationState>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
             .add_systems(Startup, (resources::setup_tree_atlas, resources::setup_building_atlas))
