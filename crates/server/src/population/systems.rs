@@ -190,14 +190,8 @@ impl PopulationSystem {
         let (cell, chunk, building_type) = target;
 
         let (is_male, gender_str, profession) = {
-            // 2. Choisir profession en fonction du bâtiment
-            let professions = building_type.relevant_professions();
-            let profession = if professions.is_empty() {
-                ProfessionEnum::Farmer
-            } else {
-                let idx = rand::rng().random_range(0..professions.len());
-                professions[idx]
-            };
+            // 2. Settlers arrive untrained - The player must train them
+            let profession = ProfessionEnum::Settler;
 
             // 3. Générer nom/genre/portrait
             use rand::Rng;
