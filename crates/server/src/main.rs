@@ -21,7 +21,10 @@ async fn main() {
 
     let dev_config = dev::DevConfig::from_env();
     if dev_config.dev_mode {
-        tracing::warn!("⚡ DEV MODE ACTIVE");
+        tracing::warn!(
+            "⚡ DEV MODE ACTIVE — bypass resources: {}",
+            dev_config.bypass_resources
+        );
     }
     let dev_config_arc = Arc::new(dev_config);
 
