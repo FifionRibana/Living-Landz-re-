@@ -55,9 +55,12 @@ pub fn setup_top_bar(
     let training_image = asset_server.load("ui/icons/graduate-cap.png");
     let diplomacy_image = asset_server.load("ui/icons/shaking-hands.png");
 
+    let backpack_image = asset_server.load("ui/icons/bookmarklet.png");
+
     let menu_images = [
         (world_map_image, GameView::Map),
         (griffin_shield_image, GameView::CityManagement),
+        (backpack_image, GameView::Inventory),
         (bookmarklet_image, GameView::Records),
         (envelope_image, GameView::Messages),
         (laurels_trophy_image, GameView::Rankings),
