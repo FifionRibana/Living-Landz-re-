@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use shared::{
-    ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::{GridCell, GridConfig}, protocol::ServerMessage,
+    ActionStatusEnum, ActionTypeEnum, TerrainChunkId,
+    grid::{GridCell, GridConfig},
+    protocol::ServerMessage,
 };
 use sqlx::Row;
 use std::{
@@ -10,6 +12,7 @@ use std::{
 use tokio::sync::RwLock;
 
 use crate::database::client::DatabaseTables;
+use crate::dev::DevConfig;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
 use shared::GameState;
@@ -46,6 +49,7 @@ pub struct ActionProcessor {
     sessions: Sessions,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
+    dev_config: Arc<DevConfig>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
 }
@@ -56,12 +60,14 @@ impl ActionProcessor {
         sessions: Sessions,
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
+        dev_config: Arc<DevConfig>,
     ) -> Self {
         Self {
             db_tables,
             sessions,
             game_state,
             grid_config,
+            dev_config,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -253,7 +259,9 @@ impl ActionProcessor {
                         .flatten();
 
                     // 2. Consume construction materials
-                    if let Some(bt_id) = bt_id {
+                    if !self.dev_config.skip_resource_check()
+                        && let Some(bt_id) = bt_id
+                    {
                         let costs = self.game_state.building_costs(bt_id as i32);
 
                         if !costs.is_empty() {
@@ -275,9 +283,7 @@ impl ActionProcessor {
                                                 let remaining = self
                                                     .db_tables
                                                     .resources
-                                                    .count_item_for_unit(
-                                                        lord_unit_id, cost.item_id,
-                                                    )
+                                                    .count_item_for_unit(lord_unit_id, cost.item_id)
                                                     .await
                                                     .unwrap_or(0);
                                                 let msg = ServerMessage::InventoryUpdate {
@@ -318,10 +324,7 @@ impl ActionProcessor {
                                     );
                                 }
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to find lord for build: {}",
-                                        e
-                                    );
+                                    tracing::error!("Failed to find lord for build: {}", e);
                                 }
                             }
                         }
@@ -334,10 +337,7 @@ impl ActionProcessor {
                         .mark_building_as_built(action_id)
                         .await
                     {
-                        tracing::error!(
-                            "Failed to mark building {} as built: {}",
-                            action_id, e
-                        );
+                        tracing::error!("Failed to mark building {} as built: {}", action_id, e);
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
                     }
@@ -603,75 +603,83 @@ impl ActionProcessor {
                                 Ok(recipe) => {
                                     match self.find_lord_unit_id(action_info.player_id).await {
                                         Ok(Some(lord_unit_id)) => {
-                                            let mut ingredients_ok = true;
-                                            for ingredient in &recipe.ingredients {
-                                                let needed = ingredient.quantity * quantity as i32;
-                                                let have = self
-                                                    .db_tables
-                                                    .resources
-                                                    .count_item_for_unit(
-                                                        lord_unit_id,
-                                                        ingredient.item_id,
-                                                    )
-                                                    .await
-                                                    .unwrap_or(0);
+                                            let skip_resources =
+                                                self.dev_config.skip_resource_check();
 
-                                                if have < needed {
-                                                    tracing::error!(
-                                                        "Craft action {}: not enough item {} (need {}, have {})",
-                                                        action_id,
-                                                        ingredient.item_id,
-                                                        needed,
-                                                        have
-                                                    );
-                                                    ingredients_ok = false;
-                                                    break;
+                                            let mut ingredients_ok = skip_resources;
+                                            if !skip_resources {
+                                                for ingredient in &recipe.ingredients {
+                                                    let needed =
+                                                        ingredient.quantity * quantity as i32;
+                                                    let have = self
+                                                        .db_tables
+                                                        .resources
+                                                        .count_item_for_unit(
+                                                            lord_unit_id,
+                                                            ingredient.item_id,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(0);
+
+                                                    if have < needed {
+                                                        tracing::error!(
+                                                            "Craft action {}: not enough item {} (need {}, have {})",
+                                                            action_id,
+                                                            ingredient.item_id,
+                                                            needed,
+                                                            have
+                                                        );
+                                                        ingredients_ok = false;
+                                                        break;
+                                                    }
                                                 }
                                             }
 
                                             if ingredients_ok {
-                                                for ingredient in &recipe.ingredients {
-                                                    let needed =
-                                                        ingredient.quantity * quantity as i32;
-                                                    if let Err(e) = self
-                                                        .db_tables
-                                                        .resources
-                                                        .consume_items(
-                                                            lord_unit_id,
-                                                            ingredient.item_id,
-                                                            needed,
-                                                        )
-                                                        .await
-                                                    {
-                                                        tracing::error!(
-                                                            "Failed to consume ingredient {} for action {}: {}",
-                                                            ingredient.item_id,
-                                                            action_id,
-                                                            e
-                                                        );
-                                                    } else {
-                                                        // Notify client that ingredient was consumed
-                                                        let remaining = self
+                                                if !skip_resources {
+                                                    for ingredient in &recipe.ingredients {
+                                                        let needed =
+                                                            ingredient.quantity * quantity as i32;
+                                                        if let Err(e) = self
                                                             .db_tables
                                                             .resources
-                                                            .count_item_for_unit(
+                                                            .consume_items(
                                                                 lord_unit_id,
                                                                 ingredient.item_id,
+                                                                needed,
                                                             )
                                                             .await
-                                                            .unwrap_or(0);
-                                                        let ing_msg =
-                                                            ServerMessage::InventoryUpdate {
-                                                                unit_id: lord_unit_id,
-                                                                item_id: ingredient.item_id,
-                                                                quantity_delta: -needed,
-                                                                new_total: remaining,
-                                                            };
-                                                        self.send_message_to_player(
-                                                            action_info.player_id,
-                                                            ing_msg,
-                                                        )
-                                                        .await;
+                                                        {
+                                                            tracing::error!(
+                                                                "Failed to consume ingredient {} for action {}: {}",
+                                                                ingredient.item_id,
+                                                                action_id,
+                                                                e
+                                                            );
+                                                        } else {
+                                                            // Notify client that ingredient was consumed
+                                                            let remaining = self
+                                                                .db_tables
+                                                                .resources
+                                                                .count_item_for_unit(
+                                                                    lord_unit_id,
+                                                                    ingredient.item_id,
+                                                                )
+                                                                .await
+                                                                .unwrap_or(0);
+                                                            let ing_msg =
+                                                                ServerMessage::InventoryUpdate {
+                                                                    unit_id: lord_unit_id,
+                                                                    item_id: ingredient.item_id,
+                                                                    quantity_delta: -needed,
+                                                                    new_total: remaining,
+                                                                };
+                                                            self.send_message_to_player(
+                                                                action_info.player_id,
+                                                                ing_msg,
+                                                            )
+                                                            .await;
+                                                        }
                                                     }
                                                 }
 

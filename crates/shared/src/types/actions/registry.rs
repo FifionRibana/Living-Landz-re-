@@ -173,7 +173,7 @@ fn constructible_buildings(
                 can_build = false;
             }
         }
-        entry.executable = can_build;
+        entry.executable = can_build || gd.dev_mode;
 
         entries.push(entry);
     }

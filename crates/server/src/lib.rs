@@ -4,6 +4,7 @@
 pub mod action_processor;
 pub mod auth;
 pub mod database;
+pub mod dev;
 pub mod networking;
 pub mod road;
 pub mod units;

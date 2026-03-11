@@ -13,6 +13,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::auth::password;
 use crate::database::client::DatabaseTables;
+use crate::dev::DevConfig;
 use crate::units::NameGenerator;
 use crate::{utils, world};
 use shared::GameState;
@@ -98,7 +99,7 @@ async fn claim_cell_and_neighbors(
 }
 
 /// Build the GameDataPayload from the cached GameState
-fn build_game_data_payload(game_state: &GameState) -> GameDataPayload {
+fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
     let items = game_state
         .item_definitions
         .iter()
@@ -181,6 +182,7 @@ fn build_game_data_payload(game_state: &GameState) -> GameDataPayload {
         construction_costs,
         harvest_yields,
         translations,
+        dev_mode: dev_config.dev_mode,
     }
 }
 
@@ -193,6 +195,7 @@ pub async fn handle_connection(
     name_generator: Arc<NameGenerator>,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
+    dev_config: Arc<DevConfig>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -225,7 +228,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -329,6 +332,7 @@ async fn handle_client_message(
     name_generator: &NameGenerator,
     game_state: &GameState,
     grid_config: &GridConfig,
+    dev_config: &DevConfig,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -415,7 +419,7 @@ async fn handle_client_message(
                         .await;
 
                     // Envoyer les données statiques du jeu
-                    let payload = build_game_data_payload(game_state);
+                    let payload = build_game_data_payload(game_state, dev_config);
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::GameData { payload })
                         .await;
@@ -679,7 +683,7 @@ async fn handle_client_message(
                             }
 
                             // Envoyer les données statiques du jeu
-                            let payload = build_game_data_payload(game_state);
+                            let payload = build_game_data_payload(game_state, dev_config);
                             let _ = sessions
                                 .send_to_player(player_id_u64, ServerMessage::GameData { payload })
                                 .await;
@@ -1019,43 +1023,45 @@ async fn handle_client_message(
             };
 
             // 2. Check construction costs
-            let bt_id = building_type.to_id() as i32;
-            let costs = game_state.building_costs(bt_id);
+            if !dev_config.skip_resource_check() {
+                let bt_id = building_type.to_id() as i32;
+                let costs = game_state.building_costs(bt_id);
 
-            if !costs.is_empty() {
-                let inventory = match db_tables
-                    .resources
-                    .load_inventory_summary(lord_unit_id)
-                    .await
-                {
-                    Ok(inv) => inv,
-                    Err(e) => {
-                        tracing::error!("Failed to load inventory: {}", e);
+                if !costs.is_empty() {
+                    let inventory = match db_tables
+                        .resources
+                        .load_inventory_summary(lord_unit_id)
+                        .await
+                    {
+                        Ok(inv) => inv,
+                        Err(e) => {
+                            tracing::error!("Failed to load inventory: {}", e);
+                            return vec![ServerMessage::ActionError {
+                                reason: "Erreur de chargement de l'inventaire".to_string(),
+                            }];
+                        }
+                    };
+
+                    let mut missing = Vec::new();
+                    for cost in costs {
+                        let have = inventory.get(&cost.item_id).copied().unwrap_or(0);
+                        if have < cost.quantity {
+                            let item_name = game_state.item_name(cost.item_id, 1);
+                            missing.push(format!(
+                                "{} (besoin: {}, possédé: {})",
+                                item_name, cost.quantity, have
+                            ));
+                        }
+                    }
+
+                    if !missing.is_empty() {
                         return vec![ServerMessage::ActionError {
-                            reason: "Erreur de chargement de l'inventaire".to_string(),
+                            reason: format!(
+                                "Matériaux de construction manquants : {}",
+                                missing.join(", ")
+                            ),
                         }];
                     }
-                };
-
-                let mut missing = Vec::new();
-                for cost in costs {
-                    let have = inventory.get(&cost.item_id).copied().unwrap_or(0);
-                    if have < cost.quantity {
-                        let item_name = game_state.item_name(cost.item_id, 1);
-                        missing.push(format!(
-                            "{} (besoin: {}, possédé: {})",
-                            item_name, cost.quantity, have
-                        ));
-                    }
-                }
-
-                if !missing.is_empty() {
-                    return vec![ServerMessage::ActionError {
-                        reason: format!(
-                            "Matériaux de construction manquants : {}",
-                            missing.join(", ")
-                        ),
-                    }];
                 }
             }
 
@@ -1077,7 +1083,8 @@ async fn handle_client_message(
                 .as_secs();
             // Duration from DB
             let bt_id = building_type.to_id() as i32;
-            let duration_ms = (game_state.building_duration_seconds(bt_id) as u64) * 1000;
+            let duration_ms =
+                dev_config.apply_speed((game_state.building_duration_seconds(bt_id) as u64) * 1000);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1154,10 +1161,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
+            let duration_ms = dev_config.apply_speed(specific_data.duration_ms(&ActionContext {
                 player_id,
                 grid_cell: start_cell,
-            });
+            }));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1246,7 +1253,7 @@ async fn handle_client_message(
             };
 
             // 3. Check ingredients
-            if !recipe.ingredients.is_empty() {
+            if !dev_config.skip_resource_check() && !recipe.ingredients.is_empty() {
                 let inventory = match db_tables
                     .resources
                     .load_inventory_summary(lord_unit_id)
@@ -1301,7 +1308,8 @@ async fn handle_client_message(
                 .as_secs();
 
             // Duration from DB recipe instead of hardcoded
-            let duration_ms = (recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64);
+            let duration_ms = dev_config
+                .apply_speed((recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1409,7 +1417,7 @@ async fn handle_client_message(
                 .as_secs();
 
             // Duration from DB harvest yield (use the first yield's duration)
-            let duration_ms = (yields[0].duration_seconds as u64) * 1000;
+            let duration_ms = dev_config.apply_speed((yields[0].duration_seconds as u64) * 1000);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1495,7 +1503,7 @@ async fn handle_client_message(
             }
 
             // Durée : 2 secondes par hex de distance
-            let duration_ms = hex_distance * 2000;
+            let duration_ms = dev_config.apply_speed(hex_distance * 2000);
 
             let specific_data = SpecificAction::MoveUnit(MoveUnitAction {
                 player_id,
@@ -1585,10 +1593,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
+            let duration_ms = dev_config.apply_speed(specific_data.duration_ms(&ActionContext {
                 player_id,
                 grid_cell: cell,
-            });
+            }));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
