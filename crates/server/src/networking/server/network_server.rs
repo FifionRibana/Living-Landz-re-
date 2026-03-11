@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use shared::GameState;
+use shared::grid::GridConfig;
 use tokio::net::TcpListener;
 
 use crate::action_processor::ActionProcessor;
@@ -27,6 +28,7 @@ impl NetworkServer {
         action_processor: Arc<ActionProcessor>,
         name_generator: Arc<NameGenerator>,
         game_state: Arc<GameState>,
+        grid_config: Arc<GridConfig>,
     ) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
@@ -42,6 +44,7 @@ impl NetworkServer {
             let action_processor_clone = action_processor.clone();
             let name_generator_clone = name_generator.clone();
             let game_state_clone = game_state.clone();
+            let grid_config_clone = grid_config.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
@@ -53,6 +56,7 @@ impl NetworkServer {
                     action_processor_clone,
                     name_generator_clone,
                     game_state_clone,
+                    grid_config_clone,
                 )
                 .await;
             });
@@ -66,6 +70,7 @@ pub fn initialize_server(
     action_processor: Arc<ActionProcessor>,
     name_generator: Arc<NameGenerator>,
     game_state: Arc<GameState>,
+    grid_config: Arc<GridConfig>,
 ) {
     tracing::info!("Starting network server...");
 
@@ -82,6 +87,7 @@ pub fn initialize_server(
     let action_processor_clone = action_processor.clone();
     let name_generator_clone = name_generator.clone();
     let game_state_clone = game_state.clone();
+    let grid_config_clone = grid_config.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
@@ -92,6 +98,7 @@ pub fn initialize_server(
                 action_processor_clone,
                 name_generator_clone,
                 game_state_clone,
+                grid_config_clone,
             )
             .await;
     });

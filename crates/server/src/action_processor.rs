@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::GridCell, protocol::ServerMessage,
+    ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::{GridCell, GridConfig}, protocol::ServerMessage,
 };
 use sqlx::Row;
 use std::{
@@ -45,6 +45,7 @@ pub struct ActionProcessor {
     db_tables: Arc<DatabaseTables>,
     sessions: Sessions,
     game_state: Arc<GameState>,
+    grid_config: Arc<GridConfig>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
 }
@@ -54,11 +55,13 @@ impl ActionProcessor {
         db_tables: Arc<DatabaseTables>,
         sessions: Sessions,
         game_state: Arc<GameState>,
+        grid_config: Arc<GridConfig>,
     ) -> Self {
         Self {
             db_tables,
             sessions,
             game_state,
+            grid_config,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
