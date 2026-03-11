@@ -13,6 +13,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::auth::password;
 use crate::database::client::DatabaseTables;
+use crate::dev::DevConfig;
 use crate::units::NameGenerator;
 use crate::{utils, world};
 use shared::GameState;
@@ -98,7 +99,7 @@ async fn claim_cell_and_neighbors(
 }
 
 /// Build the GameDataPayload from the cached GameState
-fn build_game_data_payload(game_state: &GameState) -> GameDataPayload {
+fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
     let items = game_state
         .item_definitions
         .iter()
@@ -181,6 +182,7 @@ fn build_game_data_payload(game_state: &GameState) -> GameDataPayload {
         construction_costs,
         harvest_yields,
         translations,
+        dev_mode: dev_config.dev_mode,
     }
 }
 
@@ -193,6 +195,7 @@ pub async fn handle_connection(
     name_generator: Arc<NameGenerator>,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
+    dev_config: Arc<DevConfig>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -225,7 +228,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -329,6 +332,7 @@ async fn handle_client_message(
     name_generator: &NameGenerator,
     game_state: &GameState,
     grid_config: &GridConfig,
+    dev_config: &DevConfig,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -415,7 +419,7 @@ async fn handle_client_message(
                         .await;
 
                     // Envoyer les données statiques du jeu
-                    let payload = build_game_data_payload(game_state);
+                    let payload = build_game_data_payload(game_state, dev_config);
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::GameData { payload })
                         .await;
@@ -679,7 +683,7 @@ async fn handle_client_message(
                             }
 
                             // Envoyer les données statiques du jeu
-                            let payload = build_game_data_payload(game_state);
+                            let payload = build_game_data_payload(game_state, dev_config);
                             let _ = sessions
                                 .send_to_player(player_id_u64, ServerMessage::GameData { payload })
                                 .await;
