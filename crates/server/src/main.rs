@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bevy::prelude::*;
 // use shared::GameState;
 
-mod auth;
 mod action_processor;
+mod auth;
 mod database;
 mod networking;
 mod population;
@@ -19,6 +19,29 @@ async fn main() {
     dotenv::dotenv().ok();
 
     let args: Vec<String> = std::env::args().collect();
+
+    // Résoudre le chemin du seed tool relativement à la racine du projet
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // CARGO_MANIFEST_DIR pointe sur crates/server/, donc on remonte de 2 niveaux
+    let seed_dir = manifest_dir.join("../../tools/game_seed");
+
+    if !seed_dir.exists() {
+        tracing::warn!(
+            "Seed directory not found at {}, skipping game-seed",
+            seed_dir.display()
+        );
+    } else {
+        let status = std::process::Command::new("uv")
+            .args(["run", "game-seed"])
+            .current_dir(&seed_dir)
+            .status()
+            .expect("Failed to run game-seed");
+
+        if !status.success() {
+            tracing::error!("Game seed failed with status {}", status);
+            return;
+        }
+    }
 
     let (db_tables, game_state) = database::client::initialize_database().await;
 
@@ -53,21 +76,18 @@ async fn main() {
         world::systems::clear_world(map_name, &db_tables.terrains).await;
         tracing::info!("=== Cleaning Complete - Exiting ===");
         return;
-    }
-    else if args.contains(&"--save-png".to_string()) {
+    } else if args.contains(&"--save-png".to_string()) {
         tracing::info!("=== Starting Map png saving ===");
         world::systems::save_world_to_png(map_name).await;
         tracing::info!("=== Saving Complete - Exiting ===");
         return;
-    }
-    else if args.contains(&"--generate-world".to_string()) {
+    } else if args.contains(&"--generate-world".to_string()) {
         tracing::info!("=== Starting World Generation ===");
         // World generation
         world::systems::generate_world(map_name, &db_tables, &game_state).await;
         tracing::info!("=== Generation Complete - Exiting ===");
         return;
-    }
-    else if args.contains(&"--regen-territory".to_string()) {
+    } else if args.contains(&"--regen-territory".to_string()) {
         tracing::info!("=== Starting Territory Contours Regeneration ===");
         world::systems::regenerate_territory_contours(&db_tables).await;
         tracing::info!("=== Regeneration Complete - Exiting ===");
@@ -76,6 +96,7 @@ async fn main() {
 
     let sessions = networking::Sessions::default();
     let db_tables_arc = Arc::new(db_tables);
+    let game_state_arc = Arc::new(game_state);
 
     // Charger le générateur de noms
     let name_generator = match units::NameGenerator::load_from_files() {
@@ -90,7 +111,7 @@ async fn main() {
     // Créer le processeur d'actions AVANT d'initialiser le serveur
     let action_processor = Arc::new(action_processor::ActionProcessor::new(
         db_tables_arc.clone(),
-        sessions.clone()
+        sessions.clone(),
     ));
 
     // Charger les actions actives au démarrage
@@ -103,7 +124,8 @@ async fn main() {
         sessions.clone(),
         db_tables_arc.clone(),
         action_processor.clone(),
-        name_generator.clone()
+        name_generator.clone(),
+        game_state_arc.clone(),
     );
 
     // Démarrer le processeur d'actions en arrière-plan

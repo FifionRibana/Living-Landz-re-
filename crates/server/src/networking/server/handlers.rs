@@ -15,7 +15,8 @@ use crate::auth::password;
 use crate::database::client::DatabaseTables;
 use crate::units::NameGenerator;
 use crate::{utils, world};
-use shared::protocol::{ClientMessage, ColorData, ServerMessage};
+use shared::protocol::{ClientMessage, ColorData, ServerMessage, GameDataPayload, ItemDefinitionNet, RecipeNet, RecipeIngredientNet, ConstructionCostNet, HarvestYieldNet, TranslationEntry};
+use shared::GameState;
 
 use super::super::Sessions;
 
@@ -93,6 +94,93 @@ async fn claim_cell_and_neighbors(
     }
 }
 
+/// Build the GameDataPayload from the cached GameState
+fn build_game_data_payload(game_state: &GameState) -> GameDataPayload {
+    let items = game_state
+        .item_definitions
+        .iter()
+        .map(|i| ItemDefinitionNet {
+            id: i.id,
+            name: i.name.clone(),
+            item_type_id: i.item_type.to_id(),
+            category_id: i.category.map(|c| c.to_id()),
+            weight_kg: i.weight_kg,
+            base_price: i.base_price,
+            is_perishable: i.is_perishable,
+            is_equipable: i.is_equipable,
+            equipment_slot_id: i.equipment_slot.map(|s| s.to_id()),
+            is_craftable: i.is_craftable,
+        })
+        .collect();
+
+    let recipes = game_state
+        .recipes
+        .iter()
+        .map(|r| RecipeNet {
+            id: r.id,
+            name: r.name.clone(),
+            result_item_id: r.result_item_id,
+            result_quantity: r.result_quantity,
+            required_skill_id: r.required_skill.map(|s| s.to_id()),
+            required_skill_level: r.required_skill_level,
+            craft_duration_seconds: r.craft_duration_seconds,
+            required_building_type_id: r.required_building_type_id,
+            ingredients: r
+                .ingredients
+                .iter()
+                .map(|ing| RecipeIngredientNet {
+                    item_id: ing.item_id,
+                    quantity: ing.quantity,
+                })
+                .collect(),
+        })
+        .collect();
+
+    let construction_costs = game_state
+        .construction_costs
+        .iter()
+        .flat_map(|(_, costs)| {
+            costs.iter().map(|c| ConstructionCostNet {
+                building_type_id: c.building_type_id,
+                item_id: c.item_id,
+                quantity: c.quantity,
+            })
+        })
+        .collect();
+
+    let harvest_yields = game_state
+        .harvest_yields
+        .iter()
+        .map(|h| HarvestYieldNet {
+            resource_specific_type_id: h.resource_specific_type_id,
+            result_item_id: h.result_item_id,
+            base_quantity: h.base_quantity,
+            required_profession_id: h.required_profession_id,
+            duration_seconds: h.duration_seconds,
+        })
+        .collect();
+
+    let translations = game_state
+        .translations
+        .iter()
+        .map(|(k, v)| TranslationEntry {
+            entity_type: k.entity_type.clone(),
+            entity_id: k.entity_id,
+            language_id: k.language_id,
+            field: k.field.clone(),
+            value: v.clone(),
+        })
+        .collect();
+
+    GameDataPayload {
+        items,
+        recipes,
+        construction_costs,
+        harvest_yields,
+        translations,
+    }
+}
+
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
@@ -100,6 +188,7 @@ pub async fn handle_connection(
     db_tables: Arc<DatabaseTables>,
     action_processor: Arc<ActionProcessor>,
     name_generator: Arc<NameGenerator>,
+    game_state: Arc<GameState>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -132,7 +221,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -204,6 +293,9 @@ pub async fn handle_connection(
                     ServerMessage::HamletFoundError { .. } => "HamletFoundError",
                     ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
                     ServerMessage::PopulationChanged { .. } => "PouplationChanged",
+                    ServerMessage::InventoryData { .. } => "InventoryData",
+                    ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
+                    ServerMessage::GameData { .. } => "GameData",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -231,6 +323,7 @@ async fn handle_client_message(
     db_tables: &DatabaseTables,
     action_processor: &ActionProcessor,
     name_generator: &NameGenerator,
+    game_state: &GameState,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -314,6 +407,12 @@ async fn handle_client_message(
 
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::LordData { lord })
+                        .await;
+
+                    // Envoyer les données statiques du jeu
+                    let payload = build_game_data_payload(game_state);
+                    let _ = sessions
+                        .send_to_player(player_id_u64, ServerMessage::GameData { payload })
                         .await;
 
                     login_response
@@ -573,6 +672,12 @@ async fn handle_client_message(
                                     )
                                     .await;
                             }
+
+                            // Envoyer les données statiques du jeu
+                            let payload = build_game_data_payload(game_state);
+                            let _ = sessions
+                                .send_to_player(player_id_u64, ServerMessage::GameData { payload })
+                                .await;
 
                             login_response
                         }
@@ -2659,6 +2764,56 @@ async fn handle_client_message(
                     vec![ServerMessage::OrganizationAtCell {
                         cell,
                         organization: None,
+                    }]
+                }
+            }
+        }
+
+        ClientMessage::RequestInventory { unit_id } => {
+            use shared::protocol::InventoryItemData;
+
+            match db_tables.resources.load_items_for_unit(unit_id).await {
+                Ok(full_items) => {
+                    // Grouper par item_id pour l'affichage
+                    let mut grouped: std::collections::HashMap<
+                        i32,
+                        (String, shared::ItemTypeEnum, f32, f32, i32),
+                    > = std::collections::HashMap::new();
+
+                    for item in &full_items {
+                        let entry = grouped.entry(item.definition.id).or_insert((
+                            item.definition.name.clone(),
+                            item.definition.item_type,
+                            item.definition.weight_kg,
+                            item.instance.quality,
+                            0,
+                        ));
+                        entry.4 += 1;
+                    }
+
+                    let items: Vec<InventoryItemData> = grouped
+                        .into_iter()
+                        .map(|(item_id, (name, item_type, weight, quality, qty))| {
+                            InventoryItemData {
+                                instance_id: 0,
+                                item_id,
+                                name,
+                                item_type,
+                                quality,
+                                weight_kg: weight,
+                                quantity: qty,
+                                is_equipped: false,
+                                equipment_slot: None,
+                            }
+                        })
+                        .collect();
+
+                    vec![ServerMessage::InventoryData { unit_id, items }]
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load inventory for unit {}: {}", unit_id, e);
+                    vec![ServerMessage::ActionError {
+                        reason: format!("Failed to load inventory: {}", e),
                     }]
                 }
             }

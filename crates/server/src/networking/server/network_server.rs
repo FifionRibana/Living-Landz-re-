@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use shared::GameState;
 use tokio::net::TcpListener;
 
 use crate::action_processor::ActionProcessor;
@@ -19,7 +20,14 @@ impl NetworkServer {
         Self { address, port }
     }
 
-    pub async fn start(&self, sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>, name_generator: Arc<NameGenerator>) {
+    pub async fn start(
+        &self,
+        sessions: Sessions,
+        db_tables: Arc<DatabaseTables>,
+        action_processor: Arc<ActionProcessor>,
+        name_generator: Arc<NameGenerator>,
+        game_state: Arc<GameState>,
+    ) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -33,16 +41,32 @@ impl NetworkServer {
             let db_tables_clone = db_tables.clone();
             let action_processor_clone = action_processor.clone();
             let name_generator_clone = name_generator.clone();
+            let game_state_clone = game_state.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
-                handlers::handle_connection(stream, addr, sessions_clone, db_tables_clone, action_processor_clone, name_generator_clone).await;
+                handlers::handle_connection(
+                    stream,
+                    addr,
+                    sessions_clone,
+                    db_tables_clone,
+                    action_processor_clone,
+                    name_generator_clone,
+                    game_state_clone,
+                )
+                .await;
             });
         }
     }
 }
 
-pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, action_processor: Arc<ActionProcessor>, name_generator: Arc<NameGenerator>) {
+pub fn initialize_server(
+    sessions: Sessions,
+    db_tables: Arc<DatabaseTables>,
+    action_processor: Arc<ActionProcessor>,
+    name_generator: Arc<NameGenerator>,
+    game_state: Arc<GameState>,
+) {
     tracing::info!("Starting network server...");
 
     // Normal server startup
@@ -57,10 +81,19 @@ pub fn initialize_server(sessions: Sessions, db_tables: Arc<DatabaseTables>, act
     let db_tables_clone = db_tables.clone();
     let action_processor_clone = action_processor.clone();
     let name_generator_clone = name_generator.clone();
+    let game_state_clone = game_state.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
-        server.start(sessions_clone, db_tables_clone, action_processor_clone, name_generator_clone).await;
+        server
+            .start(
+                sessions_clone,
+                db_tables_clone,
+                action_processor_clone,
+                name_generator_clone,
+                game_state_clone,
+            )
+            .await;
     });
 
     tracing::info!("✓ Network server spawned");

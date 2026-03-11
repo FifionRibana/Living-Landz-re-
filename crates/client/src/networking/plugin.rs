@@ -29,6 +29,8 @@ impl Plugin for NetworkingPlugin {
                         .run_if(in_state(AppState::InGame)),
                     handlers::units::handle_unit_events
                         .run_if(in_state(AppState::InGame)),
+                    handlers::inventory::handle_inventory_events
+                        .run_if(in_state(AppState::InGame)),
                     // 4. Debug — always active (lightweight)
                     handlers::debug::handle_debug_events,
                     // 5. Connection monitoring
