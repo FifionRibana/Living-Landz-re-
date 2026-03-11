@@ -1,7 +1,11 @@
 use bevy::prelude::*;
 
 use shared::{
-    AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum, BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CommerceTypeEnum, CultData, CultTypeEnum, EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData, ManufacturingWorkshopTypeEnum, TerrainChunkId, TreeData, TreeTypeEnum, grid::GridCell
+    AgricultureData, AgricultureTypeEnum, AnimalBreedingData, AnimalBreedingTypeEnum,
+    BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific,
+    BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CommerceTypeEnum, CultData,
+    CultTypeEnum, EntertainmentData, EntertainmentTypeEnum, ManufacturingWorkshopData,
+    ManufacturingWorkshopTypeEnum, TerrainChunkId, TreeData, TreeTypeEnum, grid::GridCell,
 };
 use sqlx::{PgPool, Row};
 
@@ -357,6 +361,19 @@ impl BuildingsTable {
             .await
             .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
+        // Remove any existing building on this cell (e.g., a tree being replaced)
+        sqlx::query(
+            r#"
+            DELETE FROM buildings.buildings_base
+            WHERE cell_q = $1 AND cell_r = $2
+            "#,
+        )
+        .bind(building_data.base_data.cell.q)
+        .bind(building_data.base_data.cell.r)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to clear cell for new building: {}", e))?;
+
         // Insert into buildings_base
         // Pour building_type_id: utiliser BuildingTypeEnum (1-55) pour les bâtiments construits
         // Pour les arbres et Unknown, utiliser 0 (pas de correspondance dans building_types)
@@ -564,9 +581,9 @@ impl BuildingsTable {
             let id = r.get::<i64, &str>("id");
             let category_id: i16 = r.get("category_id");
             let specific_type_id: i16 = r.get("specific_type_id");
-            
-            let category = BuildingCategoryEnum::from_id(category_id)
-                .unwrap_or(BuildingCategoryEnum::Unknown);
+
+            let category =
+                BuildingCategoryEnum::from_id(category_id).unwrap_or(BuildingCategoryEnum::Unknown);
             // let specific_type_id: Option<i16> = r.try_get("specific_type_id").ok();
             let specific_type = BuildingSpecificTypeEnum::from_id(specific_type_id)
                 .unwrap_or(BuildingSpecificTypeEnum::Unknown);
@@ -746,7 +763,10 @@ impl BuildingsTable {
     }
 
     /// Get building type at a specific cell
-    pub async fn get_building_type_at_cell(&self, cell: &GridCell) -> Result<Option<BuildingTypeEnum>, String> {
+    pub async fn get_building_type_at_cell(
+        &self,
+        cell: &GridCell,
+    ) -> Result<Option<BuildingTypeEnum>, String> {
         let result = sqlx::query(
             r#"
             SELECT bt.id as building_type_id
