@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use shared::{ContourSegment, TerrainChunkId, constants};
+use hexx::HexLayout;
+use shared::{ContourSegment, TerrainChunkId, constants, grid::GridCell};
+use sqlx::{PgPool, Row};
 
 use crate::utils;
 
@@ -107,4 +109,73 @@ fn clip_segment_to_chunks(start: Vec2, end: Vec2) -> Vec<(TerrainChunkId, Vec2, 
     }
 
     result
+}
+
+
+pub async fn fix_chunk_assignments(pool: &PgPool, layout: &HexLayout) {
+    // buildings_base
+    let rows = sqlx::query("SELECT id, cell_q, cell_r, chunk_x, chunk_y FROM buildings.buildings_base")
+        .fetch_all(pool).await.unwrap();
+    
+    for row in &rows {
+        let id: i64 = row.get("id");
+        let cell = GridCell { q: row.get("cell_q"), r: row.get("cell_r") };
+        let correct = cell.to_chunk_id(layout);
+        let current_x: i32 = row.get("chunk_x");
+        let current_y: i32 = row.get("chunk_y");
+        
+        if current_x != correct.x || current_y != correct.y {
+            sqlx::query("UPDATE buildings.buildings_base SET chunk_x = $1, chunk_y = $2 WHERE id = $3")
+                .bind(correct.x).bind(correct.y).bind(id)
+                .execute(pool).await.ok();
+            tracing::warn!(
+                "Fixed building {} chunk ({},{}) → ({},{})",
+                id, current_x, current_y, correct.x, correct.y
+            );
+        }
+    }
+
+    // units
+    let rows = sqlx::query("SELECT id, current_cell_q, current_cell_r, current_chunk_x, current_chunk_y FROM units.units")
+        .fetch_all(pool).await.unwrap();
+    
+    for row in &rows {
+        let id: i64 = row.get("id");
+        let cell = GridCell { q: row.get("current_cell_q"), r: row.get("current_cell_r") };
+        let correct = cell.to_chunk_id(layout);
+        let current_x: i32 = row.get("current_chunk_x");
+        let current_y: i32 = row.get("current_chunk_y");
+        
+        if current_x != correct.x || current_y != correct.y {
+            sqlx::query("UPDATE units.units SET current_chunk_x = $1, current_chunk_y = $2 WHERE id = $3")
+                .bind(correct.x).bind(correct.y).bind(id)
+                .execute(pool).await.ok();
+            tracing::warn!(
+                "Fixed unit {} chunk ({},{}) → ({},{})",
+                id, current_x, current_y, correct.x, correct.y
+            );
+        }
+    }
+
+    // scheduled_actions (actives seulement)
+    let rows = sqlx::query("SELECT id, cell_q, cell_r, chunk_x, chunk_y FROM actions.scheduled_actions WHERE status_id < 3")
+        .fetch_all(pool).await.unwrap();
+    
+    for row in &rows {
+        let id: i64 = row.get("id");
+        let cell = GridCell { q: row.get("cell_q"), r: row.get("cell_r") };
+        let correct = cell.to_chunk_id(layout);
+        let current_x: i32 = row.get("chunk_x");
+        let current_y: i32 = row.get("chunk_y");
+        
+        if current_x != correct.x || current_y != correct.y {
+            sqlx::query("UPDATE actions.scheduled_actions SET chunk_x = $1, chunk_y = $2 WHERE id = $3")
+                .bind(correct.x).bind(correct.y).bind(id)
+                .execute(pool).await.ok();
+            tracing::warn!(
+                "Fixed action {} chunk ({},{}) → ({},{})",
+                id, current_x, current_y, correct.x, correct.y
+            );
+        }
+    }
 }
