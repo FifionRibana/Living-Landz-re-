@@ -6,6 +6,7 @@ use bevy::prelude::*;
 mod action_processor;
 mod auth;
 mod database;
+mod dev;
 mod networking;
 mod population;
 mod road;
@@ -17,6 +18,12 @@ mod world;
 async fn main() {
     tracing_subscriber::fmt::init();
     dotenv::dotenv().ok();
+
+    let dev_config = dev::DevConfig::from_env();
+    if dev_config.dev_mode {
+        tracing::warn!("⚡ DEV MODE ACTIVE");
+    }
+    let dev_config_arc = Arc::new(dev_config);
 
     let args: Vec<String> = std::env::args().collect();
 
@@ -118,7 +125,8 @@ async fn main() {
         db_tables_arc.clone(),
         sessions.clone(),
         game_state_arc.clone(),
-        grid_config_arc.clone()
+        grid_config_arc.clone(),
+        dev_config_arc.clone(),
     ));
 
     // Charger les actions actives au démarrage
@@ -134,6 +142,7 @@ async fn main() {
         name_generator.clone(),
         game_state_arc.clone(),
         grid_config_arc.clone(),
+        dev_config_arc.clone(),
     );
 
     // Démarrer le processeur d'actions en arrière-plan

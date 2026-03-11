@@ -13,6 +13,7 @@ use crate::database::client::DatabaseTables;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
 use shared::GameState;
+use crate::dev::DevConfig;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
 fn cell_to_world_pos(cell: &GridCell) -> Vec2 {
@@ -46,6 +47,7 @@ pub struct ActionProcessor {
     sessions: Sessions,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
+    dev_config: Arc<DevConfig>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
 }
@@ -56,12 +58,14 @@ impl ActionProcessor {
         sessions: Sessions,
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
+    dev_config: Arc<DevConfig>,
     ) -> Self {
         Self {
             db_tables,
             sessions,
             game_state,
             grid_config,
+            dev_config,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
         }
     }

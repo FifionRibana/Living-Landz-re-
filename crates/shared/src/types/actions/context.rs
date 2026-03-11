@@ -16,6 +16,7 @@ pub struct GameDataRef<'a> {
     pub item_names: HashMap<i32, String>,
     /// Current lord inventory: item_id -> quantity (for executable checks)
     pub inventory: HashMap<i32, i32>,
+    pub dev_mode: bool,
 }
 
 impl GameDataRef<'_> {

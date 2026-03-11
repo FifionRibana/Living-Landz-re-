@@ -231,6 +231,7 @@ pub fn update_action_panel_content(
             construction_costs: &game_data_cache.construction_costs,
             item_names,
             inventory,
+            dev_mode: game_data_cache.dev_mode,
         })
     } else {
         None
