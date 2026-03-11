@@ -44,6 +44,7 @@ async fn main() {
     }
 
     let (db_tables, game_state) = database::client::initialize_database().await;
+    let grid_config = world::systems::setup_grid_config();
 
     let mut map_name = "test_island";
 
@@ -97,6 +98,7 @@ async fn main() {
     let sessions = networking::Sessions::default();
     let db_tables_arc = Arc::new(db_tables);
     let game_state_arc = Arc::new(game_state);
+    let grid_config_arc = Arc::new(grid_config);
 
     // Charger le générateur de noms
     let name_generator = match units::NameGenerator::load_from_files() {
@@ -113,6 +115,7 @@ async fn main() {
         db_tables_arc.clone(),
         sessions.clone(),
         game_state_arc.clone(),
+        grid_config_arc.clone()
     ));
 
     // Charger les actions actives au démarrage
@@ -127,6 +130,7 @@ async fn main() {
         action_processor.clone(),
         name_generator.clone(),
         game_state_arc.clone(),
+        grid_config_arc.clone(),
     );
 
     // Démarrer le processeur d'actions en arrière-plan
