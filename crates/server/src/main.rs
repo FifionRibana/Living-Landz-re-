@@ -59,6 +59,7 @@ async fn main() {
     // Fix chunk assignments using hex layout
     let grid_config = world::systems::setup_grid_config();
     utils::chunks::fix_chunk_assignments(&db_tables.pool, &grid_config.layout).await;
+    utils::portraits::fix_avatar_urls(&db_tables.pool).await;
 
     let mut map_name = "test_island";
 
