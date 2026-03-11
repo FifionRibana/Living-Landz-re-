@@ -1083,7 +1083,8 @@ async fn handle_client_message(
                 .as_secs();
             // Duration from DB
             let bt_id = building_type.to_id() as i32;
-            let duration_ms = (game_state.building_duration_seconds(bt_id) as u64) * 1000;
+            let duration_ms =
+                dev_config.apply_speed((game_state.building_duration_seconds(bt_id) as u64) * 1000);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1160,10 +1161,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
+            let duration_ms = dev_config.apply_speed(specific_data.duration_ms(&ActionContext {
                 player_id,
                 grid_cell: start_cell,
-            });
+            }));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1307,7 +1308,8 @@ async fn handle_client_message(
                 .as_secs();
 
             // Duration from DB recipe instead of hardcoded
-            let duration_ms = (recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64);
+            let duration_ms = dev_config
+                .apply_speed((recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1415,7 +1417,7 @@ async fn handle_client_message(
                 .as_secs();
 
             // Duration from DB harvest yield (use the first yield's duration)
-            let duration_ms = (yields[0].duration_seconds as u64) * 1000;
+            let duration_ms = dev_config.apply_speed((yields[0].duration_seconds as u64) * 1000);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1501,7 +1503,7 @@ async fn handle_client_message(
             }
 
             // Durée : 2 secondes par hex de distance
-            let duration_ms = hex_distance * 2000;
+            let duration_ms = dev_config.apply_speed(hex_distance * 2000);
 
             let specific_data = SpecificAction::MoveUnit(MoveUnitAction {
                 player_id,
@@ -1591,10 +1593,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
+            let duration_ms = dev_config.apply_speed(specific_data.duration_ms(&ActionContext {
                 player_id,
                 grid_cell: cell,
-            });
+            }));
 
             let action_data = ActionData {
                 base_data: ActionBaseData {

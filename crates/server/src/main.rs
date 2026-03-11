@@ -22,7 +22,8 @@ async fn main() {
     let dev_config = dev::DevConfig::from_env();
     if dev_config.dev_mode {
         tracing::warn!(
-            "⚡ DEV MODE ACTIVE — bypass resources: {}",
+            "⚡ DEV MODE ACTIVE — speed: {}x, bypass resources: {}",
+            dev_config.speed_factor,
             dev_config.bypass_resources
         );
     }
