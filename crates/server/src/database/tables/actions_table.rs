@@ -119,7 +119,7 @@ impl ScheduledActionsTable {
             }
             SpecificAction::HarvestResource(a) => {
                 sqlx::query(
-                    "INSERT INTO actions.harvest_resource_actions (action_id, resource_type) VALUES ($1, $2)"
+                    "INSERT INTO actions.harvest_resource_actions (action_id, resource_type_id) VALUES ($1, $2)"
                 )
                 .bind(action_id as i64)
                 .bind(a.resource_specific_type.to_id())
@@ -555,7 +555,7 @@ impl ScheduledActionsTable {
     ) -> Result<Option<(u64, ResourceSpecificTypeEnum)>, String> {
         let row = sqlx::query(
             r#"
-            SELECT sa.player_id, hra.resource_type
+            SELECT sa.player_id, hra.resource_type_id
             FROM actions.scheduled_actions sa
             JOIN actions.harvest_resource_actions hra ON hra.action_id = sa.id
             WHERE sa.id = $1
@@ -568,7 +568,7 @@ impl ScheduledActionsTable {
 
         Ok(row.map(|r| {
             let player_id: i64 = r.get("player_id");
-            let resource_type_id: i16 = r.get("resource_type");
+            let resource_type_id: i16 = r.get::<i32, _>("resource_type_id") as i16;
             let resource_type = ResourceSpecificTypeEnum::from_id(resource_type_id)
                 .unwrap_or(ResourceSpecificTypeEnum::Unknown);
             (player_id as u64, resource_type)
