@@ -180,7 +180,7 @@ impl ActionEntry {
 
         let result_name = game_data.item_name(recipe.result_item_id);
         entry = entry.with_output(&result_name, recipe.result_quantity as u32);
-        entry.executable = can_craft;
+        entry.executable = can_craft || game_data.dev_mode;
 
         entry
     }

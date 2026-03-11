@@ -1023,43 +1023,45 @@ async fn handle_client_message(
             };
 
             // 2. Check construction costs
-            let bt_id = building_type.to_id() as i32;
-            let costs = game_state.building_costs(bt_id);
+            if !dev_config.skip_resource_check() {
+                let bt_id = building_type.to_id() as i32;
+                let costs = game_state.building_costs(bt_id);
 
-            if !costs.is_empty() {
-                let inventory = match db_tables
-                    .resources
-                    .load_inventory_summary(lord_unit_id)
-                    .await
-                {
-                    Ok(inv) => inv,
-                    Err(e) => {
-                        tracing::error!("Failed to load inventory: {}", e);
+                if !costs.is_empty() {
+                    let inventory = match db_tables
+                        .resources
+                        .load_inventory_summary(lord_unit_id)
+                        .await
+                    {
+                        Ok(inv) => inv,
+                        Err(e) => {
+                            tracing::error!("Failed to load inventory: {}", e);
+                            return vec![ServerMessage::ActionError {
+                                reason: "Erreur de chargement de l'inventaire".to_string(),
+                            }];
+                        }
+                    };
+
+                    let mut missing = Vec::new();
+                    for cost in costs {
+                        let have = inventory.get(&cost.item_id).copied().unwrap_or(0);
+                        if have < cost.quantity {
+                            let item_name = game_state.item_name(cost.item_id, 1);
+                            missing.push(format!(
+                                "{} (besoin: {}, possédé: {})",
+                                item_name, cost.quantity, have
+                            ));
+                        }
+                    }
+
+                    if !missing.is_empty() {
                         return vec![ServerMessage::ActionError {
-                            reason: "Erreur de chargement de l'inventaire".to_string(),
+                            reason: format!(
+                                "Matériaux de construction manquants : {}",
+                                missing.join(", ")
+                            ),
                         }];
                     }
-                };
-
-                let mut missing = Vec::new();
-                for cost in costs {
-                    let have = inventory.get(&cost.item_id).copied().unwrap_or(0);
-                    if have < cost.quantity {
-                        let item_name = game_state.item_name(cost.item_id, 1);
-                        missing.push(format!(
-                            "{} (besoin: {}, possédé: {})",
-                            item_name, cost.quantity, have
-                        ));
-                    }
-                }
-
-                if !missing.is_empty() {
-                    return vec![ServerMessage::ActionError {
-                        reason: format!(
-                            "Matériaux de construction manquants : {}",
-                            missing.join(", ")
-                        ),
-                    }];
                 }
             }
 
@@ -1250,7 +1252,7 @@ async fn handle_client_message(
             };
 
             // 3. Check ingredients
-            if !recipe.ingredients.is_empty() {
+            if !dev_config.skip_resource_check() && !recipe.ingredients.is_empty() {
                 let inventory = match db_tables
                     .resources
                     .load_inventory_summary(lord_unit_id)
