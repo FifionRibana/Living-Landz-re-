@@ -979,6 +979,72 @@ async fn handle_client_message(
                 cell.q,
                 cell.r
             );
+
+            // ── Validation ──────────────────────────────────
+
+            // 1. Find the lord
+            let lord_unit_id = match db_tables
+                .units
+                .load_lord_for_player(player_id)
+                .await
+            {
+                Ok(Some(lord)) => lord.id,
+                Ok(None) => {
+                    return vec![ServerMessage::ActionError {
+                        reason: "Aucun seigneur trouvé".to_string(),
+                    }];
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load lord: {}", e);
+                    return vec![ServerMessage::ActionError {
+                        reason: "Erreur serveur".to_string(),
+                    }];
+                }
+            };
+
+            // 2. Check construction costs
+            let bt_id = building_type.to_id() as i32;
+            let costs = game_state.building_costs(bt_id);
+
+            if !costs.is_empty() {
+                let inventory = match db_tables
+                    .resources
+                    .load_inventory_summary(lord_unit_id)
+                    .await
+                {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        tracing::error!("Failed to load inventory: {}", e);
+                        return vec![ServerMessage::ActionError {
+                            reason: "Erreur de chargement de l'inventaire".to_string(),
+                        }];
+                    }
+                };
+
+                let mut missing = Vec::new();
+                for cost in costs {
+                    let have = inventory.get(&cost.item_id).copied().unwrap_or(0);
+                    if have < cost.quantity {
+                        let item_name = game_state.item_name(cost.item_id, 1);
+                        missing.push(format!(
+                            "{} (besoin: {}, possédé: {})",
+                            item_name, cost.quantity, have
+                        ));
+                    }
+                }
+
+                if !missing.is_empty() {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!(
+                            "Matériaux de construction manquants : {}",
+                            missing.join(", ")
+                        ),
+                    }];
+                }
+            }
+
+            // ── Schedule ────────────────────────────────────
+
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::BuildBuilding(BuildBuildingAction {
@@ -1131,11 +1197,92 @@ async fn handle_client_message(
             recipe_id,
             quantity,
         } => {
+            // ── Validation ──────────────────────────────────
+
+            // 1. Find the recipe (by numeric ID or slug)
+            let recipe = match game_state.find_recipe(&recipe_id) {
+                Some(r) => r,
+                None => {
+                    tracing::warn!(
+                        "Player {} requested unknown recipe '{}'",
+                        player_id, recipe_id
+                    );
+                    return vec![ServerMessage::ActionError {
+                        reason: format!("Recette inconnue : {}", recipe_id),
+                    }];
+                }
+            };
+
+            // 2. Find the lord
+            let lord_unit_id = match db_tables
+                .units
+                .load_lord_for_player(player_id)
+                .await
+            {
+                Ok(Some(lord)) => lord.id,
+                Ok(None) => {
+                    return vec![ServerMessage::ActionError {
+                        reason: "Aucun seigneur trouvé".to_string(),
+                    }];
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load lord for player {}: {}", player_id, e);
+                    return vec![ServerMessage::ActionError {
+                        reason: "Erreur serveur".to_string(),
+                    }];
+                }
+            };
+
+            // 3. Check ingredients
+            if !recipe.ingredients.is_empty() {
+                let inventory = match db_tables
+                    .resources
+                    .load_inventory_summary(lord_unit_id)
+                    .await
+                {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        tracing::error!("Failed to load inventory: {}", e);
+                        return vec![ServerMessage::ActionError {
+                            reason: "Erreur de chargement de l'inventaire".to_string(),
+                        }];
+                    }
+                };
+
+                let mut missing = Vec::new();
+                for ingredient in &recipe.ingredients {
+                    let needed = ingredient.quantity * quantity as i32;
+                    let have = inventory.get(&ingredient.item_id).copied().unwrap_or(0);
+                    if have < needed {
+                        let item_name = game_state
+                            .item_name(ingredient.item_id, 1)
+                            .clone();
+                        missing.push(format!(
+                            "{} (besoin: {}, possédé: {})",
+                            item_name, needed, have
+                        ));
+                    }
+                }
+
+                if !missing.is_empty() {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!(
+                            "Ressources manquantes : {}",
+                            missing.join(", ")
+                        ),
+                    }];
+                }
+            }
+
+            // ── Schedule the action ─────────────────────────
+
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
+
+            // Use the actual recipe_id (numeric) for storage
             let specific_data = SpecificAction::CraftResource(CraftResourceAction {
                 player_id,
-                recipe_id,
+                recipe_id: recipe.id.to_string(),
                 chunk_id,
                 cell,
                 quantity,
@@ -1145,10 +1292,10 @@ async fn handle_client_message(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
-                player_id,
-                grid_cell: cell,
-            });
+
+            // Duration from DB recipe instead of hardcoded
+            let duration_ms =
+                (recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64);
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1174,6 +1321,12 @@ async fn handle_client_message(
             .await
             {
                 Ok(action_id) => {
+                    tracing::info!(
+                        "Craft action {} scheduled: recipe '{}' x{} for player {} \
+                         (duration: {}s)",
+                        action_id, recipe.name, quantity, player_id,
+                        duration_ms / 1000
+                    );
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
@@ -1185,9 +1338,9 @@ async fn handle_client_message(
                     });
                 }
                 Err(e) => {
-                    tracing::error!("Failed to schedule action: {}", e);
+                    tracing::error!("Failed to schedule craft action: {}", e);
                     responses.push(ServerMessage::ActionError {
-                        reason: format!("Failed to schedule action: {}", e),
+                        reason: format!("Erreur lors de la planification : {}", e),
                     });
                 }
             }
@@ -1200,23 +1353,56 @@ async fn handle_client_message(
             cell,
             resource_specific_type,
         } => {
+            // ── Validation ──────────────────────────────────
+
+            // 1. Check harvest yields exist for this resource type
+            let yields = game_state
+                .harvest_yields_for(resource_specific_type.to_id());
+
+            if yields.is_empty() {
+                return vec![ServerMessage::ActionError {
+                    reason: format!(
+                        "Aucun rendement de récolte défini pour ce type de ressource ({:?})",
+                        resource_specific_type
+                    ),
+                }];
+            }
+
+            // 2. Find the lord
+            match db_tables.units.load_lord_for_player(player_id).await {
+                Ok(Some(_)) => {} // Lord exists, good
+                Ok(None) => {
+                    return vec![ServerMessage::ActionError {
+                        reason: "Aucun seigneur trouvé".to_string(),
+                    }];
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load lord: {}", e);
+                    return vec![ServerMessage::ActionError {
+                        reason: "Erreur serveur".to_string(),
+                    }];
+                }
+            }
+
+            // ── Schedule ────────────────────────────────────
+
             let mut responses = Vec::new();
             let action_table = &db_tables.actions;
-            let specific_data = SpecificAction::HarvestResource(HarvestResourceAction {
-                player_id,
-                chunk_id,
-                cell,
-                resource_specific_type,
-            });
+            let specific_data =
+                SpecificAction::HarvestResource(HarvestResourceAction {
+                    player_id,
+                    chunk_id,
+                    cell,
+                    resource_specific_type,
+                });
 
             let start_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let duration_ms = specific_data.duration_ms(&ActionContext {
-                player_id,
-                grid_cell: cell,
-            });
+
+            // Duration from DB harvest yield (use the first yield's duration)
+            let duration_ms = (yields[0].duration_seconds as u64) * 1000;
 
             let action_data = ActionData {
                 base_data: ActionBaseData {
@@ -1253,9 +1439,9 @@ async fn handle_client_message(
                     });
                 }
                 Err(e) => {
-                    tracing::error!("Failed to schedule action: {}", e);
+                    tracing::error!("Failed to schedule harvest action: {}", e);
                     responses.push(ServerMessage::ActionError {
-                        reason: format!("Failed to schedule action: {}", e),
+                        reason: format!("Erreur : {}", e),
                     });
                 }
             }

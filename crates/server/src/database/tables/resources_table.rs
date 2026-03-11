@@ -500,6 +500,34 @@ impl ResourcesTable {
         Ok(count as i32)
     }
 
+    /// Charge un résumé de l'inventaire : HashMap<item_id, quantity>
+    /// Utilisé pour la validation rapide avant de lancer une action.
+    pub async fn load_inventory_summary(
+        &self,
+        unit_id: u64,
+    ) -> Result<std::collections::HashMap<i32, i32>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT item_id, COUNT(*)::int as qty
+            FROM resources.item_instances
+            WHERE owner_unit_id = $1
+            GROUP BY item_id
+            "#,
+        )
+        .bind(unit_id as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load inventory summary: {}", e))?;
+
+        let mut summary = std::collections::HashMap::new();
+        for row in rows {
+            let item_id: i32 = row.get("item_id");
+            let qty: i32 = row.get("qty");
+            summary.insert(item_id, qty);
+        }
+        Ok(summary)
+    }
+
     /// Consomme N instances d'un item_id pour une unité (FIFO : les plus anciens d'abord)
     pub async fn consume_items(
         &self,
