@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use bincode::{Decode, Encode};
 use hexx::*;
 
+use crate::{TerrainChunkId, constants};
+
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct GridCell {
     pub q: i32,
@@ -17,6 +19,14 @@ impl GridCell {
     }
     pub fn to_hex(&self) -> Hex {
         Hex::new(self.q, self.r)
+    }
+
+    pub fn to_chunk_id(&self, layout: &HexLayout) -> TerrainChunkId {
+        let world_pos = layout.hex_to_world_pos(self.to_hex());
+        TerrainChunkId {
+            x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x).ceil() as i32,
+            y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
+        }
     }
 
     pub fn neighbors(&self) -> Vec<GridCell> {
