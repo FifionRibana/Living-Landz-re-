@@ -966,10 +966,11 @@ async fn handle_client_message(
 
         ClientMessage::ActionBuildBuilding {
             player_id,
-            chunk_id,
+            chunk_id: _,
             cell,
             building_type,
         } => {
+            let chunk_id = cell.to_chunk_id(&grid_config.layout);
             let building_specific_type = building_type.to_specific_type();
             tracing::info!(
                 "Player {} requested to build {:?} ({:?}) at chunk ({},{}) cell ({},{})",
