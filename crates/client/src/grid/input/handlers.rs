@@ -206,9 +206,11 @@ pub fn handle_map_right_click(
     let target_hex = grid_config.layout.world_pos_to_hex(world_pos);
     let target_cell = shared::grid::GridCell::from_hex(&target_hex);
 
-    // TODO: calculer le chunk cible à partir de la position monde
-    // Pour le MVP on utilise le chunk (0,0) — à améliorer
-    let target_chunk = shared::TerrainChunkId { x: 0, y: 0 };
+    let hex_world_pos = grid_config.layout.hex_to_world_pos(target_hex);
+    let target_chunk = shared::TerrainChunkId {
+        x: hex_world_pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
+        y: hex_world_pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+    };
 
     // Construire la liste d'actions disponibles
     let mut actions = Vec::new();
