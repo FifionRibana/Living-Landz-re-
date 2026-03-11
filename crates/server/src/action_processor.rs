@@ -395,14 +395,13 @@ impl ActionProcessor {
                     match self.db_tables.actions.load_harvest_data(action_id).await {
                         Ok(Some((_player_id, resource_type))) => {
                             // Read harvest yields from GameState cache
-                            let yields = self
-                                .game_state
-                                .harvest_yields_for(resource_type.to_id());
+                            let yields = self.game_state.harvest_yields_for(resource_type.to_id());
 
                             if yields.is_empty() {
                                 tracing::error!(
                                     "No harvest yields defined for resource type {:?} (action {})",
-                                    resource_type, action_id
+                                    resource_type,
+                                    action_id
                                 );
                             } else {
                                 match self.find_lord_unit_id(action_info.player_id).await {
@@ -431,21 +430,20 @@ impl ActionProcessor {
                                                         lord_unit_id
                                                     );
 
-                                                    let inv_msg =
-                                                        ServerMessage::InventoryUpdate {
-                                                            unit_id: lord_unit_id,
-                                                            item_id: hy.result_item_id,
-                                                            quantity_delta: quantity,
-                                                            new_total: self
-                                                                .db_tables
-                                                                .resources
-                                                                .count_item_for_unit(
-                                                                    lord_unit_id,
-                                                                    hy.result_item_id,
-                                                                )
-                                                                .await
-                                                                .unwrap_or(quantity),
-                                                        };
+                                                    let inv_msg = ServerMessage::InventoryUpdate {
+                                                        unit_id: lord_unit_id,
+                                                        item_id: hy.result_item_id,
+                                                        quantity_delta: quantity,
+                                                        new_total: self
+                                                            .db_tables
+                                                            .resources
+                                                            .count_item_for_unit(
+                                                                lord_unit_id,
+                                                                hy.result_item_id,
+                                                            )
+                                                            .await
+                                                            .unwrap_or(quantity),
+                                                    };
                                                     self.send_message_to_player(
                                                         action_info.player_id,
                                                         inv_msg,
@@ -455,7 +453,8 @@ impl ActionProcessor {
                                                 Err(e) => {
                                                     tracing::error!(
                                                         "Failed to create harvest items for action {}: {}",
-                                                        action_id, e
+                                                        action_id,
+                                                        e
                                                     );
                                                 }
                                             }
@@ -464,13 +463,15 @@ impl ActionProcessor {
                                     Ok(None) => {
                                         tracing::error!(
                                             "No lord found for player {} (action {})",
-                                            action_info.player_id, action_id
+                                            action_info.player_id,
+                                            action_id
                                         );
                                     }
                                     Err(e) => {
                                         tracing::error!(
                                             "Failed to find lord for player {}: {}",
-                                            action_info.player_id, e
+                                            action_info.player_id,
+                                            e
                                         );
                                     }
                                 }
@@ -557,6 +558,29 @@ impl ActionProcessor {
                                                             action_id,
                                                             e
                                                         );
+                                                    } else {
+                                                        // Notify client that ingredient was consumed
+                                                        let remaining = self
+                                                            .db_tables
+                                                            .resources
+                                                            .count_item_for_unit(
+                                                                lord_unit_id,
+                                                                ingredient.item_id,
+                                                            )
+                                                            .await
+                                                            .unwrap_or(0);
+                                                        let ing_msg =
+                                                            ServerMessage::InventoryUpdate {
+                                                                unit_id: lord_unit_id,
+                                                                item_id: ingredient.item_id,
+                                                                quantity_delta: -needed,
+                                                                new_total: remaining,
+                                                            };
+                                                        self.send_message_to_player(
+                                                            action_info.player_id,
+                                                            ing_msg,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
 
