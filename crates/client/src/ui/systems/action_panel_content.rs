@@ -381,31 +381,16 @@ fn populate_building_content(
                     // Get construction costs from GameDataCache
                     if let Some(type_id) = building_id_to_type_id(building_id) {
                         let costs = game_data_cache.building_costs(type_id);
-                        if costs.is_empty() {
-                            // Fallback to hardcoded data if cache not loaded yet
-                            let recipe = get_building_recipe(building_id);
-                            for (resource_name, quantity) in recipe.iter() {
-                                parent.spawn((
-                                    Text::new(format!("- {} x{}", resource_name, quantity)),
-                                    TextFont {
-                                        font_size: 11.0,
-                                        ..default()
-                                    },
-                                    TextColor(Color::srgb_u8(200, 190, 170)),
-                                ));
-                            }
-                        } else {
-                            for cost in &costs {
-                                let item_name = game_data_cache.item_name(cost.item_id, 1); // FR
-                                parent.spawn((
-                                    Text::new(format!("- {} x{}", item_name, cost.quantity)),
-                                    TextFont {
-                                        font_size: 11.0,
-                                        ..default()
-                                    },
-                                    TextColor(Color::srgb_u8(200, 190, 170)),
-                                ));
-                            }
+                        for cost in &costs {
+                            let item_name = game_data_cache.item_name(cost.item_id, 1);
+                            parent.spawn((
+                                Text::new(format!("- {} x{}", item_name, cost.quantity)),
+                                TextFont {
+                                    font_size: 11.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(200, 190, 170)),
+                            ));
                         }
                     }
                 });
@@ -527,36 +512,6 @@ fn get_buildings_for_category(
             ),
             ("market", "Marché", "sprites/buildings/market_01.png"),
         ],
-        _ => vec![],
-    }
-}
-
-fn get_building_recipe(building_id: &str) -> Vec<(&'static str, u32)> {
-    match building_id {
-        // ManufacturingWorkshops
-        "blacksmith" => vec![("Bois", 10), ("Pierre", 15), ("Fer", 5)],
-        "blast_furnace" => vec![("Pierre", 30), ("Fer", 10), ("Argile", 20)],
-        "bloomery" => vec![("Pierre", 20), ("Argile", 15)],
-        "carpenter_shop" => vec![("Bois", 15), ("Pierre", 5)],
-        "glass_factory" => vec![("Pierre", 25), ("Sable", 20), ("Bois", 10)],
-        // Agriculture
-        "farm" => vec![("Bois", 18), ("Pierre", 8)],
-        // AnimalBreeding
-        "cowshed" => vec![("Bois", 20), ("Pierre", 10), ("Paille", 15)],
-        "piggery" => vec![("Bois", 15), ("Pierre", 8), ("Paille", 10)],
-        "sheepfold" => vec![("Bois", 18), ("Pierre", 10), ("Paille", 12)],
-        "stable" => vec![("Bois", 25), ("Pierre", 15), ("Paille", 20)],
-        // Entertainment
-        "theater" => vec![("Bois", 40), ("Pierre", 30), ("Tissu", 20)],
-        // Cult
-        "temple" => vec![("Pierre", 50), ("Bois", 30), ("Or", 10)],
-        // Commerce
-        "bakehouse" => vec![("Bois", 15), ("Pierre", 20), ("Argile", 10)],
-        "brewery" => vec![("Bois", 20), ("Pierre", 15), ("Cuivre", 5)],
-        "distillery" => vec![("Bois", 18), ("Pierre", 12), ("Cuivre", 8)],
-        "slaughterhouse" => vec![("Bois", 20), ("Pierre", 25)],
-        "ice_house" => vec![("Pierre", 30), ("Bois", 15)],
-        "market" => vec![("Bois", 35), ("Pierre", 20), ("Tissu", 10)],
         _ => vec![],
     }
 }

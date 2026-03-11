@@ -193,9 +193,13 @@ impl ResourcesTable {
                 .get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_decay_update")
                 .map(|dt| dt.timestamp() as u64)
                 .unwrap_or(0),
-            owner_unit_id: row.get::<Option<i64>, _>("owner_unit_id").map(|id| id as u64),
+            owner_unit_id: row
+                .get::<Option<i64>, _>("owner_unit_id")
+                .map(|id| id as u64),
             world_position,
-            created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at").timestamp() as u64,
+            created_at: row
+                .get::<chrono::DateTime<chrono::Utc>, _>("created_at")
+                .timestamp() as u64,
         })
     }
 
@@ -313,8 +317,28 @@ impl ResourcesTable {
         })
     }
 
+    /// Charge une recette par son slug
+    pub async fn load_recipe_by_slug(&self, slug: &str) -> Result<Recipe, String> {
+        let row = sqlx::query(
+            r#"
+        SELECT id FROM resources.recipes
+        WHERE slug = $1 AND archived = FALSE
+        "#,
+        )
+        .bind(slug)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load recipe by slug '{}': {}", slug, e))?;
+
+        let recipe_id: i32 = row.get("id");
+        self.load_recipe(recipe_id).await
+    }
+
     /// Charge les ingrédients d'une recette
-    async fn load_recipe_ingredients(&self, recipe_id: i32) -> Result<Vec<RecipeIngredient>, String> {
+    async fn load_recipe_ingredients(
+        &self,
+        recipe_id: i32,
+    ) -> Result<Vec<RecipeIngredient>, String> {
         let rows = sqlx::query(
             r#"
             SELECT item_id, quantity
@@ -460,11 +484,7 @@ impl ResourcesTable {
     }
 
     /// Compte combien d'un item_id une unité possède
-    pub async fn count_item_for_unit(
-        &self,
-        unit_id: u64,
-        item_id: i32,
-    ) -> Result<i32, String> {
+    pub async fn count_item_for_unit(&self, unit_id: u64, item_id: i32) -> Result<i32, String> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*) FROM resources.item_instances

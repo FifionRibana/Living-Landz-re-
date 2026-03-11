@@ -1,14 +1,18 @@
 use crate::{ActionModeEnum, BuildingTypeEnum, ProfessionEnum};
-use super::context::{UIActionContext, ActionEntry, ActionViewContext};
+use super::context::{UIActionContext, ActionEntry, ActionViewContext, GameDataRef};
 
 impl ActionModeEnum {
     /// Returns the list of actions available for this mode given the current context.
     /// This is the single source of truth used by both client (UI) and server (validation).
-    pub fn available_actions(&self, ctx: &UIActionContext) -> Vec<ActionEntry> {
+    pub fn available_actions(
+        &self,
+        ctx: &UIActionContext,
+        game_data: Option<&GameDataRef>,
+    ) -> Vec<ActionEntry> {
         match self {
             Self::RoadActionMode => road_actions(ctx),
-            Self::BuildingActionMode => building_actions(ctx),
-            Self::ProductionActionMode => production_actions(ctx),
+            Self::BuildingActionMode => building_actions(ctx, game_data),
+            Self::ProductionActionMode => production_actions(ctx, game_data),
             Self::TrainingActionMode => training_actions(ctx),
             Self::DiplomacyActionMode => diplomacy_actions(ctx),
         }
@@ -56,7 +60,7 @@ fn road_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
 
 // ─── Buildings ──────────────────────────────────────────────
 
-fn building_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
+fn building_actions(ctx: &UIActionContext, game_data: Option<&GameDataRef>) -> Vec<ActionEntry> {
     if !ctx.is_cell_view() {
         return vec![];
     }
@@ -78,7 +82,7 @@ fn building_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
         building_upgrades(building)
     } else {
         // Empty terrain → show constructible buildings
-        constructible_buildings(ctx)
+        constructible_buildings(ctx, game_data)
     }
 }
 
@@ -110,35 +114,58 @@ fn building_upgrades(building: BuildingTypeEnum) -> Vec<ActionEntry> {
     }
 }
 
-fn constructible_buildings(ctx: &UIActionContext) -> Vec<ActionEntry> {
-    // Filter buildings by terrain type compatibility
+fn constructible_buildings(
+    _ctx: &UIActionContext,
+    game_data: Option<&GameDataRef>,
+) -> Vec<ActionEntry> {
+    let Some(gd) = game_data else {
+        return vec![];
+    };
+
     let mut entries = Vec::new();
 
     let buildings = [
-        ("blacksmith", "Forge", &[("Bois", 10u32), ("Pierre", 15), ("Fer", 5)] as &[_], 12u32),
-        ("carpenter_shop", "Menuiserie", &[("Bois", 15), ("Pierre", 5)], 8),
-        ("farm", "Ferme", &[("Bois", 18), ("Pierre", 8)], 10),
-        ("bakehouse", "Boulangerie", &[("Bois", 15), ("Pierre", 20), ("Argile", 10)], 10),
-        ("brewery", "Brasserie", &[("Bois", 20), ("Pierre", 15), ("Cuivre", 5)], 12),
-        ("market", "Marché", &[("Bois", 35), ("Pierre", 20), ("Tissu", 10)], 15),
-        ("cowshed", "Étable", &[("Bois", 20), ("Pierre", 10), ("Paille", 15)], 8),
-        ("sheepfold", "Bergerie", &[("Bois", 18), ("Pierre", 10), ("Paille", 12)], 8),
-        ("stable", "Écurie", &[("Bois", 25), ("Pierre", 15), ("Paille", 20)], 10),
-        ("temple", "Temple", &[("Pierre", 50), ("Bois", 30), ("Or", 10)], 20),
-        ("theater", "Théâtre", &[("Bois", 40), ("Pierre", 30), ("Tissu", 20)], 18),
+        (BuildingTypeEnum::Blacksmith, "blacksmith"),
+        (BuildingTypeEnum::BlastFurnace, "blast_furnace"),
+        (BuildingTypeEnum::Bloomery, "bloomery"),
+        (BuildingTypeEnum::CarpenterShop, "carpenter_shop"),
+        (BuildingTypeEnum::GlassFactory, "glass_factory"),
+        (BuildingTypeEnum::Farm, "farm"),
+        (BuildingTypeEnum::Cowshed, "cowshed"),
+        (BuildingTypeEnum::Piggery, "piggery"),
+        (BuildingTypeEnum::Sheepfold, "sheepfold"),
+        (BuildingTypeEnum::Stable, "stable"),
+        (BuildingTypeEnum::Theater, "theater"),
+        (BuildingTypeEnum::Temple, "temple"),
+        (BuildingTypeEnum::Bakehouse, "bakehouse"),
+        (BuildingTypeEnum::Brewery, "brewery"),
+        (BuildingTypeEnum::Distillery, "distillery"),
+        (BuildingTypeEnum::Slaughterhouse, "slaughterhouse"),
+        (BuildingTypeEnum::IceHouse, "ice_house"),
+        (BuildingTypeEnum::Market, "market"),
     ];
 
-    for (id, name, costs, duration) in buildings {
-        let mut entry = ActionEntry::new(
-            &format!("build_{}", id),
-            name,
-        )
-        .with_description(&format!("Construire un(e) {}", name.to_lowercase()))
-        .with_icon("ui/icons/village.png")
-        .with_duration(duration);
+    for (bt_enum, slug) in buildings {
+        let bt_id = bt_enum.to_id() as i32;
+        // Use translated name from DB; fallback to slug
+        let name = gd.item_names
+            .get(&(-(bt_id))) // building names won't be in item_names
+            .cloned()
+            .unwrap_or_else(|| bt_enum.to_name_lowercase().to_string());
 
-        for (resource, qty) in costs {
-            entry = entry.with_cost(resource, *qty);
+        let mut entry = ActionEntry::new(
+            &format!("build_{}", slug),
+            &name,
+        )
+        .with_description(&format!("Construire un(e) {}", name))
+        .with_icon("ui/icons/village.png")
+        .with_duration(10);
+
+        // Get costs from DB data
+        let costs = gd.building_costs(bt_id);
+        for cost in costs {
+            let item_name = gd.item_name(cost.item_id);
+            entry = entry.with_cost(&item_name, cost.quantity as u32);
         }
 
         entries.push(entry);
@@ -149,7 +176,10 @@ fn constructible_buildings(ctx: &UIActionContext) -> Vec<ActionEntry> {
 
 // ─── Production ─────────────────────────────────────────────
 
-fn production_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
+fn production_actions(
+    ctx: &UIActionContext,
+    game_data: Option<&GameDataRef>,
+) -> Vec<ActionEntry> {
     if !ctx.is_cell_view() {
         return vec![];
     }
@@ -158,11 +188,15 @@ fn production_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
         return vec![];
     };
 
-    // Get recipes from the registry for this building, filtered by selected professions
-    super::recipe_registry::recipes_for_building(building)
+    let Some(gd) = game_data else {
+        return vec![];
+    };
+
+    let bt_id = building.to_id();
+
+    gd.recipes_for_building(bt_id)
         .into_iter()
-        .filter(|recipe| ctx.has_profession(&recipe.profession))
-        .map(|recipe| ActionEntry::from_recipe(recipe))
+        .map(|recipe| ActionEntry::from_recipe_net(recipe, gd))
         .collect()
 }
 

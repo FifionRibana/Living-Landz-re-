@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
-use shared::{ActionEntry, ActionModeEnum};
+use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
+use crate::state::resources::GameDataCache;
 use crate::states::AppState;
 use crate::ui::resources::{ActionContextState, UIState};
 
@@ -179,6 +180,7 @@ pub fn update_action_panel_content(
     mut subtitle_query: Query<&mut Text, (With<ActionPanelSubtitle>, Without<ActionPanelTitle>, Without<ActionPanelEmpty>)>,
     mut empty_query: Query<(&mut Text, &mut Visibility), (With<ActionPanelEmpty>, Without<ActionPanelTitle>, Without<ActionPanelSubtitle>)>,
     mut list_vis_query: Query<&mut Visibility, (With<ActionPanelList>, Without<ActionPanelEmpty>)>,
+    game_data_cache: Res<GameDataCache>,
 ) {
     if !ui_state.is_changed() && !action_context.is_changed() {
         return;
@@ -202,8 +204,26 @@ pub fn update_action_panel_content(
         **text = mode.to_name().to_string();
     }
 
+    // Build GameDataRef from cache for DB-driven actions
+    let game_data_ref = if game_data_cache.loaded {
+        let item_names: std::collections::HashMap<i32, String> = game_data_cache
+            .items
+            .iter()
+            .map(|i| (i.id, game_data_cache.item_name(i.id, 1)))
+            .collect();
+
+        Some(GameDataRef {
+            items: &game_data_cache.items,
+            recipes: &game_data_cache.recipes,
+            construction_costs: &game_data_cache.construction_costs,
+            item_names,
+        })
+    } else {
+        None
+    };
+
     // Get available actions
-    let actions = mode.available_actions(ctx);
+    let actions = mode.available_actions(ctx, game_data_ref.as_ref());
 
     // Update subtitle with context info
     for mut text in &mut subtitle_query {
