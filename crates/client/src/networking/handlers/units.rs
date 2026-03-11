@@ -102,6 +102,7 @@ pub fn handle_unit_events(
             ServerMessage::UnitProfessionChanged {
                 unit_id,
                 new_profession,
+                new_avatar_url,
             } => {
                 let Some(ref mut units_data_cache) = units_data_cache else {
                     continue;
@@ -114,12 +115,24 @@ pub fn handle_unit_events(
                 // Update the cached unit data with the new profession
                 if let Some(unit) = units_data_cache.get_unit_mut(*unit_id) {
                     unit.profession = *new_profession;
+                    if let Some(url) = new_avatar_url {
+                        unit.avatar_url = Some(url.clone());
+                    }
                     info!(
                         "Updated cached unit {} ({} {}) profession to {:?}",
                         unit_id, unit.first_name, unit.last_name, new_profession
                     );
                 } else {
                     warn!("Unit {} not found in cache for profession update", unit_id);
+                }
+
+                // Despawn the unit sprite so it gets re-rendered with new portrait
+                // (unit_sprites system will recreate it next frame from cache)
+                for (entity, in_slot, unit_sprite) in unit_query.iter() {
+                    if unit_sprite.unit_id == *unit_id {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
                 }
             }
             ServerMessage::UnitPositionUpdated {
@@ -179,7 +192,7 @@ pub fn handle_unit_events(
                 // L'unité immigrante est aussi envoyée via DebugUnitSpawned
                 // (qui est déjà géré par ce handler), donc pas besoin de la traiter ici
             }
-            
+
             _ => {}
         }
     }
