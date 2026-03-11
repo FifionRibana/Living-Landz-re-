@@ -17,6 +17,7 @@ impl Plugin for ClientStatePlugin {
             // ─── Global resources — needed before InGame ─────────────────
             .init_resource::<resources::ConnectionStatus>()
             .init_resource::<resources::PlayerInfo>()
+            .init_resource::<resources::GameDataCache>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
             .add_systems(Startup, (resources::setup_tree_atlas, resources::setup_building_atlas))
@@ -44,6 +45,7 @@ fn init_world_resources(mut commands: Commands) {
     commands.insert_resource(resources::UnitsDataCache::default());
     commands.insert_resource(resources::ActionTracker::default());
     commands.insert_resource(resources::CurrentOrganization::default());
+    commands.insert_resource(resources::InventoryCache::default());
 }
 
 fn cleanup_world_resources(mut commands: Commands) {
@@ -52,4 +54,5 @@ fn cleanup_world_resources(mut commands: Commands) {
     commands.remove_resource::<resources::UnitsDataCache>();
     commands.remove_resource::<resources::ActionTracker>();
     commands.remove_resource::<resources::CurrentOrganization>();
+    commands.remove_resource::<resources::InventoryCache>();
 }

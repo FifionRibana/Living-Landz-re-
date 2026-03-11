@@ -548,6 +548,59 @@ impl ScheduledActionsTable {
         Ok(())
     }
 
+    /// Charge les données d'une action HarvestResource
+    pub async fn load_harvest_data(
+        &self,
+        action_id: u64,
+    ) -> Result<Option<(u64, ResourceSpecificTypeEnum)>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT sa.player_id, hra.resource_type
+            FROM actions.scheduled_actions sa
+            JOIN actions.harvest_resource_actions hra ON hra.action_id = sa.id
+            WHERE sa.id = $1
+            "#,
+        )
+        .bind(action_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load harvest data for action {}: {}", action_id, e))?;
+
+        Ok(row.map(|r| {
+            let player_id: i64 = r.get("player_id");
+            let resource_type_id: i16 = r.get("resource_type");
+            let resource_type = ResourceSpecificTypeEnum::from_id(resource_type_id)
+                .unwrap_or(ResourceSpecificTypeEnum::Unknown);
+            (player_id as u64, resource_type)
+        }))
+    }
+
+    /// Charge les données d'une action CraftResource
+    pub async fn load_craft_data(
+        &self,
+        action_id: u64,
+    ) -> Result<Option<(u64, String, u32)>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT sa.player_id, cra.recipe_id, cra.quantity
+            FROM actions.scheduled_actions sa
+            JOIN actions.craft_resource_actions cra ON cra.action_id = sa.id
+            WHERE sa.id = $1
+            "#,
+        )
+        .bind(action_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load craft data for action {}: {}", action_id, e))?;
+
+        Ok(row.map(|r| {
+            let player_id: i64 = r.get("player_id");
+            let recipe_id: String = r.get("recipe_id");
+            let quantity: i32 = r.get("quantity");
+            (player_id as u64, recipe_id, quantity as u32)
+        }))
+    }
+
     /// Récupère le building_type_id pour une action BuildBuilding
     pub async fn get_build_building_type(&self, action_id: u64) -> Result<Option<i16>, String> {
         let result = sqlx::query(

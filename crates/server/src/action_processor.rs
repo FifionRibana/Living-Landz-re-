@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use shared::{
     ActionStatusEnum, ActionTypeEnum, TerrainChunkId, grid::GridCell, protocol::ServerMessage,
 };
+use sqlx::Row;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -375,6 +376,232 @@ impl ActionProcessor {
                                 "Failed to load move_unit data for action {}: {}",
                                 action_id,
                                 e
+                            );
+                        }
+                    }
+                }
+
+                // ================================================================
+                // HARVEST RESOURCE — Crée des items dans l'inventaire du Lord
+                // ================================================================
+                if action_info.action_type == ActionTypeEnum::HarvestResource {
+                    match self.db_tables.actions.load_harvest_data(action_id).await {
+                        Ok(Some((_player_id, resource_type))) => {
+                            let (item_id, quantity, quality) = match resource_type {
+                                shared::ResourceSpecificTypeEnum::Wood => (1, 3, 0.8),
+                                shared::ResourceSpecificTypeEnum::Ore => (3, 2, 0.7),
+                                shared::ResourceSpecificTypeEnum::Metal => (3, 1, 0.9),
+                                shared::ResourceSpecificTypeEnum::Mineral => (2, 2, 0.8),
+                                _ => (2, 1, 0.5),
+                            };
+
+                            match self.find_lord_unit_id(action_info.player_id).await {
+                                Ok(Some(lord_unit_id)) => {
+                                    match self
+                                        .db_tables
+                                        .resources
+                                        .create_items_for_unit(
+                                            lord_unit_id, item_id, quantity, quality,
+                                        )
+                                        .await
+                                    {
+                                        Ok(created_ids) => {
+                                            tracing::info!(
+                                                "Harvest completed (action {}): created {} instances of item {} for unit {} (player {})",
+                                                action_id, created_ids.len(), item_id,
+                                                lord_unit_id, action_info.player_id
+                                            );
+
+                                            let inv_msg = ServerMessage::InventoryUpdate {
+                                                unit_id: lord_unit_id,
+                                                item_id,
+                                                quantity_delta: quantity,
+                                                new_total: self
+                                                    .db_tables
+                                                    .resources
+                                                    .count_item_for_unit(lord_unit_id, item_id)
+                                                    .await
+                                                    .unwrap_or(quantity),
+                                            };
+                                            self.send_message_to_player(
+                                                action_info.player_id,
+                                                inv_msg,
+                                            )
+                                            .await;
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Failed to create harvest items for action {}: {}",
+                                                action_id, e
+                                            );
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    tracing::error!(
+                                        "No lord found for player {} (action {})",
+                                        action_info.player_id, action_id
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to find lord for player {}: {}",
+                                        action_info.player_id, e
+                                    );
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::error!("No harvest data for action {}", action_id);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to load harvest data for action {}: {}",
+                                action_id, e
+                            );
+                        }
+                    }
+                }
+
+                // ================================================================
+                // CRAFT RESOURCE — Consomme des ingrédients, crée le résultat
+                // ================================================================
+                if action_info.action_type == ActionTypeEnum::CraftResource {
+                    match self.db_tables.actions.load_craft_data(action_id).await {
+                        Ok(Some((_player_id, recipe_id_str, quantity))) => {
+                            let recipe_id: i32 = recipe_id_str.parse().unwrap_or(0);
+                            match self.db_tables.resources.load_recipe(recipe_id).await {
+                                Ok(recipe) => {
+                                    match self.find_lord_unit_id(action_info.player_id).await {
+                                        Ok(Some(lord_unit_id)) => {
+                                            let mut ingredients_ok = true;
+                                            for ingredient in &recipe.ingredients {
+                                                let needed =
+                                                    ingredient.quantity * quantity as i32;
+                                                let have = self
+                                                    .db_tables
+                                                    .resources
+                                                    .count_item_for_unit(
+                                                        lord_unit_id,
+                                                        ingredient.item_id,
+                                                    )
+                                                    .await
+                                                    .unwrap_or(0);
+
+                                                if have < needed {
+                                                    tracing::error!(
+                                                        "Craft action {}: not enough item {} (need {}, have {})",
+                                                        action_id, ingredient.item_id, needed, have
+                                                    );
+                                                    ingredients_ok = false;
+                                                    break;
+                                                }
+                                            }
+
+                                            if ingredients_ok {
+                                                for ingredient in &recipe.ingredients {
+                                                    let needed =
+                                                        ingredient.quantity * quantity as i32;
+                                                    if let Err(e) = self
+                                                        .db_tables
+                                                        .resources
+                                                        .consume_items(
+                                                            lord_unit_id,
+                                                            ingredient.item_id,
+                                                            needed,
+                                                        )
+                                                        .await
+                                                    {
+                                                        tracing::error!(
+                                                            "Failed to consume ingredient {} for action {}: {}",
+                                                            ingredient.item_id, action_id, e
+                                                        );
+                                                    }
+                                                }
+
+                                                let result_qty =
+                                                    recipe.result_quantity * quantity as i32;
+                                                let craft_quality = 0.8;
+                                                match self
+                                                    .db_tables
+                                                    .resources
+                                                    .create_items_for_unit(
+                                                        lord_unit_id,
+                                                        recipe.result_item_id,
+                                                        result_qty,
+                                                        craft_quality,
+                                                    )
+                                                    .await
+                                                {
+                                                    Ok(created_ids) => {
+                                                        tracing::info!(
+                                                            "Craft completed (action {}): {} x item {} for unit {}",
+                                                            action_id, created_ids.len(),
+                                                            recipe.result_item_id, lord_unit_id
+                                                        );
+
+                                                        let inv_msg =
+                                                            ServerMessage::InventoryUpdate {
+                                                                unit_id: lord_unit_id,
+                                                                item_id: recipe.result_item_id,
+                                                                quantity_delta: result_qty,
+                                                                new_total: self
+                                                                    .db_tables
+                                                                    .resources
+                                                                    .count_item_for_unit(
+                                                                        lord_unit_id,
+                                                                        recipe.result_item_id,
+                                                                    )
+                                                                    .await
+                                                                    .unwrap_or(result_qty),
+                                                            };
+                                                        self.send_message_to_player(
+                                                            action_info.player_id,
+                                                            inv_msg,
+                                                        )
+                                                        .await;
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::error!(
+                                                            "Failed to create craft result for action {}: {}",
+                                                            action_id, e
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                tracing::error!(
+                                                    "Craft action {} failed: missing ingredients",
+                                                    action_id
+                                                );
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            tracing::error!(
+                                                "No lord found for player {} (craft action {})",
+                                                action_info.player_id, action_id
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Failed to find lord for craft: {}", e
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to load recipe {} for action {}: {}",
+                                        recipe_id_str, action_id, e
+                                    );
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::error!("No craft data for action {}", action_id);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to load craft data for action {}: {}", action_id, e
                             );
                         }
                     }
@@ -1593,6 +1820,9 @@ impl ActionProcessor {
             ServerMessage::HamletFoundError { .. } => "HamletFoundError",
             ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
             ServerMessage::PopulationChanged { .. } => "PouplationChanged",
+            ServerMessage::InventoryData { .. } => "InventoryData",
+            ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
+            ServerMessage::GameData { .. } => "GameData",
             ServerMessage::Pong => "Pong",
         };
 
@@ -1608,6 +1838,19 @@ impl ActionProcessor {
                 e
             );
         }
+    }
+
+    /// Trouve le Lord (unité principale) d'un joueur
+    async fn find_lord_unit_id(&self, player_id: u64) -> Result<Option<u64>, String> {
+        let row = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM units.units WHERE player_id = $1 AND is_lord = TRUE LIMIT 1",
+        )
+        .bind(player_id as i64)
+        .fetch_optional(&self.db_tables.pool)
+        .await
+        .map_err(|e| format!("Failed to find lord: {}", e))?;
+
+        Ok(row.map(|id| id as u64))
     }
 
     /// Broadcast un message à tous les joueurs qui ont chargé un chunk

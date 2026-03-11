@@ -63,6 +63,7 @@ pub enum GameView {
     Records,
     Search,
     Settings,
+    Inventory,
 }
 
 /// Overlay (pause menu, etc.) — orthogonal to GameView, only in InGame

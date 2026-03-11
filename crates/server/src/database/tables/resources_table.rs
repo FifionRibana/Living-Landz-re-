@@ -382,6 +382,167 @@ impl ResourcesTable {
         Ok(recipes)
     }
 
+    // ============ INVENTORY ============
+
+    /// Charge tous les items possédés par une unité (inventaire)
+    pub async fn load_items_for_unit(&self, unit_id: u64) -> Result<Vec<FullItemData>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT ii.id as instance_id, ii.item_id, ii.quality, ii.current_decay,
+                   ii.last_decay_update, ii.created_at,
+                   i.name, i.item_type_id, i.category_id, i.weight_kg, i.volume_liters,
+                   i.base_price, i.is_perishable, i.base_decay_rate_per_day,
+                   i.is_equipable, i.equipment_slot_id, i.is_craftable, i.description, i.image_url
+            FROM resources.item_instances ii
+            JOIN resources.items i ON i.id = ii.item_id
+            WHERE ii.owner_unit_id = $1
+            ORDER BY i.item_type_id, i.name
+            "#,
+        )
+        .bind(unit_id as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to load items for unit {}: {}", unit_id, e))?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let item_id: i32 = row.get("item_id");
+            let stat_modifiers = self.load_item_stat_modifiers(item_id).await?;
+
+            let definition = ItemDefinition {
+                id: item_id,
+                name: row.get("name"),
+                item_type: ItemTypeEnum::from_id(row.get("item_type_id"))
+                    .unwrap_or(ItemTypeEnum::Unknown),
+                category: row
+                    .get::<Option<i16>, _>("category_id")
+                    .and_then(ResourceCategoryEnum::from_id),
+                weight_kg: row.try_get::<f64, _>("weight_kg").unwrap_or(0.0) as f32,
+                volume_liters: row.try_get::<f64, _>("volume_liters").unwrap_or(0.0) as f32,
+                base_price: row.get("base_price"),
+                is_perishable: row.get("is_perishable"),
+                base_decay_rate_per_day: row
+                    .try_get::<f64, _>("base_decay_rate_per_day")
+                    .unwrap_or(0.0) as f32,
+                is_equipable: row.get("is_equipable"),
+                equipment_slot: row
+                    .get::<Option<i16>, _>("equipment_slot_id")
+                    .and_then(EquipmentSlotEnum::from_id),
+                is_craftable: row.get("is_craftable"),
+                description: row.get("description"),
+                image_url: row.get("image_url"),
+                stat_modifiers,
+            };
+
+            let instance = ItemInstance {
+                id: row.get::<i64, _>("instance_id") as u64,
+                item_id,
+                quality: row.try_get::<f64, _>("quality").unwrap_or(1.0) as f32,
+                current_decay: row.try_get::<f64, _>("current_decay").unwrap_or(0.0) as f32,
+                last_decay_update: row
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_decay_update")
+                    .map(|dt| dt.timestamp() as u64)
+                    .unwrap_or(0),
+                owner_unit_id: Some(unit_id),
+                world_position: None,
+                created_at: row
+                    .get::<chrono::DateTime<chrono::Utc>, _>("created_at")
+                    .timestamp() as u64,
+            };
+
+            items.push(FullItemData {
+                definition,
+                instance,
+            });
+        }
+
+        Ok(items)
+    }
+
+    /// Compte combien d'un item_id une unité possède
+    pub async fn count_item_for_unit(
+        &self,
+        unit_id: u64,
+        item_id: i32,
+    ) -> Result<i32, String> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM resources.item_instances
+            WHERE owner_unit_id = $1 AND item_id = $2
+            "#,
+        )
+        .bind(unit_id as i64)
+        .bind(item_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to count items: {}", e))?;
+
+        Ok(count as i32)
+    }
+
+    /// Consomme N instances d'un item_id pour une unité (FIFO : les plus anciens d'abord)
+    pub async fn consume_items(
+        &self,
+        unit_id: u64,
+        item_id: i32,
+        quantity: i32,
+    ) -> Result<Vec<u64>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id FROM resources.item_instances
+            WHERE owner_unit_id = $1 AND item_id = $2
+            ORDER BY created_at ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(unit_id as i64)
+        .bind(item_id)
+        .bind(quantity as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to find items to consume: {}", e))?;
+
+        if rows.len() < quantity as usize {
+            return Err(format!(
+                "Not enough items: need {} of item_id {}, have {}",
+                quantity,
+                item_id,
+                rows.len()
+            ));
+        }
+
+        let mut deleted_ids = Vec::new();
+        for row in &rows {
+            let instance_id: i64 = row.get("id");
+            sqlx::query("DELETE FROM resources.item_instances WHERE id = $1")
+                .bind(instance_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to delete item instance {}: {}", instance_id, e))?;
+            deleted_ids.push(instance_id as u64);
+        }
+
+        Ok(deleted_ids)
+    }
+
+    /// Crée N instances d'un item pour une unité (bulk)
+    pub async fn create_items_for_unit(
+        &self,
+        unit_id: u64,
+        item_id: i32,
+        quantity: i32,
+        quality: f32,
+    ) -> Result<Vec<u64>, String> {
+        let mut created_ids = Vec::new();
+        for _ in 0..quantity {
+            let id = self
+                .create_item_instance(item_id, quality, Some(unit_id), None)
+                .await?;
+            created_ids.push(id);
+        }
+        Ok(created_ids)
+    }
+
     // ============ FULL ITEM DATA ============
 
     /// Charge un item complet (définition + instance)

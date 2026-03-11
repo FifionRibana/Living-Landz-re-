@@ -1,9 +1,9 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, OceanData,
-    OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum,
-    RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData,
+    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, EquipmentSlotEnum,
+    ItemTypeEnum, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum,
+    ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData,
     grid::{CellData, GridCell},
     types::TerrainChunkData,
 };
@@ -68,6 +68,96 @@ pub struct TerritoryContourChunkData {
     pub border_color: ColorData,
     /// Fill color (RGBA)
     pub fill_color: ColorData,
+}
+
+// =============================================================================
+// GAME DATA PAYLOAD — données statiques envoyées au login
+// =============================================================================
+
+/// Données de jeu statiques envoyées au client au login
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct GameDataPayload {
+    pub items: Vec<ItemDefinitionNet>,
+    pub recipes: Vec<RecipeNet>,
+    pub construction_costs: Vec<ConstructionCostNet>,
+    pub harvest_yields: Vec<HarvestYieldNet>,
+    pub translations: Vec<TranslationEntry>,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct ItemDefinitionNet {
+    pub id: i32,
+    pub name: String,
+    pub item_type_id: i16,
+    pub category_id: Option<i16>,
+    pub weight_kg: f32,
+    pub base_price: i32,
+    pub is_perishable: bool,
+    pub is_equipable: bool,
+    pub equipment_slot_id: Option<i16>,
+    pub is_craftable: bool,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct RecipeNet {
+    pub id: i32,
+    pub name: String,
+    pub result_item_id: i32,
+    pub result_quantity: i32,
+    pub required_skill_id: Option<i16>,
+    pub required_skill_level: i32,
+    pub craft_duration_seconds: i32,
+    pub required_building_type_id: Option<i16>,
+    pub ingredients: Vec<RecipeIngredientNet>,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct RecipeIngredientNet {
+    pub item_id: i32,
+    pub quantity: i32,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct ConstructionCostNet {
+    pub building_type_id: i32,
+    pub item_id: i32,
+    pub quantity: i32,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct HarvestYieldNet {
+    pub resource_specific_type_id: i16,
+    pub result_item_id: i32,
+    pub base_quantity: i32,
+    pub required_profession_id: Option<i16>,
+    pub duration_seconds: i32,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct TranslationEntry {
+    pub entity_type: String,
+    pub entity_id: i32,
+    pub language_id: i16,
+    pub field: String,
+    pub value: String,
+}
+
+// =============================================================================
+// INVENTORY
+// =============================================================================
+
+/// Données d'item pour l'inventaire réseau (version allégée)
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct InventoryItemData {
+    pub instance_id: u64,
+    pub item_id: i32,
+    pub name: String,
+    pub item_type: ItemTypeEnum,
+    pub quality: f32,
+    pub weight_kg: f32,
+    pub quantity: i32,
+    pub is_equipped: bool,
+    pub equipment_slot: Option<EquipmentSlotEnum>,
 }
 
 /// Messages Client → Server
@@ -202,6 +292,11 @@ pub enum ClientMessage {
     /// Request organization info for a cell
     RequestOrganizationAtCell {
         cell: GridCell,
+    },
+
+    /// Demande l'inventaire complet d'une unité
+    RequestInventory {
+        unit_id: u64,
     },
 
     /// Ping (keep alive)
@@ -395,6 +490,25 @@ pub enum ServerMessage {
     /// Debug error
     DebugError {
         reason: String,
+    },
+
+    /// Inventaire complet d'une unité
+    InventoryData {
+        unit_id: u64,
+        items: Vec<InventoryItemData>,
+    },
+
+    /// Mise à jour incrémentale d'inventaire (après harvest/craft)
+    InventoryUpdate {
+        unit_id: u64,
+        item_id: i32,
+        quantity_delta: i32,
+        new_total: i32,
+    },
+
+    /// Données statiques du jeu (envoyées une fois au login)
+    GameData {
+        payload: GameDataPayload,
     },
 
     /// Pong (ping answer)

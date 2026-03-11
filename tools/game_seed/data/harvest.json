@@ -1,0 +1,13 @@
+{
+  "harvest_yields": [
+    {"id": 1, "resource_type": "wood",      "result_item": "wood",    "base_quantity": 3, "quality_min": 0.6, "quality_max": 1.0, "required_profession": "lumberjack", "required_tool": "ironAxe",    "tool_bonus_quantity": 2, "duration_seconds": 30},
+    {"id": 2, "resource_type": "ore",       "result_item": "ironOre", "base_quantity": 2, "quality_min": 0.5, "quality_max": 0.9, "required_profession": "miner",      "required_tool": "ironPickaxe","tool_bonus_quantity": 1, "duration_seconds": 45},
+    {"id": 3, "resource_type": "mineral",   "result_item": "stone",   "base_quantity": 3, "quality_min": 0.7, "quality_max": 1.0, "required_profession": "mason",      "required_tool": "ironPickaxe","tool_bonus_quantity": 1, "duration_seconds": 30},
+    {"id": 4, "resource_type": "fish",      "result_item": "fish",    "base_quantity": 2, "quality_min": 0.5, "quality_max": 1.0, "required_profession": "fisherman",  "required_tool": "fishingRod", "tool_bonus_quantity": 2, "duration_seconds": 25},
+    {"id": 5, "resource_type": "game",      "result_item": "meat",    "base_quantity": 2, "quality_min": 0.5, "quality_max": 1.0, "required_profession": "hunter",     "duration_seconds": 40},
+    {"id": 6, "resource_type": "game",      "result_item": "leather", "base_quantity": 1, "quality_min": 0.5, "quality_max": 0.9, "required_profession": "hunter",     "duration_seconds": 40},
+    {"id": 7, "resource_type": "stone",     "result_item": "stone",   "base_quantity": 2, "quality_min": 0.6, "quality_max": 1.0, "duration_seconds": 20},
+    {"id": 8, "resource_type": "clay",      "result_item": "clay",    "base_quantity": 3, "quality_min": 0.7, "quality_max": 1.0, "duration_seconds": 20},
+    {"id": 9, "resource_type": "wildFruit", "result_item": "apple",   "base_quantity": 3, "quality_min": 0.5, "quality_max": 1.0, "duration_seconds": 15}
+  ]
+}

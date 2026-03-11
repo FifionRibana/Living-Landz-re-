@@ -7,7 +7,7 @@ use shared::{
 use crate::{
     grid::resources::SelectedHexes,
     networking::client::NetworkClient,
-    state::resources::ConnectionStatus,
+    state::resources::{ConnectionStatus, GameDataCache},
     ui::{
         components::{
             ActionCategory, ActionRunButton, ActionTabButton, ActionTabsContainer,
@@ -16,6 +16,31 @@ use crate::{
         resources::ActionState,
     },
 };
+
+/// Map a building string ID to the database building_type_id.
+fn building_id_to_type_id(building_id: &str) -> Option<i32> {
+    match building_id {
+        "blacksmith" => Some(BuildingTypeEnum::Blacksmith as i32),
+        "blast_furnace" => Some(BuildingTypeEnum::BlastFurnace as i32),
+        "bloomery" => Some(BuildingTypeEnum::Bloomery as i32),
+        "carpenter_shop" => Some(BuildingTypeEnum::CarpenterShop as i32),
+        "glass_factory" => Some(BuildingTypeEnum::GlassFactory as i32),
+        "farm" => Some(BuildingTypeEnum::Farm as i32),
+        "cowshed" => Some(BuildingTypeEnum::Cowshed as i32),
+        "piggery" => Some(BuildingTypeEnum::Piggery as i32),
+        "sheepfold" => Some(BuildingTypeEnum::Sheepfold as i32),
+        "stable" => Some(BuildingTypeEnum::Stable as i32),
+        "theater" => Some(BuildingTypeEnum::Theater as i32),
+        "temple" => Some(BuildingTypeEnum::Temple as i32),
+        "bakehouse" => Some(BuildingTypeEnum::Bakehouse as i32),
+        "brewery" => Some(BuildingTypeEnum::Brewery as i32),
+        "distillery" => Some(BuildingTypeEnum::Distillery as i32),
+        "slaughterhouse" => Some(BuildingTypeEnum::Slaughterhouse as i32),
+        "ice_house" => Some(BuildingTypeEnum::IceHouse as i32),
+        "market" => Some(BuildingTypeEnum::Market as i32),
+        _ => None,
+    }
+}
 
 pub fn update_action_panel_content(
     mut commands: Commands,
@@ -26,6 +51,7 @@ pub fn update_action_panel_content(
     recipe_query: Query<Entity, With<RecipeContainer>>,
     tabs_children_query: Query<&Children>,
     panel_query: Query<Entity, With<ActionsPanelMarker>>,
+    game_data_cache: Res<GameDataCache>,
 ) {
     if !action_state.is_changed() {
         return;
@@ -79,6 +105,7 @@ pub fn update_action_panel_content(
                         &recipe_query,
                         &asset_server,
                         &action_state,
+                        &game_data_cache,
                     );
                 }
             }
@@ -246,6 +273,7 @@ fn populate_building_content(
     recipe_query: &Query<Entity, With<RecipeContainer>>,
     asset_server: &Res<AssetServer>,
     action_state: &ActionState,
+    game_data_cache: &GameDataCache,
 ) {
     if let Some(building_category) = action_state.selected_building_category {
         // Get buildings for this category
@@ -350,17 +378,35 @@ fn populate_building_content(
                         },
                     ));
 
-                    // Get recipe for selected building
-                    let recipe = get_building_recipe(building_id);
-                    for (resource_name, quantity) in recipe.iter() {
-                        parent.spawn((
-                            Text::new(format!("- {} x{}", resource_name, quantity)),
-                            TextFont {
-                                font_size: 11.0,
-                                ..default()
-                            },
-                            TextColor(Color::srgb_u8(200, 190, 170)),
-                        ));
+                    // Get construction costs from GameDataCache
+                    if let Some(type_id) = building_id_to_type_id(building_id) {
+                        let costs = game_data_cache.building_costs(type_id);
+                        if costs.is_empty() {
+                            // Fallback to hardcoded data if cache not loaded yet
+                            let recipe = get_building_recipe(building_id);
+                            for (resource_name, quantity) in recipe.iter() {
+                                parent.spawn((
+                                    Text::new(format!("- {} x{}", resource_name, quantity)),
+                                    TextFont {
+                                        font_size: 11.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb_u8(200, 190, 170)),
+                                ));
+                            }
+                        } else {
+                            for cost in &costs {
+                                let item_name = game_data_cache.item_name(cost.item_id, 1); // FR
+                                parent.spawn((
+                                    Text::new(format!("- {} x{}", item_name, cost.quantity)),
+                                    TextFont {
+                                        font_size: 11.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb_u8(200, 190, 170)),
+                                ));
+                            }
+                        }
                     }
                 });
             }

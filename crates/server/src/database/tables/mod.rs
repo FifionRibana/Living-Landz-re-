@@ -18,7 +18,7 @@ pub use terrains_table::*;
 pub use ocean_data_table::*;
 pub use road_segments_table::*;
 pub use units_table::*;
-// pub use resources_table::*;
+pub use resources_table::*;
 pub use organizations_table::*;
 pub use voronoi_zones_table::*;
 pub use territory_contours_table::*;
