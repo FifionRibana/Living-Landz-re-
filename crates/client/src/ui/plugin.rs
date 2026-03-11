@@ -155,6 +155,10 @@ impl Plugin for UiPlugin {
                 OnEnter(GameView::Inventory),
                 systems::panels::setup_inventory_panel,
             )
+            .add_systems(
+                Update,
+                systems::panels::update_inventory_panel.run_if(in_state(GameView::Inventory)),
+            )
             // ─── Pause menu overlay ────────────────────────────────────
             .add_systems(
                 OnEnter(Overlay::PauseMenu),
