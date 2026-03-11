@@ -11,6 +11,9 @@ mod action_tracker;
 mod current_organization;
 mod units_cache;
 mod units_data_cache;
+mod inventory_cache;
+mod game_data_cache;
+mod notification_state;
 
 pub use game_time_config::GameTimeConfig;
 pub use connection_status::ConnectionStatus;
@@ -25,3 +28,6 @@ pub use action_tracker::{ActionTracker, TrackedAction};
 pub use current_organization::CurrentOrganization;
 pub use units_cache::UnitsCache;
 pub use units_data_cache::UnitsDataCache;
+pub use inventory_cache::InventoryCache;
+pub use game_data_cache::GameDataCache;
+pub use notification_state::{NotificationKind, NotificationState};

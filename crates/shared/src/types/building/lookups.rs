@@ -22,6 +22,7 @@ pub struct BuildingType {
     pub category_id: i16,
     pub specific_type_id: i16,
     pub description: Option<String>,
+    pub construction_duration_seconds: i32,
     pub archived: bool,
 }
 

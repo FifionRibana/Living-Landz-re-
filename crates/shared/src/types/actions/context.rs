@@ -1,6 +1,51 @@
 use bincode::{Decode, Encode};
+use std::collections::HashMap;
 
+use crate::protocol::{ConstructionCostNet, ItemDefinitionNet, RecipeNet};
 use crate::{BiomeTypeEnum, BuildingTypeEnum, ProfessionEnum};
+
+// ─── Game data ref ─────────────────────────────────────────
+
+/// Read-only view of DB game data, passed into action resolution.
+/// Built by the client from GameDataCache before calling available_actions().
+pub struct GameDataRef<'a> {
+    pub items: &'a [ItemDefinitionNet],
+    pub recipes: &'a [RecipeNet],
+    pub construction_costs: &'a [ConstructionCostNet],
+    /// Pre-resolved translated item names (item_id -> display name)
+    pub item_names: HashMap<i32, String>,
+    /// Current lord inventory: item_id -> quantity (for executable checks)
+    pub inventory: HashMap<i32, i32>,
+}
+
+impl GameDataRef<'_> {
+    pub fn item_name(&self, item_id: i32) -> String {
+        self.item_names
+            .get(&item_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                self.items
+                    .iter()
+                    .find(|i| i.id == item_id)
+                    .map(|i| i.name.clone())
+                    .unwrap_or_else(|| format!("#{}", item_id))
+            })
+    }
+
+    pub fn recipes_for_building(&self, building_type_id: i16) -> Vec<&RecipeNet> {
+        self.recipes
+            .iter()
+            .filter(|r| r.required_building_type_id == Some(building_type_id))
+            .collect()
+    }
+
+    pub fn building_costs(&self, building_type_id: i32) -> Vec<&ConstructionCostNet> {
+        self.construction_costs
+            .iter()
+            .filter(|c| c.building_type_id == building_type_id)
+            .collect()
+    }
+}
 
 // ─── View context ───────────────────────────────────────────
 
@@ -109,23 +154,32 @@ impl ActionEntry {
         }
     }
 
-    /// Create an ActionEntry from a RecipeDefinition.
-    pub fn from_recipe(recipe: &super::recipe_registry::RecipeDefinition) -> Self {
+    /// Create an ActionEntry from a DB recipe (RecipeNet).
+    /// Uses numeric recipe ID in the action ID for server compatibility.
+    pub fn from_recipe_net(recipe: &RecipeNet, game_data: &GameDataRef) -> Self {
         let mut entry = Self::new(
             &format!("produce_{}", recipe.id),
-            recipe.name,
+            &recipe.name,
         )
-        .with_description(recipe.description)
-        .with_icon(recipe.icon)
-        .with_profession(recipe.profession)
-        .with_duration(recipe.duration_ticks);
+        .with_description(&recipe.name)
+        .with_icon("ui/icons/cog.png")
+        .with_duration(recipe.craft_duration_seconds as u32);
 
-        for (name, qty) in recipe.inputs {
-            entry = entry.with_cost(name, *qty);
+        // Check if all ingredients are available
+        let mut can_craft = true;
+        for ing in &recipe.ingredients {
+            let name = game_data.item_name(ing.item_id);
+            entry = entry.with_cost(&name, ing.quantity as u32);
+
+            let have = game_data.inventory.get(&ing.item_id).copied().unwrap_or(0);
+            if have < ing.quantity {
+                can_craft = false;
+            }
         }
-        for (name, qty) in recipe.outputs {
-            entry = entry.with_output(name, *qty);
-        }
+
+        let result_name = game_data.item_name(recipe.result_item_id);
+        entry = entry.with_output(&result_name, recipe.result_quantity as u32);
+        entry.executable = can_craft;
 
         entry
     }

@@ -5,6 +5,7 @@
 pub mod actions;
 pub mod auth;
 pub mod debug;
+pub mod inventory;
 pub mod territory;
 pub mod units;
 pub mod world;

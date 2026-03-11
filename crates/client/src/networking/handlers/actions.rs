@@ -3,13 +3,14 @@ use shared::protocol::ServerMessage;
 
 use crate::networking::client::NetworkClient;
 use crate::networking::events::ServerEvent;
-use crate::state::resources::{ActionTracker, TrackedAction};
+use crate::state::resources::{ActionTracker, NotificationState, TrackedAction};
 
 /// Handles action-related messages (status updates, completions).
 pub fn handle_action_events(
     mut events: MessageReader<ServerEvent>,
     mut action_tracker: Option<ResMut<ActionTracker>>,
     mut network_client: Option<ResMut<NetworkClient>>,
+    mut notifications: ResMut<NotificationState>,
 ) {
     for event in events.read() {
         match &event.0 {
@@ -64,6 +65,11 @@ pub fn handle_action_events(
                         },
                     );
                 }
+            }
+
+            ServerMessage::ActionError { reason } => {
+                warn!("Action rejected by server: {}", reason);
+                notifications.push_error(reason.clone());
             }
 
             _ => {}
