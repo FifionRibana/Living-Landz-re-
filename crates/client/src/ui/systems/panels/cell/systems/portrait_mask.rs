@@ -1,6 +1,10 @@
-use bevy::{prelude::*, render::render_resource::{Extent3d, TextureDimension}};
+use bevy::{
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension},
+};
 
 use crate::ui::components::PendingHexMask;
+use crate::ui::components::PendingLayerComposition;
 
 /// Apply hex mask to unit portraits
 pub fn apply_hex_mask_to_portraits(
@@ -155,6 +159,127 @@ pub fn apply_hex_mask_to_portraits(
     }
 }
 
+/// Compose 4 portrait layers + apply hex mask for lord portraits.
+/// Runs every frame, polling until all images are loaded.
+pub fn compose_portrait_layers(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut query: Query<(Entity, &PendingLayerComposition, &mut ImageNode)>,
+) {
+    for (entity, pending, mut image_node) in &mut query {
+        // Check if ALL layer images + mask are loaded
+        let all_loaded = pending
+            .layer_handles
+            .iter()
+            .all(|h| images.get(h).is_some())
+            && pending
+                .mask_handle
+                .as_ref()
+                .map_or(true, |h| images.get(h).is_some());
+
+        if !all_loaded {
+            continue;
+        }
+
+        const TARGET_WIDTH: u32 = 112;
+        const TARGET_HEIGHT: u32 = 130;
+
+        // Start with a transparent base
+        let mut composed = vec![0u8; (TARGET_WIDTH * TARGET_HEIGHT * 4) as usize];
+
+        // Composite each layer (bottom to top: bust, face, clothes, hair)
+        for handle in &pending.layer_handles {
+            let layer_img = images.get(handle).unwrap();
+            let Some(layer_data) = &layer_img.data else {
+                continue;
+            };
+
+            let src_w = layer_img.texture_descriptor.size.width;
+            let src_h = layer_img.texture_descriptor.size.height;
+
+            // Resize layer to target size if needed
+            let resized = if src_w != TARGET_WIDTH || src_h != TARGET_HEIGHT {
+                resize_image_nearest_neighbor(layer_data, src_w, src_h, TARGET_WIDTH, TARGET_HEIGHT)
+            } else {
+                layer_data.clone()
+            };
+
+            // Alpha composite: layer over composed (premultiplied-like blending)
+            for (dst_chunk, src_chunk) in composed.chunks_exact_mut(4).zip(resized.chunks_exact(4))
+            {
+                let src_a = src_chunk[3] as f32 / 255.0;
+                if src_a < 0.001 {
+                    continue; // fully transparent pixel, skip
+                }
+
+                let dst_a = dst_chunk[3] as f32 / 255.0;
+                let out_a = src_a + dst_a * (1.0 - src_a);
+
+                if out_a > 0.001 {
+                    for c in 0..3 {
+                        let src_c = src_chunk[c] as f32 / 255.0;
+                        let dst_c = dst_chunk[c] as f32 / 255.0;
+                        let out_c = (src_c * src_a + dst_c * dst_a * (1.0 - src_a)) / out_a;
+                        dst_chunk[c] = (out_c * 255.0).min(255.0) as u8;
+                    }
+                    dst_chunk[3] = (out_a * 255.0).min(255.0) as u8;
+                }
+            }
+        }
+
+        // Apply hex mask
+        if let Some(ref mask_handle) = pending.mask_handle
+            && let Some(mask_img) = images.get(mask_handle)
+        {
+            if let Some(mask_data) = &mask_img.data {
+                let mask_w = mask_img.texture_descriptor.size.width;
+                let mask_h = mask_img.texture_descriptor.size.height;
+
+                let mask_resized = if mask_w != TARGET_WIDTH || mask_h != TARGET_HEIGHT {
+                    resize_image_nearest_neighbor(
+                        mask_data,
+                        mask_w,
+                        mask_h,
+                        TARGET_WIDTH,
+                        TARGET_HEIGHT,
+                    )
+                } else {
+                    mask_data.clone()
+                };
+
+                for (composed_chunk, mask_chunk) in composed
+                    .chunks_exact_mut(4)
+                    .zip(mask_resized.chunks_exact(4))
+                {
+                    let mask_alpha = mask_chunk[3] as f32 / 255.0;
+                    let current_alpha = composed_chunk[3] as f32 / 255.0;
+                    composed_chunk[3] = (current_alpha * mask_alpha * 255.0) as u8;
+                }
+            }
+        }
+
+        // Create the final image
+        let composed_image = Image::new(
+            Extent3d {
+                width: TARGET_WIDTH,
+                height: TARGET_HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            composed,
+            bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+            Default::default(),
+        );
+
+        let composed_handle = images.add(composed_image);
+        image_node.image = composed_handle;
+        image_node.color = Color::WHITE; // Make visible
+
+        info!("✓ Composed lord portrait layers + hex mask");
+
+        commands.entity(entity).remove::<PendingLayerComposition>();
+    }
+}
 
 /// Resize an RGBA image using nearest neighbor interpolation
 fn resize_image_nearest_neighbor(

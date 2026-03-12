@@ -6,11 +6,12 @@ use crate::camera::MainCamera;
 use crate::grid::resources::SelectedHexes;
 use crate::state::resources::{UnitsCache, UnitsDataCache};
 use crate::states::AppState;
+use crate::ui::components::PendingLayerComposition;
 use crate::ui::resources::{
     MapUnitsPanelMode, MapUnitsPanelState, UnitSelectionState, VisibleUnitsInRange,
 };
-use shared::grid::{GridCell, GridConfig};
 use shared::ProfessionEnum;
+use shared::grid::{GridCell, GridConfig};
 
 // ─── Marker components ───────────────────────────────────────
 
@@ -185,10 +186,7 @@ pub fn collect_visible_units(
     mut visible_units: ResMut<VisibleUnitsInRange>,
 ) {
     // Only recalculate when inputs change
-    if !selected_hexes.is_changed()
-        && !units_cache.is_changed()
-        && !panel_state.is_changed()
-    {
+    if !selected_hexes.is_changed() && !units_cache.is_changed() && !panel_state.is_changed() {
         return;
     }
 
@@ -297,25 +295,69 @@ pub fn update_map_units_list(
             ))
             .with_children(|parent| {
                 // Unit portrait (small thumbnail)
-                let avatar_path = unit_data
-                    .avatar_url
-                    .as_deref()
-                    .unwrap_or("ui/icons/unit_placeholder.png");
-                parent.spawn((
-                    ImageNode {
-                        image: asset_server.load(avatar_path.to_string()),
-                        ..default()
-                    },
-                    Node {
-                        width: Val::Px(28.0),
-                        height: Val::Px(28.0),
-                        ..default()
-                    },
-                    Pickable {
-                        should_block_lower: false,
-                        is_hoverable: false,
-                    },
-                ));
+                // Unit portrait (small thumbnail)
+                if let Some([bust, face, clothes, hair]) = unit_data.parse_portrait_layers() {
+                    // Lord: compose 4 layers
+                    let layer_handles = [
+                        asset_server.load(format!(
+                            "sprites/character/layers/bust/bust_{:02}.png",
+                            bust + 1
+                        )),
+                        asset_server.load(format!(
+                            "sprites/character/layers/face/face_{:02}.png",
+                            face + 1
+                        )),
+                        asset_server.load(format!(
+                            "sprites/character/layers/clothes/clothes_{:02}.png",
+                            clothes + 1
+                        )),
+                        asset_server.load(format!(
+                            "sprites/character/layers/hair/hair_{:02}.png",
+                            hair + 1
+                        )),
+                    ];
+                    parent.spawn((
+                        ImageNode {
+                            image: asset_server.load("ui/icons/unit_placeholder.png"),
+                            color: Color::srgba(1.0, 1.0, 1.0, 0.0),
+                            ..default()
+                        },
+                        Node {
+                            width: Val::Px(28.0),
+                            height: Val::Px(28.0),
+                            ..default()
+                        },
+                        PendingLayerComposition {
+                            layer_handles,
+                            mask_handle: None, // pas de hex mask pour les thumbnails
+                        },
+                        Pickable {
+                            should_block_lower: false,
+                            is_hoverable: false,
+                        },
+                    ));
+                } else {
+                    // NPC: single avatar
+                    let avatar_path = unit_data
+                        .avatar_url
+                        .as_deref()
+                        .unwrap_or("ui/icons/unit_placeholder.png");
+                    parent.spawn((
+                        ImageNode {
+                            image: asset_server.load(avatar_path.to_string()),
+                            ..default()
+                        },
+                        Node {
+                            width: Val::Px(28.0),
+                            height: Val::Px(28.0),
+                            ..default()
+                        },
+                        Pickable {
+                            should_block_lower: false,
+                            is_hoverable: false,
+                        },
+                    ));
+                }
                 // Profession color dot
                 parent.spawn((
                     Node {
@@ -380,8 +422,7 @@ pub fn handle_map_unit_list_click(
         }
         let ctrl =
             keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
-        let shift =
-            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
         if ctrl {
             unit_selection.toggle(item.unit_id);

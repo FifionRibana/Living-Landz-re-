@@ -9,8 +9,7 @@ use crate::{
     state::resources::{UnitsCache, UnitsDataCache},
     ui::{
         components::{
-            ExteriorSlotContainer, InteriorSlotContainer, PendingHexMask, SlotBorderOverlay,
-            SlotIndicator, SlotState, SlotUnitPortrait, SlotUnitSprite,
+            ExteriorSlotContainer, InteriorSlotContainer, PendingHexMask, PendingLayerComposition, SlotBorderOverlay, SlotIndicator, SlotState, SlotUnitPortrait, SlotUnitSprite
         },
         resources::{CellState, DragInfo, DragState, UnitSelectionState},
         systems::panels::components::CellViewPanel,
@@ -396,18 +395,13 @@ pub fn update_unit_portraits(
             pending_spawns.insert(unit_id);
 
             // Get unit data to load the correct portrait
-            let portrait_path = units_data_cache
-                .get_unit(unit_id)
-                .and_then(|unit_data| unit_data.avatar_url.clone())
-                .unwrap_or_else(|| "ui/icons/unit_placeholder.png".to_string());
+            let unit_data = units_data_cache.get_unit(unit_id);
+            let layers = unit_data.and_then(|u| u.parse_portrait_layers());
 
             // Load hex mask once (cached in Local)
             if hex_mask_handle.is_none() {
                 *hex_mask_handle = Some(asset_server.load("ui/ui_hex_mask.png"));
             }
-
-            // Load the portrait image
-            let portrait_handle: Handle<Image> = asset_server.load(portrait_path);
             let mask_handle = hex_mask_handle.clone().unwrap();
 
             commands
@@ -435,30 +429,77 @@ pub fn update_unit_portraits(
                         ))
                         .with_children(|portrait| {
                             // 1. Portrait (will be masked with hex shape)
-                            portrait.spawn((
-                                Node {
-                                    width: Val::Percent(100.),
-                                    height: Val::Percent(100.),
-                                    ..default()
-                                },
-                                ImageNode {
-                                    image: portrait_handle.clone(),
-                                    ..default()
-                                },
-                                SlotUnitSprite {
-                                    unit_id,
-                                    slot_position: slot_indicator.position,
-                                },
-                                PendingHexMask {
-                                    portrait_handle,
-                                    mask_handle,
-                                },
-                                Pickable::IGNORE,
-                                // Pickable {
-                                //     should_block_lower: false,
-                                //     is_hoverable: true,
-                                // },
-                            ));
+                            if let Some([bust, face, clothes, hair]) = layers {
+                                // LORD — composite 4 layers
+                                let layer_handles = [
+                                    asset_server.load(format!(
+                                        "sprites/character/layers/bust/bust_{:02}.png",
+                                        bust + 1
+                                    )),
+                                    asset_server.load(format!(
+                                        "sprites/character/layers/face/face_{:02}.png",
+                                        face + 1
+                                    )),
+                                    asset_server.load(format!(
+                                        "sprites/character/layers/clothes/clothes_{:02}.png",
+                                        clothes + 1
+                                    )),
+                                    asset_server.load(format!(
+                                        "sprites/character/layers/hair/hair_{:02}.png",
+                                        hair + 1
+                                    )),
+                                ];
+
+                                portrait.spawn((
+                                    Node {
+                                        width: Val::Percent(100.),
+                                        height: Val::Percent(100.),
+                                        ..default()
+                                    },
+                                    ImageNode {
+                                        image: mask_handle.clone(),
+                                        color: Color::srgba(1.0, 1.0, 1.0, 0.0), // invisible until composed
+                                        ..default()
+                                    },
+                                    SlotUnitSprite {
+                                        unit_id,
+                                        slot_position: slot_indicator.position,
+                                    },
+                                    PendingLayerComposition {
+                                        layer_handles,
+                                        mask_handle: Some(mask_handle.clone()),
+                                    },
+                                    Pickable::IGNORE,
+                                ));
+                            } else {
+                                // NPC — single avatar_url
+                                let portrait_path = unit_data
+                                    .and_then(|u| u.avatar_url.clone())
+                                    .unwrap_or_else(|| "ui/icons/unit_placeholder.png".to_string());
+                                let portrait_handle: Handle<Image> =
+                                    asset_server.load(portrait_path);
+
+                                portrait.spawn((
+                                    Node {
+                                        width: Val::Percent(100.),
+                                        height: Val::Percent(100.),
+                                        ..default()
+                                    },
+                                    ImageNode {
+                                        image: portrait_handle.clone(),
+                                        ..default()
+                                    },
+                                    SlotUnitSprite {
+                                        unit_id,
+                                        slot_position: slot_indicator.position,
+                                    },
+                                    PendingHexMask {
+                                        portrait_handle,
+                                        mask_handle: mask_handle.clone(),
+                                    },
+                                    Pickable::IGNORE,
+                                ));
+                            }
 
                             // 2. Border overlay (hex _empty sprite on top of portrait)
                             let border_sprite_path = slot_indicator.state.get_sprite_path(true); // true = occupied
@@ -780,8 +821,7 @@ fn on_slot_click(
 
     info!("unit id {}", unit_id);
 
-    let ctrl =
-        keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+    let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
 
     if ctrl {
         unit_selection.toggle(unit_id);
