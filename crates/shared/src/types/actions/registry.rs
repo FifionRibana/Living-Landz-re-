@@ -1,5 +1,5 @@
+use super::context::{ActionEntry, ActionViewContext, GameDataRef, UIActionContext};
 use crate::{ActionModeEnum, BuildingTypeEnum, ProfessionEnum};
-use super::context::{UIActionContext, ActionEntry, ActionViewContext, GameDataRef};
 
 impl ActionModeEnum {
     /// Returns the list of actions available for this mode given the current context.
@@ -148,18 +148,16 @@ fn constructible_buildings(
     for (bt_enum, slug) in buildings {
         let bt_id = bt_enum.to_id() as i32;
         // Use translated name from DB; fallback to slug
-        let name = gd.item_names
+        let name = gd
+            .item_names
             .get(&(-(bt_id))) // building names won't be in item_names
             .cloned()
             .unwrap_or_else(|| bt_enum.to_name_lowercase().to_string());
 
-        let mut entry = ActionEntry::new(
-            &format!("build_{}", slug),
-            &name,
-        )
-        .with_description(&format!("Construire un(e) {}", name))
-        .with_icon("ui/icons/village.png")
-        .with_duration(10);
+        let mut entry = ActionEntry::new(&format!("build_{}", slug), &name)
+            .with_description(&format!("Construire un(e) {}", name))
+            .with_icon("ui/icons/village.png")
+            .with_duration(10);
 
         // Check if player has enough resources
         let costs = gd.building_costs(bt_id);
@@ -183,10 +181,7 @@ fn constructible_buildings(
 
 // ─── Production ─────────────────────────────────────────────
 
-fn production_actions(
-    ctx: &UIActionContext,
-    game_data: Option<&GameDataRef>,
-) -> Vec<ActionEntry> {
+fn production_actions(ctx: &UIActionContext, game_data: Option<&GameDataRef>) -> Vec<ActionEntry> {
     if !ctx.is_cell_view() {
         return vec![];
     }
@@ -244,9 +239,8 @@ fn training_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
 fn trainable_professions(from: &ProfessionEnum) -> Vec<ProfessionEnum> {
     use ProfessionEnum::*;
     match from {
-        Unknown => vec![
-            Farmer, Lumberjack, Miner, Fisherman, Hunter,
-        ],
+        Settler => vec![Farmer, Lumberjack, Miner, Fisherman, Hunter, Blacksmith],
+        Unknown => vec![Settler],
         Farmer => vec![Baker, Cook, Brewer],
         Lumberjack => vec![Carpenter],
         Miner => vec![Blacksmith, Mason],
@@ -268,10 +262,7 @@ fn trainable_professions(from: &ProfessionEnum) -> Vec<ProfessionEnum> {
 // ─── Diplomacy ──────────────────────────────────────────────
 
 fn diplomacy_actions(ctx: &UIActionContext) -> Vec<ActionEntry> {
-    let has_diplomat = ctx.has_any_profession(&[
-        ProfessionEnum::Merchant,
-        ProfessionEnum::Scholar,
-    ]);
+    let has_diplomat = ctx.has_any_profession(&[ProfessionEnum::Merchant, ProfessionEnum::Scholar]);
 
     if !has_diplomat {
         return vec![];

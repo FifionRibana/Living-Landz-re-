@@ -378,3 +378,11 @@ pub struct OrganizationBadge;
 /// Texte du nom de l'organisation dans le badge
 #[derive(Component)]
 pub struct OrganizationBadgeText;
+
+/// Component for lord portraits: 4 layers to compose + hex mask to apply.
+/// The system `compose_portrait_layers` handles this async.
+#[derive(Component)]
+pub struct PendingLayerComposition {
+    pub layer_handles: [Handle<Image>; 4], // bust, face, clothes, hair
+    pub mask_handle: Option<Handle<Image>>,
+}

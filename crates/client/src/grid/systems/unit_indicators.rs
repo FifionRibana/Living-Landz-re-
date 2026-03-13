@@ -48,8 +48,8 @@ pub fn draw_unit_indicators(
             };
 
             // Dessiner plusieurs cercles pour créer une bordure épaisse
-            let outer_radius = if is_selected { 0.30 } else { 0.25 };
-            let inner_radius = if is_selected { 0.20 } else { 0.18 };
+            let outer_radius = if is_selected { 12.0 } else { 10.0 };
+            let inner_radius = if is_selected { 8.0 } else { 7.0 };
             let steps = 10;
 
             for s in 0..steps {
@@ -60,7 +60,7 @@ pub fn draw_unit_indicators(
 
             // Croix au centre pour le lord (pour mieux le distinguer)
             if is_lord {
-                let cross_size = 0.12;
+                let cross_size = 5.0;
                 let lord_color = Color::srgb(0.9, 0.75, 0.2);
                 gizmos.line_2d(
                     pos + Vec2::new(-cross_size, 0.0),

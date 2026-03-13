@@ -207,6 +207,8 @@ impl Plugin for UiPlugin {
                     systems::panels::update_slot_occupancy,
                     systems::panels::apply_hex_mask_to_portraits
                         .before(systems::panels::update_unit_portraits),
+                    systems::panels::compose_portrait_layers
+                        .before(systems::panels::update_unit_portraits),
                     systems::panels::sync_slot_hierarchy_on_relation_change,
                     systems::panels::auto_assign_unslotted_units
                         .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
@@ -259,6 +261,7 @@ impl Plugin for UiPlugin {
                 (
                     systems::collect_visible_units,
                     systems::update_map_units_list.after(systems::collect_visible_units),
+                    systems::panels::compose_portrait_layers.after(systems::collect_visible_units),
                     systems::handle_map_unit_list_click,
                     systems::handle_map_units_panel_toggle,
                     systems::update_map_units_panel_visibility

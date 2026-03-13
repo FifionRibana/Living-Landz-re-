@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::database::client::DatabaseTables;
+use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use crate::dev::DevConfig;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
@@ -385,10 +385,32 @@ impl ActionProcessor {
                                     action_id
                                 );
 
-                                // Notify the player that unit profession changed
+                                // Regenerate avatar for new profession
+                                let unit = self.db_tables.units.load_unit(unit_id).await.ok();
+                                let new_avatar_url = if let Some(ref u) = unit {
+                                    let avatar_url = PortraitGenerator::generate_portrait_url(
+                                        &u.gender,
+                                        u.portrait_variant_id.as_deref().unwrap_or("02m"),
+                                        target_profession,
+                                    );
+                                    // Update avatar in DB
+                                    let _ = sqlx::query(
+                                        "UPDATE units.units SET avatar_url = $1 WHERE id = $2",
+                                    )
+                                    .bind(&avatar_url)
+                                    .bind(unit_id as i64)
+                                    .execute(&self.db_tables.pool)
+                                    .await;
+                                    Some(avatar_url)
+                                } else {
+                                    None
+                                };
+
+                                // Notify the player
                                 let profession_msg = ServerMessage::UnitProfessionChanged {
                                     unit_id,
                                     new_profession: target_profession,
+                                    new_avatar_url,
                                 };
                                 self.send_message_to_player(action_info.player_id, profession_msg)
                                     .await;

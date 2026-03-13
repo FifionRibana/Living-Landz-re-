@@ -29,7 +29,7 @@ impl ActionModeEnum {
         use ProfessionEnum::*;
         match self {
             Self::RoadActionMode => &[
-                Unknown, Baker, Farmer, Warrior, Blacksmith, Carpenter, Miner,
+                Unknown, Settler, Baker, Farmer, Warrior, Blacksmith, Carpenter, Miner,
                 Merchant, Hunter, Healer, Scholar, Cook, Fisherman, Lumberjack,
                 Mason, Brewer,
             ],
@@ -38,7 +38,7 @@ impl ActionModeEnum {
                 Farmer, Baker, Cook, Brewer, Blacksmith, Carpenter, Lumberjack,
                 Mason, Fisherman, Miner,
             ],
-            Self::TrainingActionMode => &[Warrior, Scholar, Hunter],
+            Self::TrainingActionMode => &[Settler, Warrior, Scholar, Hunter],
             Self::DiplomacyActionMode => &[Merchant, Scholar],
         }
     }
