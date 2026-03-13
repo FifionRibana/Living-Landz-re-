@@ -9,16 +9,23 @@ pub fn handle_carousel_scroll(
     mut mouse_wheel_events: MessageReader<bevy::input::mouse::MouseWheel>,
     mut query: Query<&mut Carousel>,
 ) {
-    let Ok(mut carousel) = query.single_mut() else {
-        return;
-    };
-
     for event in mouse_wheel_events.read() {
-        // We adjust sensibility here (20px per mouse wheel tick)
-        carousel.target_scroll += event.x * 40.0;
-        carousel.snap_timer = 0.0; // Reset du timer d'aimantage
-        // carousel.scroll_offset += event.x * 20.0;
-        // info!("scroll event: {}", carousel.scroll_offset);
+        // Use both axes: x for trackpad, y for mouse wheel
+        // let delta = if event.x.abs() > event.y.abs() {
+        //     event.x
+        // } else {
+        //     event.y
+        // };
+        let delta = event.x;
+
+        if delta.abs() < 0.001 {
+            continue;
+        }
+
+        for mut carousel in query.iter_mut() {
+            carousel.target_scroll += delta * 40.0;
+            carousel.snap_timer = 0.0;
+        }
     }
 }
 
@@ -45,109 +52,113 @@ pub fn update_carousel_items(
     mut materials: ResMut<Assets<FrostedGlassMaterial>>,
     time: Res<Time>,
 ) {
-    let Ok((mut carousel, computed_node)) = carousel_query.single_mut() else {
-        return;
-    };
-
-    // --- ÉTAPE DE SMOOTHING ---
-    // On fait glisser current_scroll vers target_scroll
     let dt = time.delta_secs();
-    carousel.current_scroll = carousel
-        .current_scroll
-        .lerp(carousel.target_scroll, dt * carousel.lerp_speed);
 
-    let container_width = computed_node.size().x;
-    if container_width <= 0.0 {
-        return;
-    }
+    for (mut carousel, computed_node) in carousel_query.iter_mut() {
+        // --- ÉTAPE DE SMOOTHING ---
+        // On fait glisser current_scroll vers target_scroll
 
-    let slot_width = carousel.item_width + carousel.spacing;
-    let total_content_width = slot_width * carousel.total_items as f32;
-    let teleport_boundary = total_content_width / 2.0;
-    let centering_offset = (container_width / 2.0) - (carousel.item_width / 2.0);
+        carousel.current_scroll = carousel
+            .current_scroll
+            .lerp(carousel.target_scroll, dt * carousel.lerp_speed);
 
-    let container_limit = container_width * 0.45;
-    let feather = 50.0;
-
-    if carousel.target_scroll.abs() > total_content_width {
-        carousel.target_scroll %= total_content_width;
-        carousel.current_scroll %= total_content_width;
-    }
-
-    for (entity, item, mut node, material_handle, children) in items_query.iter_mut() {
-        // --- LOGIQUE DE POSITION ---
-        let base_x = item.index as f32 * slot_width;
-        let mut x_pos = (base_x + carousel.current_scroll) % total_content_width;
-        if x_pos < 0.0 {
-            x_pos += total_content_width;
-        }
-        if x_pos > teleport_boundary {
-            x_pos -= total_content_width;
+        let container_width = computed_node.size().x;
+        if container_width <= 0.0 {
+            continue;
         }
 
-        node.left = Val::Px(x_pos + centering_offset);
-        node.position_type = PositionType::Absolute;
+        let slot_width = carousel.item_width + carousel.spacing;
+        let total_content_width = slot_width * carousel.total_items as f32;
+        let teleport_boundary = total_content_width / 2.0;
+        let centering_offset = (container_width / 2.0) - (carousel.item_width / 2.0);
 
-        // --- LOGIQUE VISUELLE ---
-        if let Some(material) = materials.get_mut(material_handle) {
-            // 1. Position brute pour le shader (effet Wipe)
-            material.uniforms.edge_fade = x_pos;
+        let container_limit = container_width * 0.45;
+        let feather = 50.0;
 
-            // 2. CALCUL DE VISIBILITÉ CORRIGÉ
-            // On veut que la carte soit 100% opaque pendant presque tout son trajet.
-            // Elle ne commence à "fader" (alpha global) que lorsqu'elle approche
-            // du moment où elle va disparaître (teleport_boundary).
+        if carousel.target_scroll.abs() > total_content_width {
+            carousel.target_scroll %= total_content_width;
+            carousel.current_scroll %= total_content_width;
+        }
 
-            let dist_abs = x_pos.abs();
+        for (entity, item, mut node, material_handle, children) in items_query.iter_mut() {
+            if item.carousel_id != carousel.id {
+                continue;
+            }
 
-            // On commence à baisser l'alpha global uniquement 50 pixels avant la fin
-            let fade_start = teleport_boundary - carousel.item_width * 1.5; //feather * 2.0;
-            let fade_end = teleport_boundary;
+            // --- LOGIQUE DE POSITION ---
+            let base_x = item.index as f32 * slot_width;
+            let mut x_pos = (base_x + carousel.current_scroll) % total_content_width;
+            if x_pos < 0.0 {
+                x_pos += total_content_width;
+            }
+            if x_pos > teleport_boundary {
+                x_pos -= total_content_width;
+            }
 
-            let visibility = ((fade_end - dist_abs) / (fade_end - fade_start)).clamp(0.0, 1.0);
-            let children_visibility = ((fade_end - 2.0 * feather - dist_abs)
-                / (fade_end - 2.0 * feather - fade_start))
-                .clamp(0.0, 1.0);
+            node.left = Val::Px(x_pos + centering_offset);
+            node.position_type = PositionType::Absolute;
 
-            // On applique cette visibilité
-            material.uniforms.visibility = visibility;
+            // --- LOGIQUE VISUELLE ---
+            if let Some(material) = materials.get_mut(material_handle) {
+                // 1. Position brute pour le shader (effet Wipe)
+                material.uniforms.edge_fade = x_pos;
 
-            // // 2. Calcul de l'opacité globale (effet Fade)
-            // // On veut que la carte soit à 0.0 d'opacité à l'endroit précis de la téléportation
-            // let dist_abs = x_pos.abs();
+                // 2. CALCUL DE VISIBILITÉ CORRIGÉ
+                // On veut que la carte soit 100% opaque pendant presque tout son trajet.
+                // Elle ne commence à "fader" (alpha global) que lorsqu'elle approche
+                // du moment où elle va disparaître (teleport_boundary).
 
-            // // La visibilité commence à baisser à 70% du chemin vers le bord
-            // let fade_start = teleport_boundary * 0.7;
-            // let visibility =
-            //     ((teleport_boundary - dist_abs) / (teleport_boundary - fade_start)).clamp(0.0, 1.0);
+                let dist_abs = x_pos.abs();
 
-            // 3. Application au Verre (Uniforms)
-            // On multiplie les opacités de base par notre facteur de visibilité
-            // (Ici 0.3 et 0.85 sont tes valeurs de base du FrostedGlassConfig)
-            // material.uniforms.opacity_top = 0.3 * visibility;
-            // material.uniforms.opacity_bottom = 0.85 * visibility;
+                // On commence à baisser l'alpha global uniquement 50 pixels avant la fin
+                let fade_start = teleport_boundary - carousel.item_width * 1.5; //feather * 2.0;
+                let fade_end = teleport_boundary;
 
-            // material.uniforms.visibility = visibility;
+                let visibility = ((fade_end - dist_abs) / (fade_end - fade_start)).clamp(0.0, 1.0);
+                let children_visibility = ((fade_end - 2.0 * feather - dist_abs)
+                    / (fade_end - 2.0 * feather - fade_start))
+                    .clamp(0.0, 1.0);
 
-            // Mise à jour récursive des enfants avec CarouselAlpha
-            update_descendants_opacity(
-                entity,
-                children_visibility,
-                children_query,
-                &mut faders_query,
-            );
+                // On applique cette visibilité
+                material.uniforms.visibility = visibility;
 
-            // // 4. Application au Contenu (Texte, Icônes)
-            // if let Some(children) = children {
-            //     for child in children.iter() {
-            //         if let Ok(mut text_color) = text_query.get_mut(child) {
-            //             text_color.0.set_alpha(children_visibility);
-            //         }
-            //         // if let Ok(mut bg_color) = ui_color_query.get_mut(child) {
-            //         //     bg_color.0.set_alpha(visibility);
-            //         // }
-            //     }
-            // }
+                // // 2. Calcul de l'opacité globale (effet Fade)
+                // // On veut que la carte soit à 0.0 d'opacité à l'endroit précis de la téléportation
+                // let dist_abs = x_pos.abs();
+
+                // // La visibilité commence à baisser à 70% du chemin vers le bord
+                // let fade_start = teleport_boundary * 0.7;
+                // let visibility =
+                //     ((teleport_boundary - dist_abs) / (teleport_boundary - fade_start)).clamp(0.0, 1.0);
+
+                // 3. Application au Verre (Uniforms)
+                // On multiplie les opacités de base par notre facteur de visibilité
+                // (Ici 0.3 et 0.85 sont tes valeurs de base du FrostedGlassConfig)
+                // material.uniforms.opacity_top = 0.3 * visibility;
+                // material.uniforms.opacity_bottom = 0.85 * visibility;
+
+                // material.uniforms.visibility = visibility;
+
+                // Mise à jour récursive des enfants avec CarouselAlpha
+                update_descendants_opacity(
+                    entity,
+                    children_visibility,
+                    children_query,
+                    &mut faders_query,
+                );
+
+                // // 4. Application au Contenu (Texte, Icônes)
+                // if let Some(children) = children {
+                //     for child in children.iter() {
+                //         if let Ok(mut text_color) = text_query.get_mut(child) {
+                //             text_color.0.set_alpha(children_visibility);
+                //         }
+                //         // if let Ok(mut bg_color) = ui_color_query.get_mut(child) {
+                //         //     bg_color.0.set_alpha(visibility);
+                //         // }
+                //     }
+                // }
+            }
         }
     }
 }

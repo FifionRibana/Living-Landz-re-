@@ -1,9 +1,13 @@
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
+use crate::camera::resources::SceneRenderTarget;
 use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo};
 use crate::states::AppState;
+use crate::ui::carousel::components::{Carousel, CarouselAlpha, CarouselItem};
+use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::resources::{ActionContextState, UIState};
 
 // ─── Markers ────────────────────────────────────────────────
@@ -35,11 +39,78 @@ pub struct ActionPanelSubtitle;
 #[derive(Component)]
 pub struct ActionPanelEmpty;
 
+// ─── Arguments  ─────────────────────────────────────────────
+type TitleQuery<'w, 's> = Query<
+    'w,
+    's,
+    &'static mut Text,
+    (
+        With<ActionPanelTitle>,
+        Without<ActionPanelSubtitle>,
+        Without<ActionPanelEmpty>,
+    ),
+>;
+
+type SubtitleQuery<'w, 's> = Query<
+    'w,
+    's,
+    &'static mut Text,
+    (
+        With<ActionPanelSubtitle>,
+        Without<ActionPanelTitle>,
+        Without<ActionPanelEmpty>,
+    ),
+>;
+
+type EmptyQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Text, &'static mut Visibility),
+    (
+        With<ActionPanelEmpty>,
+        Without<ActionPanelTitle>,
+        Without<ActionPanelSubtitle>,
+    ),
+>;
+
+type ListVisQuery<'w, 's> =
+    Query<'w, 's, &'static mut Visibility, (With<ActionPanelList>, Without<ActionPanelEmpty>)>;
+
+// ─── Arguments  ─────────────────────────────────────────────
+
+/// Queries for the panel's text/visibility elements (header, subtitle, empty state)
+#[derive(SystemParam)]
+pub struct ActionPanelQueries<'w, 's> {
+    pub list: Query<'w, 's, Entity, With<ActionPanelList>>,
+    pub entries: Query<'w, 's, Entity, With<ActionPanelEntry>>,
+    pub carousels: Query<'w, 's, Entity, With<Carousel>>,
+    pub title: TitleQuery<'w, 's>,
+    pub subtitle: SubtitleQuery<'w, 's>,
+    pub empty: EmptyQuery<'w, 's>,
+    pub list_vis: ListVisQuery<'w, 's>,
+}
+
+/// Shared resources needed to build frosted glass cards
+#[derive(SystemParam)]
+pub struct CardResources<'w> {
+    pub asset_server: Res<'w, AssetServer>,
+    pub render_target: Res<'w, SceneRenderTarget>,
+    pub materials: ResMut<'w, Assets<FrostedGlassMaterial>>,
+}
+
+/// Game data needed for action resolution
+#[derive(SystemParam)]
+pub struct ActionDataResources<'w> {
+    pub game_data_cache: Res<'w, GameDataCache>,
+    pub inventory_cache: Res<'w, InventoryCache>,
+    pub player_info: Res<'w, PlayerInfo>,
+}
+
 // ─── Setup ──────────────────────────────────────────────────
 
 /// Spawn the action panel (initially hidden). Lives for the InGame state.
 pub fn setup_action_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
+    let paper_panel_image: Handle<Image> = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
             left: 42.,
@@ -54,11 +125,6 @@ pub fn setup_action_panel(mut commands: Commands, asset_server: Res<AssetServer>
 
     commands
         .spawn((
-            ImageNode {
-                image: paper_panel_image,
-                image_mode: NodeImageMode::Sliced(paper_panel_slicer),
-                ..default()
-            },
             Node {
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(10.0),
@@ -131,12 +197,9 @@ pub fn setup_action_panel(mut commands: Commands, asset_server: Res<AssetServer>
                 Node {
                     width: Val::Percent(100.0),
                     flex_grow: 1.0,
-                    flex_direction: FlexDirection::Row,
-                    flex_wrap: FlexWrap::Wrap,
-                    column_gap: Val::Px(8.0),
-                    row_gap: Val::Px(8.0),
-                    overflow: Overflow::scroll_y(),
-                    align_content: AlignContent::FlexStart,
+                    overflow: Overflow::clip(),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
                     ..default()
                 },
                 Visibility::Hidden,
@@ -172,25 +235,20 @@ pub fn update_action_panel_visibility(
 /// Rebuild the action list when mode or context changes.
 pub fn update_action_panel_content(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
     ui_state: Res<UIState>,
     action_context: Res<ActionContextState>,
-    list_query: Query<Entity, With<ActionPanelList>>,
-    existing_entries: Query<Entity, With<ActionPanelEntry>>,
-    mut title_query: Query<&mut Text, (With<ActionPanelTitle>, Without<ActionPanelSubtitle>, Without<ActionPanelEmpty>)>,
-    mut subtitle_query: Query<&mut Text, (With<ActionPanelSubtitle>, Without<ActionPanelTitle>, Without<ActionPanelEmpty>)>,
-    mut empty_query: Query<(&mut Text, &mut Visibility), (With<ActionPanelEmpty>, Without<ActionPanelTitle>, Without<ActionPanelSubtitle>)>,
-    mut list_vis_query: Query<&mut Visibility, (With<ActionPanelList>, Without<ActionPanelEmpty>)>,
-    game_data_cache: Res<GameDataCache>,
-    inventory_cache: Res<InventoryCache>,
-    player_info: Res<PlayerInfo>,
+    mut panel: ActionPanelQueries,
+    mut cards: CardResources,
+    data: ActionDataResources,
+    windows: Query<&Window>,
 ) {
-    if !ui_state.is_changed() && !action_context.is_changed() && !inventory_cache.is_changed() {
+    if !ui_state.is_changed() && !action_context.is_changed() && !data.inventory_cache.is_changed()
+    {
         return;
     }
 
     // Despawn old entries
-    for entity in &existing_entries {
+    for entity in &panel.entries {
         commands.entity(entity).despawn();
     }
 
@@ -203,35 +261,35 @@ pub fn update_action_panel_content(
     };
 
     // Update title
-    for mut text in &mut title_query {
+    for mut text in &mut panel.title {
         **text = mode.to_name().to_string();
     }
 
     // Build GameDataRef from cache for DB-driven actions
-    let game_data_ref = if game_data_cache.loaded {
-        let item_names: std::collections::HashMap<i32, String> = game_data_cache
+    let game_data_ref = if data.game_data_cache.loaded {
+        let item_names: std::collections::HashMap<i32, String> = data
+            .game_data_cache
             .items
             .iter()
-            .map(|i| (i.id, game_data_cache.item_name(i.id, 1)))
+            .map(|i| (i.id, data.game_data_cache.item_name(i.id, 1)))
             .collect();
 
         // Build inventory summary from cache
-        let inventory: std::collections::HashMap<i32, i32> = player_info
+        let inventory: std::collections::HashMap<i32, i32> = data
+            .player_info
             .lord
             .as_ref()
-            .and_then(|lord| inventory_cache.get_inventory(lord.id))
-            .map(|items| {
-                items.iter().map(|i| (i.item_id, i.quantity)).collect()
-            })
+            .and_then(|lord| data.inventory_cache.get_inventory(lord.id))
+            .map(|items| items.iter().map(|i| (i.item_id, i.quantity)).collect())
             .unwrap_or_default();
 
         Some(GameDataRef {
-            items: &game_data_cache.items,
-            recipes: &game_data_cache.recipes,
-            construction_costs: &game_data_cache.construction_costs,
+            items: &data.game_data_cache.items,
+            recipes: &data.game_data_cache.recipes,
+            construction_costs: &data.game_data_cache.construction_costs,
             item_names,
             inventory,
-            dev_mode: game_data_cache.dev_mode,
+            dev_mode: data.game_data_cache.dev_mode,
         })
     } else {
         None
@@ -241,19 +299,24 @@ pub fn update_action_panel_content(
     let actions = mode.available_actions(ctx, game_data_ref.as_ref());
 
     // Update subtitle with context info
-    for mut text in &mut subtitle_query {
+    for mut text in &mut panel.subtitle {
         let building_name = ctx
             .building
             .map(|b| b.to_name_lowercase())
             .unwrap_or("terrain nu");
         let count = actions.len();
-        **text = format!("{} — {} action{}", building_name, count, if count > 1 { "s" } else { "" });
+        **text = format!(
+            "{} — {} action{}",
+            building_name,
+            count,
+            if count > 1 { "s" } else { "" }
+        );
     }
 
     // Show empty or list
     let has_actions = !actions.is_empty();
 
-    for (mut text, mut vis) in &mut empty_query {
+    for (mut text, mut vis) in &mut panel.empty {
         *vis = if has_actions {
             Visibility::Hidden
         } else {
@@ -262,7 +325,7 @@ pub fn update_action_panel_content(
         };
     }
 
-    for mut vis in &mut list_vis_query {
+    for mut vis in &mut panel.list_vis {
         *vis = if has_actions {
             Visibility::Visible
         } else {
@@ -271,11 +334,11 @@ pub fn update_action_panel_content(
     }
 
     // Spawn entries
-    let Ok(list_entity) = list_query.single() else {
+    let Ok(list_entity) = panel.list.single() else {
         return;
     };
 
-    let paper_btn_image = asset_server.load("ui/ui_paper_panel_md.png");
+    let paper_btn_image: Handle<Image> = cards.asset_server.load("ui/ui_paper_panel_md.png");
     let paper_btn_slicer = TextureSlicer {
         border: BorderRect::all(20.0),
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
@@ -283,225 +346,261 @@ pub fn update_action_panel_content(
         max_corner_scale: 1.0,
     };
 
-    for action in actions {
-        // Colors based on executability
-        let (name_color, desc_color, cost_color, output_color, opacity) = if action.executable {
-            (
-                Color::srgb_u8(67, 60, 37),
-                Color::srgb_u8(120, 110, 90),
-                Color::srgb_u8(160, 100, 60),
-                Color::srgb_u8(60, 130, 80),
-                1.0_f32,
-            )
-        } else {
-            (
-                Color::srgba_u8(67, 60, 37, 100),
-                Color::srgba_u8(120, 110, 90, 80),
-                Color::srgba_u8(200, 60, 60, 120),
-                Color::srgba_u8(60, 130, 80, 80),
-                0.5,
-            )
-        };
+    // Despawn existing carousel if any (from previous mode)
+    for entity in &panel.carousels {
+        commands.entity(entity).despawn();
+    }
+    // Constants
+    const CARD_WIDTH: f32 = 150.0;
+    const CARD_HEIGHT: f32 = 160.0;
+    const CARD_GAP: f32 = 20.0;
 
-        let entry_entity = commands
+    // Determine layout mode
+    let panel_width = windows
+        .single()
+        .map(|w| w.width() - 100.0) // rough panel width
+        .unwrap_or(600.0);
+    let max_visible = ((panel_width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).floor() as usize;
+    let use_carousel = actions.len() > max_visible && actions.len() > 3;
+
+    // Unique ID for this carousel instance
+    let carousel_id = 1u32; // Messages uses 0
+
+    if use_carousel {
+        // ── CAROUSEL MODE ──
+        let carousel_entity = commands
             .spawn((
-                Button,
-                ImageNode {
-                    image: paper_btn_image.clone(),
-                    image_mode: NodeImageMode::Sliced(paper_btn_slicer.clone()),
-                    color: Color::srgba(1.0, 1.0, 1.0, opacity),
-                    ..default()
-                },
                 Node {
-                    width: Val::Px(180.0),
-                    min_height: Val::Px(60.0),
-                    padding: UiRect::all(Val::Px(8.0)),
-                    flex_direction: FlexDirection::Row,
+                    width: Val::Percent(100.0),
+                    height: Val::Px(CARD_HEIGHT + 20.0),
+                    overflow: Overflow::clip(),
+                    justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
-                    column_gap: Val::Px(8.0),
                     ..default()
                 },
-                Pickable {
-                    should_block_lower: true,
-                    is_hoverable: true,
-                },
-                ActionPanelEntry {
-                    action_id: action.id.clone(),
-                    executable: action.executable,
+                Carousel {
+                    id: carousel_id,
+                    item_width: CARD_WIDTH,
+                    spacing: CARD_GAP,
+                    total_items: actions.len(),
+                    current_scroll: 0.0,
+                    target_scroll: 0.0,
+                    lerp_speed: 10.0,
+                    snap_timer: 0.0,
                 },
             ))
-            .with_children(|parent| {
-                // Icon
-                if !action.icon.is_empty() {
-                    parent.spawn((
-                        ImageNode {
-                            image: asset_server.load(&action.icon),
-                            ..default()
-                        },
-                        Node {
-                            width: Val::Px(28.0),
-                            height: Val::Px(28.0),
-                            ..default()
-                        },
-                        Pickable {
-                            should_block_lower: false,
-                            is_hoverable: false,
-                        },
-                    ));
-                }
+            .id();
 
-                // Info column
-                parent
-                    .spawn((
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            flex_grow: 1.0,
-                            row_gap: Val::Px(2.0),
-                            ..default()
-                        },
-                        Pickable {
-                            should_block_lower: false,
-                            is_hoverable: false,
-                        },
-                    ))
-                    .with_children(|col| {
-                        // Name
-                        col.spawn((
-                            Text::new(&action.name),
-                            TextFont {
-                                font_size: 12.0,
-                                ..default()
-                            },
-                            TextColor(name_color),
-                            Pickable {
-                                should_block_lower: false,
-                                is_hoverable: false,
-                            },
-                        ));
+        for (i, action) in actions.iter().enumerate() {
+            let card = spawn_action_card(
+                &mut commands,
+                &cards.asset_server,
+                &mut cards.materials,
+                &cards.render_target,
+                action,
+                CARD_WIDTH,
+                CARD_HEIGHT,
+            );
+            commands.entity(card).insert((CarouselItem {
+                carousel_id,
+                index: i,
+            },));
+            commands.entity(carousel_entity).add_child(card);
+        }
 
-                        // Description
-                        if !action.description.is_empty() {
-                            col.spawn((
-                                Text::new(&action.description),
-                                TextFont {
-                                    font_size: 10.0,
-                                    ..default()
-                                },
-                                TextColor(desc_color),
-                                Pickable {
-                                    should_block_lower: false,
-                                    is_hoverable: false,
-                                },
-                            ));
-                        }
-
-                        // Costs row
-                        if !action.costs.is_empty() {
-                            col.spawn((
-                                Node {
-                                    flex_direction: FlexDirection::Row,
-                                    column_gap: Val::Px(6.0),
-                                    flex_wrap: FlexWrap::Wrap,
-                                    ..default()
-                                },
-                                Pickable {
-                                    should_block_lower: false,
-                                    is_hoverable: false,
-                                },
-                            ))
-                            .with_children(|costs_row| {
-                                costs_row.spawn((
-                                    Text::new("▼ "),
-                                    TextFont {
-                                        font_size: 9.0,
-                                        ..default()
-                                    },
-                                    TextColor(cost_color),
-                                    Pickable {
-                                        should_block_lower: false,
-                                        is_hoverable: false,
-                                    },
-                                ));
-                                for cost in &action.costs {
-                                    costs_row.spawn((
-                                        Text::new(format!("{} ×{}", cost.name, cost.quantity)),
-                                        TextFont {
-                                            font_size: 9.0,
-                                            ..default()
-                                        },
-                                        TextColor(cost_color),
-                                        Pickable {
-                                            should_block_lower: false,
-                                            is_hoverable: false,
-                                        },
-                                    ));
-                                }
-                            });
-                        }
-
-                        // Outputs row
-                        if !action.outputs.is_empty() {
-                            col.spawn((
-                                Node {
-                                    flex_direction: FlexDirection::Row,
-                                    column_gap: Val::Px(6.0),
-                                    flex_wrap: FlexWrap::Wrap,
-                                    ..default()
-                                },
-                                Pickable {
-                                    should_block_lower: false,
-                                    is_hoverable: false,
-                                },
-                            ))
-                            .with_children(|outputs_row| {
-                                outputs_row.spawn((
-                                    Text::new("▲ "),
-                                    TextFont {
-                                        font_size: 9.0,
-                                        ..default()
-                                    },
-                                    TextColor(output_color),
-                                    Pickable {
-                                        should_block_lower: false,
-                                        is_hoverable: false,
-                                    },
-                                ));
-                                for output in &action.outputs {
-                                    outputs_row.spawn((
-                                        Text::new(format!("{} ×{}", output.name, output.quantity)),
-                                        TextFont {
-                                            font_size: 9.0,
-                                            ..default()
-                                        },
-                                        TextColor(output_color),
-                                        Pickable {
-                                            should_block_lower: false,
-                                            is_hoverable: false,
-                                        },
-                                    ));
-                                }
-                            });
-                        }
-
-                        // Duration
-                        col.spawn((
-                            Text::new(format!("{} tick{}", action.duration_ticks, if action.duration_ticks > 1 { "s" } else { "" })),
-                            TextFont {
-                                font_size: 9.0,
-                                ..default()
-                            },
-                            TextColor(Color::srgb_u8(100, 120, 100)),
-                            Pickable {
-                                should_block_lower: false,
-                                is_hoverable: false,
-                            },
-                        ));
-                    });
+        commands.entity(list_entity).add_child(carousel_entity);
+    } else {
+        // ── SIMPLE LAYOUT ──
+        // Flex-row, centered
+        let row = commands
+            .spawn(Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(CARD_GAP),
+                ..default()
             })
             .id();
 
-        commands.entity(list_entity).add_child(entry_entity);
+        for action in &actions {
+            let card = spawn_action_card(
+                &mut commands,
+                &cards.asset_server,
+                &mut cards.materials,
+                &cards.render_target,
+                action,
+                CARD_WIDTH,
+                CARD_HEIGHT,
+            );
+            commands.entity(row).add_child(card);
+        }
+
+        commands.entity(list_entity).add_child(row);
     }
+}
+
+fn spawn_action_card(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    materials: &mut Assets<FrostedGlassMaterial>,
+    render_target: &SceneRenderTarget,
+    action: &ActionEntry,
+    width: f32,
+    height: f32,
+) -> Entity {
+    let (name_color, desc_color, cost_color, output_color, card_opacity) = if action.executable {
+        (
+            Color::srgb_u8(67, 60, 37),
+            Color::srgb_u8(120, 110, 90),
+            Color::srgb_u8(160, 100, 60),
+            Color::srgb_u8(60, 130, 80),
+            1.0_f32,
+        )
+    } else {
+        (
+            Color::srgba_u8(67, 60, 37, 100),
+            Color::srgba_u8(120, 110, 90, 80),
+            Color::srgba_u8(200, 60, 60, 120),
+            Color::srgba_u8(60, 130, 80, 80),
+            0.4,
+        )
+    };
+
+    let material = materials.add(FrostedGlassMaterial::from(
+        FrostedGlassConfig::card()
+            .with_border_radius(10.0)
+            .with_scene_texture(render_target.0.clone()),
+    ));
+
+    let card = commands
+        .spawn((
+            Button,
+            MaterialNode(material),
+            Node {
+                width: Val::Px(width),
+                height: Val::Px(height),
+                padding: UiRect::all(Val::Px(10.0)),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::SpaceBetween,
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
+            BorderRadius::all(Val::Px(10.0)),
+            Pickable {
+                should_block_lower: true,
+                is_hoverable: true,
+            },
+            ActionPanelEntry {
+                action_id: action.id.clone(),
+                executable: action.executable,
+            },
+        ))
+        .with_children(|card| {
+            // ── Top section: Icon + Name ──
+            card.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(6.0),
+                ..default()
+            })
+            .with_children(|top| {
+                if !action.icon.is_empty() {
+                    top.spawn((
+                        ImageNode {
+                            image: asset_server.load(&action.icon),
+                            color: Color::srgba(1.0, 1.0, 1.0, card_opacity),
+                            ..default()
+                        },
+                        Node {
+                            width: Val::Px(22.0),
+                            height: Val::Px(22.0),
+                            ..default()
+                        },
+                        CarouselAlpha::new(card_opacity),
+                        Pickable::IGNORE,
+                    ));
+                }
+                top.spawn((
+                    Text::new(&action.name),
+                    TextFont {
+                        font_size: 13.0,
+                        ..default()
+                    },
+                    TextColor(name_color),
+                    CarouselAlpha::new(card_opacity),
+                    Pickable::IGNORE,
+                ));
+            });
+
+            // ── Middle: Description ──
+            if !action.description.is_empty() && action.description != action.name {
+                card.spawn((
+                    Text::new(&action.description),
+                    TextFont {
+                        font_size: 10.0,
+                        ..default()
+                    },
+                    TextColor(desc_color),
+                    CarouselAlpha::new(card_opacity),
+                    Pickable::IGNORE,
+                ));
+            }
+
+            // ── Bottom section: Costs + Outputs ──
+            card.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(2.0),
+                ..default()
+            })
+            .with_children(|bottom| {
+                // Costs
+                if !action.costs.is_empty() {
+                    let costs_text = action
+                        .costs
+                        .iter()
+                        .map(|c| format!("{} ×{}", c.name, c.quantity))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    bottom.spawn((
+                        Text::new(format!("▼ {}", costs_text)),
+                        TextFont {
+                            font_size: 9.0,
+                            ..default()
+                        },
+                        TextColor(cost_color),
+                        CarouselAlpha::new(card_opacity),
+                        Pickable::IGNORE,
+                    ));
+                }
+
+                // Outputs
+                if !action.outputs.is_empty() {
+                    let outputs_text = action
+                        .outputs
+                        .iter()
+                        .map(|o| format!("{} ×{}", o.name, o.quantity))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    bottom.spawn((
+                        Text::new(format!("▲ {}", outputs_text)),
+                        TextFont {
+                            font_size: 9.0,
+                            ..default()
+                        },
+                        TextColor(output_color),
+                        CarouselAlpha::new(card_opacity),
+                        Pickable::IGNORE,
+                    ));
+                }
+            });
+        })
+        .id();
+
+    card
 }
 
 // ─── Interactions ───────────────────────────────────────────
@@ -523,7 +622,10 @@ pub fn handle_action_entry_click(
 
         // Block non-executable actions
         if !entry.executable {
-            info!("Action {} is not executable (missing resources)", entry.action_id);
+            info!(
+                "Action {} is not executable (missing resources)",
+                entry.action_id
+            );
             continue;
         }
 
@@ -548,16 +650,28 @@ pub fn handle_action_entry_click(
             let hex = cd.cell.to_hex();
             let world_pos = grid_config.layout.hex_to_world_pos(hex);
             let chunk = shared::TerrainChunkId {
-                x: world_pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
-                y: world_pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+                x: world_pos
+                    .x
+                    .div_euclid(shared::constants::CHUNK_SIZE.x)
+                    .ceil() as i32,
+                y: world_pos
+                    .y
+                    .div_euclid(shared::constants::CHUNK_SIZE.y)
+                    .ceil() as i32,
             };
             (cd.cell, chunk)
         } else if let Some(&hex) = selected_hexes.ids.iter().next() {
             let cell = shared::grid::GridCell { q: hex.x, r: hex.y };
             let world_pos = grid_config.layout.hex_to_world_pos(hex);
             let chunk = shared::TerrainChunkId {
-                x: world_pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
-                y: world_pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+                x: world_pos
+                    .x
+                    .div_euclid(shared::constants::CHUNK_SIZE.x)
+                    .ceil() as i32,
+                y: world_pos
+                    .y
+                    .div_euclid(shared::constants::CHUNK_SIZE.y)
+                    .ceil() as i32,
             };
             (cell, chunk)
         } else {
@@ -672,7 +786,10 @@ pub fn handle_action_entry_click(
                     cell,
                     target_profession,
                 });
-                info!("✓ Train {} request sent for unit {}", profession_str, unit_id);
+                info!(
+                    "✓ Train {} request sent for unit {}",
+                    profession_str, unit_id
+                );
             } else {
                 warn!("No unit selected for training");
             }
@@ -682,10 +799,12 @@ pub fn handle_action_entry_click(
             info!("Upgrade action: {} (not yet implemented)", action_id);
         }
         // ── Diplomacy actions ──
-        else if matches!(action_id.as_str(), "send_envoy" | "propose_trade" | "research") {
+        else if matches!(
+            action_id.as_str(),
+            "send_envoy" | "propose_trade" | "research"
+        ) {
             info!("Diplomacy action: {} (not yet implemented)", action_id);
-        }
-        else {
+        } else {
             warn!("Unknown action: {}", action_id);
         }
     }
