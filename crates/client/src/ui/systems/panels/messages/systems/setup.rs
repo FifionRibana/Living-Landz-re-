@@ -56,7 +56,8 @@ pub fn setup_messages_panel(
                         ..default()
                     },
                     Carousel {
-                        scroll_offset: 0.0,
+                        id: 0,
+                        enabled: true,
                         item_width,
                         spacing,
                         total_items: items.len(),
@@ -70,7 +71,7 @@ pub fn setup_messages_panel(
                     for (i, name) in items.iter().enumerate() {
                         carousel
                             .spawn((
-                                CarouselItem { index: i },
+                                CarouselItem { carousel_id: 0, index: i },
                                 MaterialNode(
                                     materials.add(FrostedGlassMaterial::from(
                                         FrostedGlassConfig::card()
