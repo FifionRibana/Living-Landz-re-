@@ -20,6 +20,10 @@ pub struct ActionPanelRoot;
 #[derive(Component)]
 pub struct ActionPanelList;
 
+/// Intermediate container (carousel or flex-row) inside ActionPanelList.
+#[derive(Component)]
+pub struct ActionPanelContainer;
+
 /// A single action entry button.
 #[derive(Component)]
 pub struct ActionPanelEntry {
@@ -84,6 +88,7 @@ pub struct ActionPanelQueries<'w, 's> {
     pub list: Query<'w, 's, Entity, With<ActionPanelList>>,
     pub entries: Query<'w, 's, Entity, With<ActionPanelEntry>>,
     pub carousels: Query<'w, 's, Entity, With<Carousel>>,
+    pub containers: Query<'w, 's, Entity, With<ActionPanelContainer>>,
     pub title: TitleQuery<'w, 's>,
     pub subtitle: SubtitleQuery<'w, 's>,
     pub empty: EmptyQuery<'w, 's>,
@@ -247,10 +252,7 @@ pub fn update_action_panel_content(
     // TODO : ce qui donne un carousel beaucoup trop petit que ce qu'il devrait être...
     let Some(mode) = ui_state.action_mode else {
         if !last_action_ids.is_empty() {
-            for entity in &panel.entries {
-                commands.entity(entity).despawn();
-            }
-            for entity in &panel.carousels {
+            for entity in &panel.containers {
                 commands.entity(entity).despawn();
             }
             last_action_ids.clear();
@@ -309,10 +311,7 @@ pub fn update_action_panel_content(
     *last_action_ids = new_ids;
 
     // Despawn old entries + carousel
-    for entity in &panel.entries {
-        commands.entity(entity).despawn();
-    }
-    for entity in &panel.carousels {
+    for entity in &panel.containers {
         commands.entity(entity).despawn();
     }
 
@@ -376,6 +375,7 @@ pub fn update_action_panel_content(
         // ── CAROUSEL MODE ──
         let carousel_entity = commands
             .spawn((
+                ActionPanelContainer,
                 Node {
                     width: Val::Percent(100.0),
                     height: Val::Px(CARD_HEIGHT + 20.0),
@@ -408,9 +408,10 @@ pub fn update_action_panel_content(
                 CARD_WIDTH,
                 CARD_HEIGHT,
             );
-            commands
-                .entity(card)
-                .insert((CarouselItem { carousel_id, index: i },));
+            commands.entity(card).insert((CarouselItem {
+                carousel_id,
+                index: i,
+            },));
             commands.entity(carousel_entity).add_child(card);
         }
 
@@ -419,14 +420,17 @@ pub fn update_action_panel_content(
         // ── SIMPLE LAYOUT ──
         // Flex-row, centered
         let row = commands
-            .spawn(Node {
-                width: Val::Percent(100.0),
-                flex_direction: FlexDirection::Row,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(CARD_GAP),
-                ..default()
-            })
+            .spawn((
+                ActionPanelContainer,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(CARD_GAP),
+                    ..default()
+                },
+            ))
             .id();
 
         for action in &actions {
