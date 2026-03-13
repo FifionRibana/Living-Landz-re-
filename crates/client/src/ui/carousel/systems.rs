@@ -11,18 +11,20 @@ pub fn handle_carousel_scroll(
 ) {
     for event in mouse_wheel_events.read() {
         // Use both axes: x for trackpad, y for mouse wheel
-        // let delta = if event.x.abs() > event.y.abs() {
-        //     event.x
-        // } else {
-        //     event.y
-        // };
-        let delta = event.x;
+        let delta = if event.x.abs() > event.y.abs() {
+            event.x
+        } else {
+            -event.y
+        };
+        // let delta = event.x;
 
         if delta.abs() < 0.001 {
             continue;
         }
+        info!("Handling carousel scroll: {}", delta);
 
         for mut carousel in query.iter_mut() {
+            info!("Carousel id: {} scrolling of {}", carousel.id, delta);
             carousel.target_scroll += delta * 40.0;
             carousel.snap_timer = 0.0;
         }
@@ -55,6 +57,9 @@ pub fn update_carousel_items(
     let dt = time.delta_secs();
 
     for (mut carousel, computed_node) in carousel_query.iter_mut() {
+        if !carousel.enabled {
+            continue;
+        }
         // --- ÉTAPE DE SMOOTHING ---
         // On fait glisser current_scroll vers target_scroll
 
@@ -75,9 +80,17 @@ pub fn update_carousel_items(
         let container_limit = container_width * 0.45;
         let feather = 50.0;
 
-        if carousel.target_scroll.abs() > total_content_width {
-            carousel.target_scroll %= total_content_width;
-            carousel.current_scroll %= total_content_width;
+        // if carousel.target_scroll.abs() > total_content_width {
+        //     carousel.target_scroll %= total_content_width;
+        //     carousel.current_scroll %= total_content_width;
+        // }
+        // Smooth wrapping: keep both values in sync
+        if carousel.target_scroll > total_content_width {
+            carousel.target_scroll -= total_content_width;
+            carousel.current_scroll -= total_content_width;
+        } else if carousel.target_scroll < -total_content_width {
+            carousel.target_scroll += total_content_width;
+            carousel.current_scroll += total_content_width;
         }
 
         for (entity, item, mut node, material_handle, children) in items_query.iter_mut() {
@@ -97,6 +110,9 @@ pub fn update_carousel_items(
 
             node.left = Val::Px(x_pos + centering_offset);
             node.position_type = PositionType::Absolute;
+
+            info!("> Updating carousel {} item index {} ({}). Node left: {:?} and position type: {:?}", carousel.id, item.index, item.carousel_id, node.left, node.position_type);
+
 
             // --- LOGIQUE VISUELLE ---
             if let Some(material) = materials.get_mut(material_handle) {

@@ -57,6 +57,7 @@ pub fn setup_messages_panel(
                     },
                     Carousel {
                         id: 0,
+                        enabled: true,
                         item_width,
                         spacing,
                         total_items: items.len(),

@@ -110,26 +110,13 @@ pub struct ActionDataResources<'w> {
 
 /// Spawn the action panel (initially hidden). Lives for the InGame state.
 pub fn setup_action_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let paper_panel_image: Handle<Image> = asset_server.load("ui/ui_paper_panel_md.png");
-    let paper_panel_slicer = TextureSlicer {
-        border: BorderRect {
-            left: 42.,
-            right: 42.,
-            top: 76.,
-            bottom: 42.,
-        },
-        center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-        sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-        max_corner_scale: 1.0,
-    };
-
     commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(10.0),
                 left: Val::Px(80.0),
-                right: Val::Px(10.0),
+                right: Val::Px(80.0),
                 max_height: Val::Px(220.0),
                 padding: UiRect {
                     left: Val::Px(16.0),
@@ -215,6 +202,7 @@ pub fn update_action_panel_visibility(
     ui_state: Res<UIState>,
     action_context: Res<ActionContextState>,
     mut root_query: Query<&mut Visibility, With<ActionPanelRoot>>,
+    mut carousel_query: Query<&mut Carousel>,
 ) {
     let should_show = ui_state.action_mode.is_some() && action_context.get().is_some();
 
@@ -226,6 +214,13 @@ pub fn update_action_panel_visibility(
         };
         if *vis != target {
             *vis = target;
+        }
+    }
+
+    // Enable/disable action carousel based on panel visibility
+    for mut carousel in carousel_query.iter_mut() {
+        if carousel.id == 1 {
+            carousel.enabled = should_show;
         }
     }
 }
@@ -241,6 +236,7 @@ pub fn update_action_panel_content(
     mut cards: CardResources,
     data: ActionDataResources,
     windows: Query<&Window>,
+    mut last_action_ids: Local<Vec<String>>,
 ) {
     if !ui_state.is_changed() && !action_context.is_changed() && !data.inventory_cache.is_changed()
     {
@@ -253,6 +249,15 @@ pub fn update_action_panel_content(
     }
 
     let Some(mode) = ui_state.action_mode else {
+        if !last_action_ids.is_empty() {
+            for entity in &panel.entries {
+                commands.entity(entity).despawn();
+            }
+            for entity in &panel.carousels {
+                commands.entity(entity).despawn();
+            }
+            last_action_ids.clear();
+        }
         return;
     };
 
@@ -298,6 +303,22 @@ pub fn update_action_panel_content(
     // Get available actions
     let actions = mode.available_actions(ctx, game_data_ref.as_ref());
 
+    let new_ids: Vec<String> = actions.iter().map(|a| a.id.clone()).collect();
+    if *last_action_ids == new_ids {
+        // Actions haven't changed — don't rebuild carousel
+        // TODO: update executable state on existing cards if inventory changed
+        return;
+    }
+    *last_action_ids = new_ids;
+
+    // Despawn old entries + carousel
+    for entity in &panel.entries {
+        commands.entity(entity).despawn();
+    }
+    for entity in &panel.carousels {
+        commands.entity(entity).despawn();
+    }
+
     // Update subtitle with context info
     for mut text in &mut panel.subtitle {
         let building_name = ctx
@@ -338,18 +359,6 @@ pub fn update_action_panel_content(
         return;
     };
 
-    let paper_btn_image: Handle<Image> = cards.asset_server.load("ui/ui_paper_panel_md.png");
-    let paper_btn_slicer = TextureSlicer {
-        border: BorderRect::all(20.0),
-        center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-        sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-        max_corner_scale: 1.0,
-    };
-
-    // Despawn existing carousel if any (from previous mode)
-    for entity in &panel.carousels {
-        commands.entity(entity).despawn();
-    }
     // Constants
     const CARD_WIDTH: f32 = 150.0;
     const CARD_HEIGHT: f32 = 160.0;
@@ -360,8 +369,8 @@ pub fn update_action_panel_content(
         .single()
         .map(|w| w.width() - 100.0) // rough panel width
         .unwrap_or(600.0);
-    let max_visible = ((panel_width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).floor() as usize;
-    let use_carousel = actions.len() > max_visible && actions.len() > 3;
+    let max_visible = 5; //((panel_width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).floor() as usize;
+    let use_carousel = actions.len() > max_visible; // && actions.len() > 3;
 
     // Unique ID for this carousel instance
     let carousel_id = 1u32; // Messages uses 0
@@ -380,6 +389,7 @@ pub fn update_action_panel_content(
                 },
                 Carousel {
                     id: carousel_id,
+                    enabled: true,
                     item_width: CARD_WIDTH,
                     spacing: CARD_GAP,
                     total_items: actions.len(),
@@ -401,10 +411,9 @@ pub fn update_action_panel_content(
                 CARD_WIDTH,
                 CARD_HEIGHT,
             );
-            commands.entity(card).insert((CarouselItem {
-                carousel_id,
-                index: i,
-            },));
+            commands
+                .entity(card)
+                .insert((CarouselItem { carousel_id, index: i },));
             commands.entity(carousel_entity).add_child(card);
         }
 
@@ -475,7 +484,7 @@ fn spawn_action_card(
 
     let card = commands
         .spawn((
-            Button,
+            Interaction::default(),
             MaterialNode(material),
             Node {
                 width: Val::Px(width),
@@ -488,10 +497,10 @@ fn spawn_action_card(
             },
             BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
             BorderRadius::all(Val::Px(10.0)),
-            Pickable {
-                should_block_lower: true,
-                is_hoverable: true,
-            },
+            // Pickable {
+            //     should_block_lower: true,
+            //     is_hoverable: true,
+            // },
             ActionPanelEntry {
                 action_id: action.id.clone(),
                 executable: action.executable,
@@ -499,12 +508,15 @@ fn spawn_action_card(
         ))
         .with_children(|card| {
             // ── Top section: Icon + Name ──
-            card.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(6.0),
-                ..default()
-            })
+            card.spawn((
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(6.0),
+                    ..default()
+                },
+                CarouselAlpha::new(card_opacity),
+            ))
             .with_children(|top| {
                 if !action.icon.is_empty() {
                     top.spawn((
@@ -549,11 +561,14 @@ fn spawn_action_card(
             }
 
             // ── Bottom section: Costs + Outputs ──
-            card.spawn(Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(2.0),
-                ..default()
-            })
+            card.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
+                    ..default()
+                },
+                CarouselAlpha::new(card_opacity),
+            ))
             .with_children(|bottom| {
                 // Costs
                 if !action.costs.is_empty() {
