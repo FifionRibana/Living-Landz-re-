@@ -243,11 +243,8 @@ pub fn update_action_panel_content(
         return;
     }
 
-    // Despawn old entries
-    for entity in &panel.entries {
-        commands.entity(entity).despawn();
-    }
-
+    // TODO : L'espace pour afficher le carousel n'est pas remis à jour lorsqu'on change de batiment
+    // TODO : ce qui donne un carousel beaucoup trop petit que ce qu'il devrait être...
     let Some(mode) = ui_state.action_mode else {
         if !last_action_ids.is_empty() {
             for entity in &panel.entries {
