@@ -423,6 +423,7 @@ fn profession_color(profession: &ProfessionEnum) -> Color {
         Lumberjack => Color::srgb(0.6, 0.4, 0.2),
         Mason => Color::srgb(0.6, 0.6, 0.5),
         Brewer => Color::srgb(0.6, 0.4, 0.1),
+        Settler => Color::srgb(0.5, 0.5, 0.5),
         Unknown => Color::srgb(0.5, 0.5, 0.5),
     }
 }

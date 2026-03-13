@@ -19,6 +19,7 @@ pub enum ProfessionEnum {
     Lumberjack = 13,
     Mason = 14,
     Brewer = 15,
+    Settler = 16,
 }
 
 impl ProfessionEnum {
@@ -44,6 +45,7 @@ impl ProfessionEnum {
             13 => Some(Self::Lumberjack),
             14 => Some(Self::Mason),
             15 => Some(Self::Brewer),
+            16 => Some(Self::Settler),
             _ => None,
         }
     }
@@ -66,6 +68,7 @@ impl ProfessionEnum {
             Self::Lumberjack => "Lumberjack",
             Self::Mason => "Mason",
             Self::Brewer => "Brewer",
+            Self::Settler => "Settler",
         }
     }
 
@@ -87,6 +90,7 @@ impl ProfessionEnum {
             Self::Lumberjack => "lumberjack",
             Self::Mason => "mason",
             Self::Brewer => "brewer",
+            Self::Settler => "settler",
         }
     }
 
@@ -108,6 +112,7 @@ impl ProfessionEnum {
             Self::Lumberjack => "Bûcheron",
             Self::Mason => "Maçon",
             Self::Brewer => "Brasseur",
+            Self::Settler => "Colon",
         }
     }
 
@@ -130,6 +135,7 @@ impl ProfessionEnum {
             Self::Lumberjack => 20,
             Self::Mason => 15,
             Self::Brewer => 12,
+            Self::Settler => 5,
         }
     }
 
@@ -160,6 +166,7 @@ impl ProfessionEnum {
             ProfessionEnum::Lumberjack,
             ProfessionEnum::Mason,
             ProfessionEnum::Brewer,
+            ProfessionEnum::Settler,
         ]
         .into_iter()
     }

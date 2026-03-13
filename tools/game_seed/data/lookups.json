@@ -92,7 +92,8 @@
     {"id": 12, "slug": "fisherman",  "name": "Fisherman",  "description": "Catches fish from rivers and oceans",       "base_inventory_capacity_bonus": 15},
     {"id": 13, "slug": "lumberjack", "name": "Lumberjack", "description": "Cuts down trees and processes timber",      "base_inventory_capacity_bonus": 20},
     {"id": 14, "slug": "mason",      "name": "Mason",      "description": "Builds with stone and masonry",             "base_inventory_capacity_bonus": 15},
-    {"id": 15, "slug": "brewer",     "name": "Brewer",     "description": "Produces alcoholic beverages",              "base_inventory_capacity_bonus": 12}
+    {"id": 15, "slug": "brewer",     "name": "Brewer",     "description": "Produces alcoholic beverages",              "base_inventory_capacity_bonus": 12},
+    {"id": 16, "slug": "settler",    "name": "Settler",    "description": "A newcomer with no specialization",         "base_inventory_capacity_bonus": 5}
   ],
   "skills": [
     {"id": 1,  "slug": "meleeAttack",       "name": "MeleeAttack",       "description": "Close combat effectiveness",        "primary_stat": "strength"},
