@@ -1,11 +1,14 @@
 use std::collections::HashSet;
 
 use bevy::{prelude::*, window::PrimaryWindow};
-use hexx::*;
+use hexx::{Rect, *};
 use shared::{SlotPosition, protocol::ClientMessage};
 
+use crate::camera;
 use crate::camera::resources::CELL_SCENE_LAYER;
-use crate::ui::components::{CellSceneSlotSprite, CellSceneVisual, Slot};
+use crate::ui::components::{
+    CellSceneSlotSprite, CellSceneVisual, DragTargetValidity, Slot, SlotVisualState,
+};
 use crate::ui::resources::CellViewState;
 use crate::{
     networking::client::NetworkClient,
@@ -103,10 +106,9 @@ pub fn setup_cell_slots(
                 .with_children(|container| {
                     if cell_state.has_interior() {
                         // Left exterior slots
-                        /*container
-                        .spawn((
+                        container.spawn((
                             Node {
-                                // width: Val::Px((window.width() - (window.height() - 64.)) / 2.),
+                                // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
                                 ..default()
@@ -114,58 +116,11 @@ pub fn setup_cell_slots(
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
                             BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
-                        ))
-                        .with_children(|exterior| {
-                            let side = window.height() - 64. - 4. * 10.;
-                            let container_size =
-                                Vec2::new((window.width() - side - 50. - 2. * 10.) / 2., side);
-                            let exterior_positions = cell_state
-                                .slot_configuration()
-                                .exterior_layout
-                                .generate_positions(container_size, &slot_hex_layout);
-
-                            // let offset = if matches!(
-                            //     cell_state.slot_configuration().exterior_layout.layout_type,
-                            //     SlotLayoutType::HexLine
-                            // ) {
-                            //     56.0
-                            // } else {
-                            //     0.0
-                            // };
-                            let offset = 56.0;
-
-                            for (index, pos) in exterior_positions.iter().enumerate() {
-                                let slot_indicator =
-                                    SlotIndicator::new(SlotPosition::exterior(index));
-                                let opacity = SlotState::Normal.get_opacity(false);
-
-                                exterior
-                                    .spawn((
-                                        Sprite {
-                                            image: slot_image.clone(),
-                                            custom_size: Some(Vec2::new(112.0, 130.0)),
-                                            color: Color::srgba(1.0, 1.0, 1.0, opacity),
-                                            ..default()
-                                        },
-                                        Transform::from_translation(Vec3::new(
-                                            pos.x - 56.0 - offset,
-                                            pos.y - 65.0,
-                                            5.0,
-                                        )),
-                                        Pickable::default(),
-                                        slot_indicator,
-                                        CellSceneVisual,
-                                        CELL_SCENE_LAYER,
-                                    ))
-                                    .observe(on_slot_drag_start)
-                                    .observe(on_slot_drag)
-                                    .observe(on_slot_drag_end)
-                                    .observe(on_slot_drag_drop)
-                                    .observe(on_slot_drag_enter)
-                                    .observe(on_slot_drag_leave)
-                                    .observe(on_slot_click);
-                            }
-                        });*/
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: false,
+                            },
+                        ));
 
                         // Interior slots
                         container.spawn((
@@ -182,15 +137,11 @@ pub fn setup_cell_slots(
                                 is_hoverable: false,
                             },
                         ));
-                        // .with_children(|interior| {
-
-                        // });
 
                         // Right exterior slots
-                        /*container
-                        .spawn((
+                        container.spawn((
                             Node {
-                                // width: Val::Px((window.width() - (window.height() - 64.)) / 2.),
+                                // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
                                 ..default()
@@ -198,55 +149,16 @@ pub fn setup_cell_slots(
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
                             BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
-                        ))
-                        .with_children(|exterior| {
-                            let side = window.height() - 64. - 4. * 10.;
-                            let container_size =
-                                Vec2::new((window.width() - side - 50. - 2. * 10.) / 2., side);
-                            let exterior_positions = cell_state
-                                .slot_configuration()
-                                .exterior_layout
-                                .generate_positions(container_size, &slot_hex_layout);
-
-                            for (index, pos) in exterior_positions.iter().enumerate() {
-                                let slot_indicator = SlotIndicator::new(
-                                    SlotPosition::exterior(index + exterior_positions.len()),
-                                );
-                                let opacity = SlotState::Normal.get_opacity(false);
-
-                                exterior
-                                    .spawn((
-                                        Sprite {
-                                            image: slot_image.clone(),
-                                            custom_size: Some(Vec2::new(112.0, 130.0)),
-                                            color: Color::srgba(1.0, 1.0, 1.0, opacity),
-                                            ..default()
-                                        },
-                                        Transform::from_translation(Vec3::new(
-                                            pos.x - 56.0,
-                                            pos.y - 65.0,
-                                            5.0,
-                                        )),
-                                        Pickable::default(),
-                                        slot_indicator,
-                                        CellSceneVisual,
-                                        CELL_SCENE_LAYER,
-                                    ))
-                                    .observe(on_slot_drag_start)
-                                    .observe(on_slot_drag)
-                                    .observe(on_slot_drag_end)
-                                    .observe(on_slot_drag_drop)
-                                    .observe(on_slot_drag_enter)
-                                    .observe(on_slot_drag_leave)
-                                    .observe(on_slot_click);
-                            }
-                        });*/
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: false,
+                            },
+                        ));
                     } else {
                         // Exterior only cell
-                        /*container
-                        .spawn((
+                        container.spawn((
                             Node {
-                                // width: Val::Px((window.width() - (window.height() - 64.)) / 2.),
+                                // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
                                 ..default()
@@ -254,50 +166,11 @@ pub fn setup_cell_slots(
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
                             BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
-                        ))
-                        .with_children(|exterior| {
-                            let container_size = Vec2::new(
-                                window.width() - 64. - 4. * 10.,
-                                window.height() - 64. - 4. * 10.,
-                            );
-                            let exterior_positions = cell_state
-                                .slot_configuration()
-                                .exterior_layout
-                                .generate_positions(container_size, &slot_hex_layout);
-
-                            for (index, pos) in exterior_positions.iter().enumerate() {
-                                let slot_indicator =
-                                    SlotIndicator::new(SlotPosition::exterior(index));
-
-                                let opacity = SlotState::Normal.get_opacity(false);
-
-                                exterior
-                                    .spawn((
-                                        Sprite {
-                                            image: slot_image.clone(),
-                                            custom_size: Some(Vec2::new(112.0, 130.0)),
-                                            color: Color::srgba(1.0, 1.0, 1.0, opacity),
-                                            ..default()
-                                        },
-                                        Transform::from_translation(Vec3::new(
-                                            pos.x - 56.0,
-                                            pos.y - 65.0,
-                                            5.0,
-                                        )),
-                                        Pickable::default(),
-                                        slot_indicator,
-                                        CellSceneVisual,
-                                        CELL_SCENE_LAYER,
-                                    ))
-                                    .observe(on_slot_drag_start)
-                                    .observe(on_slot_drag)
-                                    .observe(on_slot_drag_end)
-                                    .observe(on_slot_drag_drop)
-                                    .observe(on_slot_drag_enter)
-                                    .observe(on_slot_drag_leave)
-                                    .observe(on_slot_click);
-                            }
-                        });*/
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: false,
+                            },
+                        ));
                     }
                 });
         });
@@ -308,13 +181,12 @@ pub fn setup_cell_slots(
     let slot_image = asset_server.load("ui/ui_hex_normal.png");
     info!("Spawning slots for cell: {:?}", viewed_cell);
 
-    let side = window.height() - 64. - 4. * 10.;
-    let container_size = Vec2::new(side, side);
-    let interior_positions = cell_state
-        .slot_configuration()
-        .interior_layout
-        .generate_positions(container_size, &slot_hex_layout);
-
+    let screen_w = window.width();
+    let screen_h = window.height();
+    let top_bar = 64.0;
+    let margin = 10.0;
+    let gap = 50.0;
+    let side = window.height() - top_bar - 4. * margin;
     info!(
         "Values:\n\tSide={}\n\tWindow={}x{}",
         side,
@@ -322,62 +194,341 @@ pub fn setup_cell_slots(
         window.height()
     );
 
-    // commands.spawn(
-    //     (Node {
-    //         width: Val::Px(container_size.x),
-    //         height: Val::Px(container_size.y),
-    //         position_type: PositionType::Absolute,
+    // Compute the real position. For this, we need to consider multiple things.
+    // We compute the size of panels (without margins)
+    // The following sketch does not include margins.
+    // - sides + interior are inside a container that has 10px margins.
+    // - sides & interior also have 10px margins.
+    // - gap between sides & interior is 50px.
+    // - top_bar is 64px high.
+    //  ________ _ ________________ _ ________
+    // |                top_bar               |
+    // |________ _ ________________ _ ________|
+    // |        | |                | |        |
+    // |        | |                | |        |
+    // |  Left  | |    Interior    | |  Right |
+    // |  side  | |                | |  side  |
+    // |        | |                | |        |
+    // |        | |                | |        |
+    // |________|_|________________|_|________|
+    //
+    // | 10px | SIDE | 50px | INTERIOR | 50px | SIDE | 10px |
+    // ------
+    // TOP_BAR:
+    // width = SCREEN_W
+    // height = 64px
+    // x = 0
+    // y = 0
+    let top_bar_box = bevy::math::Rect::new(0.0, 0.0, screen_w, top_bar);
+    // MAIN_CONTAINER_CONTENT:
+    // width = screen_w - 2 * margin
+    // height = screen_h - TOP_BAR.height - 2 * margin
+    // x = margin
+    // y = TOP_BAR.bottom + margin
+    // left = margin / right = screen_w - margin
+    // top = TOP_BAR.bottom + margin / bottom = screen_h - margin
+    let main_container_content = bevy::math::Rect::new(
+        margin,
+        top_bar_box.max.y + margin,
+        screen_w - margin,
+        screen_h - margin,
+    );
+    // ------
+    // main container margin: 10px
+    // ------
+    // INTERIOR_CONTAINER
+    // ------
+    // main container margin: 10px
+    // ------
+    let containers_height = main_container_content.height() - 2. * margin;
+    let containers_content_height = containers_height - 2. * margin;
+    //
+    // INTERIOR_CONTAINER:
+    // height = MAIN_CONTAINER_CONTENT.height - 2 * margin
+    // width = height
+    //
+    let remaining_space =
+        main_container_content.width() - containers_height - 2. * gap - 2. * margin;
+    // SIDE_CONTAINER(S):
+    // width => Remaining space divided by 2 when removing interior container + twice the gap.
+    // width = (SCREEN_W - INTERIOR_CONTAINER.width - 2 * gap - 2 * margin) / 2.
+    // height = INTERIOR_CONTAINER.height
+    let side_container_width = remaining_space / 2.;
+    //
+    // LEFT:
+    // x = margin
+    // y = TOP_BAR.height + margin
+    let left_side_container = bevy::math::Rect::new(
+        main_container_content.min.x + margin,
+        main_container_content.min.y + margin,
+        main_container_content.min.x + margin + side_container_width,
+        main_container_content.max.y - margin,
+    );
+    //
+    // SIDE_CONTAINER_CONTENT(S):
+    // width = SIDE_CONTAINER_CONTENT.width - 2 * margin
+    // height = SIDE_CONTAINER_CONTENT.height - 2 * margin
+    //
+    // LEFT:
+    // x = LEFT_SIDE_CONTAINER.x + margin
+    // y = LEFT_SIDE_CONTAINER.y + margin
+    let left_side_container_content = bevy::math::Rect::new(
+        left_side_container.min.x + margin,
+        left_side_container.min.y + margin,
+        left_side_container.max.x - margin,
+        left_side_container.max.y - margin,
+    );
+    info!("Left container: {:?}", left_side_container_content);
+    //
+    // INTERIOR_CONTAINER:
+    // x = SIDE_CONTAINER.right + gap
+    // y = TOP_BAR.height + margin
+    let interior_container = bevy::math::Rect::new(
+        left_side_container.max.x + gap,
+        left_side_container.min.y,
+        left_side_container.max.x + gap + containers_height,
+        left_side_container.max.y,
+    );
+    //
+    // INTERIOR_CONTAINER_CONTENT: INTERIOR_CONTAINER - margins
+    // width = INTERIOR_CONTAINER.width - 2 * margin
+    // height = INTERIOR_CONTAINER.height - 2 * margin
+    // x = INTERIOR_CONTAINER.x + margin
+    // y = INTERIOR_CONTAINER.y + margin
+    let interior_container_content = bevy::math::Rect::new(
+        interior_container.min.x + margin,
+        interior_container.min.y + margin,
+        interior_container.max.x - margin,
+        interior_container.max.y - margin,
+    );
+    info!("Interior container: {:?}", interior_container_content);
+    //
+    // RIGHT:
+    // x = INTERIOR_CONTAINER.right + gap
+    // y = TOP_BAR.height + margin
+    let right_side_container = bevy::math::Rect::new(
+        interior_container.max.x + gap,
+        left_side_container.min.y,
+        interior_container.max.x + gap + side_container_width,
+        left_side_container.max.y,
+    );
+    //
+    // SIDE_CONTAINER_CONTENT(S):
+    // width = SIDE_CONTAINER_CONTENT.width - 2 * margin
+    // height = SIDE_CONTAINER_CONTENT.height - 2 * margin
+    //
+    // RIGHT:
+    // x = RIGHT_SIDE_CONTAINER.x + margin
+    // y = RIGHT_SIDE_CONTAINER.y + margin
+    let right_side_container_content = bevy::math::Rect::new(
+        right_side_container.min.x + margin,
+        right_side_container.min.y + margin,
+        right_side_container.max.x - margin,
+        right_side_container.max.y - margin,
+    );
+    info!("Right container: {:?}", right_side_container_content);
+    // Note: Sprite are placed on world position (camera position) whereas UI nodes are on screen position
+    //       a conversion is required here.
 
-    //         ..Default::default() },
-    //     BackgroundColor(Color::srgba_u8(255, 0, 0, 50)),
-    //     UiTransform::from_translation(Val2::px(window.width() / 2. - side / 2., 64.0 + 2. * 10.)),
-    // ));
-    for (index, pos) in interior_positions.iter().enumerate() {
-        let slot_indicator = SlotIndicator::new(SlotPosition::interior(index));
-        let opacity = SlotState::Normal.get_opacity(false);
+    // => ext = window_h - 64px - 8*10px
+    if cell_state.has_interior() {
+        // left exterior slots
+        let exterior_positions = cell_state
+            .slot_configuration()
+            .exterior_layout
+            .generate_positions(left_side_container_content.size(), &slot_hex_layout);
+        let offset = 56.0; // Short offset as the slot position generation seems weird for linear layouts
 
-        info!(
-            "Slot {}: Spawning {:?} at pos {:?}",
-            index, slot_indicator, pos
-        );
-        // Compute the real position. For this, we need to consider multiple things.
-        //  ________ _ ________________ _ ________
-        // |        | |                | |        |
-        // |        | |                | |        |
-        // |  Left  | |    Interior    | |  Right |
-        // |  side  | |                | |  side  |
-        // |        | |                | |        |
-        // |        | |                | |        |
-        // |________|_|________________|_|________|
-        //
-        let real_pos = Vec2::new(
-            container_size.x / 2. - pos.x,
-            container_size.y / 2. - pos.y - 32.0,
-        );
-        commands
-            .spawn((
-                Sprite {
-                    image: slot_image.clone(),
-                    custom_size: Some(Vec2::new(112.0, 130.0)),
-                    color: Color::srgba(1.0, 1.0, 1.0, opacity),
-                    ..default()
-                },
-                Transform::from_translation(Vec3::new(real_pos.x, real_pos.y, 5.0)),
-                Pickable::default(),
-                slot_indicator,
-                Slot,
-                CellSceneVisual,
-                CELL_SCENE_LAYER,
-            ))
-            .observe(on_slot_hover_enter)
-            .observe(on_slot_hover_leave)
-            .observe(on_slot_drag_start)
-            .observe(on_slot_drag)
-            .observe(on_slot_drag_end)
-            .observe(on_slot_drag_drop)
-            .observe(on_slot_drag_enter)
-            .observe(on_slot_drag_leave)
-            .observe(on_slot_click);
+        for (index, pos) in exterior_positions.iter().enumerate() {
+            let slot_indicator = SlotIndicator::new(SlotPosition::exterior(index));
+            let opacity = SlotState::Normal.get_opacity(false);
+
+            info!(
+                "Spawn ext l.slot: {} | pos {:?} | container {:?} (center: {:?})",
+                index,
+                pos,
+                left_side_container_content,
+                left_side_container_content.center()
+            );
+
+            let real_pos = Vec2::new(
+                left_side_container_content.min.x + pos.x - offset,
+                left_side_container_content.min.y + pos.y,
+            );
+            info!("  > Pos: {:?}", real_pos);
+            commands
+                .spawn((
+                    Sprite {
+                        image: slot_image.clone(),
+                        custom_size: Some(Vec2::new(112.0, 130.0)),
+                        color: Color::srgba(1.0, 1.0, 1.0, opacity),
+                        ..default()
+                    },
+                    Transform::from_translation(
+                        camera::utils::screen_to_world(real_pos.x, real_pos.y, screen_w, screen_h)
+                            .extend(5.0),
+                    ),
+                    Pickable::default(),
+                    slot_indicator,
+                    Slot,
+                    SlotVisualState::default(),
+                    CellSceneVisual,
+                    CELL_SCENE_LAYER,
+                ))
+                .observe(on_slot_hover_enter)
+                .observe(on_slot_hover_leave)
+                .observe(on_slot_drag_start)
+                .observe(on_slot_drag)
+                .observe(on_slot_drag_end)
+                .observe(on_slot_drag_drop)
+                .observe(on_slot_drag_enter)
+                .observe(on_slot_drag_leave)
+                .observe(on_slot_click);
+        }
+
+        // Interior slots
+        let interior_positions = cell_state
+            .slot_configuration()
+            .interior_layout
+            .generate_positions(interior_container_content.size(), &slot_hex_layout);
+
+        for (index, pos) in interior_positions.iter().enumerate() {
+            let slot_indicator = SlotIndicator::new(SlotPosition::interior(index));
+            let opacity = SlotState::Normal.get_opacity(false);
+
+            let real_pos = Vec2::new(
+                interior_container_content.min.x + pos.x,
+                interior_container_content.min.y + pos.y, // - 32.0,
+            );
+            commands
+                .spawn((
+                    Sprite {
+                        image: slot_image.clone(),
+                        custom_size: Some(Vec2::new(112.0, 130.0)),
+                        color: Color::srgba(1.0, 1.0, 1.0, opacity),
+                        ..default()
+                    },
+                    Transform::from_translation(
+                        camera::utils::screen_to_world(real_pos.x, real_pos.y, screen_w, screen_h)
+                            .extend(5.0),
+                    ),
+                    // Transform::from_translation(Vec3::new(real_pos.x, -real_pos.y, 5.0)),
+                    Pickable::default(),
+                    slot_indicator,
+                    Slot,
+                    SlotVisualState::default(),
+                    CellSceneVisual,
+                    CELL_SCENE_LAYER,
+                ))
+                .observe(on_slot_hover_enter)
+                .observe(on_slot_hover_leave)
+                .observe(on_slot_drag_start)
+                .observe(on_slot_drag)
+                .observe(on_slot_drag_end)
+                .observe(on_slot_drag_drop)
+                .observe(on_slot_drag_enter)
+                .observe(on_slot_drag_leave)
+                .observe(on_slot_click);
+        }
+
+        // Right exterior slots
+        let exterior_positions = cell_state
+            .slot_configuration()
+            .exterior_layout
+            .generate_positions(right_side_container_content.size(), &slot_hex_layout);
+
+        for (index, pos) in exterior_positions.iter().enumerate() {
+            let slot_indicator = SlotIndicator::new(SlotPosition::exterior(index));
+            let opacity = SlotState::Normal.get_opacity(false);
+
+            info!(
+                "Spawn ext r.slot: {} | pos {:?} | container {:?} (center: {:?})",
+                index,
+                pos,
+                right_side_container_content,
+                right_side_container_content.center()
+            );
+
+            let real_pos = Vec2::new(
+                right_side_container_content.min.x + pos.x, // + window.width() / 2.,
+                right_side_container_content.min.y + pos.y, // - 32.0,
+            );
+            info!("  > Pos: {:?}", real_pos);
+            commands
+                .spawn((
+                    Sprite {
+                        image: slot_image.clone(),
+                        custom_size: Some(Vec2::new(112.0, 130.0)),
+                        color: Color::srgba(1.0, 1.0, 1.0, opacity),
+                        ..default()
+                    },
+                    Transform::from_translation(
+                        camera::utils::screen_to_world(real_pos.x, real_pos.y, screen_w, screen_h)
+                            .extend(5.0),
+                    ),
+                    // Transform::from_translation(Vec3::new(real_pos.x, -real_pos.y, 5.0)),
+                    Pickable::default(),
+                    slot_indicator,
+                    Slot,
+                    SlotVisualState::default(),
+                    CellSceneVisual,
+                    CELL_SCENE_LAYER,
+                ))
+                .observe(on_slot_hover_enter)
+                .observe(on_slot_hover_leave)
+                .observe(on_slot_drag_start)
+                .observe(on_slot_drag)
+                .observe(on_slot_drag_end)
+                .observe(on_slot_drag_drop)
+                .observe(on_slot_drag_enter)
+                .observe(on_slot_drag_leave)
+                .observe(on_slot_click);
+        }
+    } else {
+        // Exterior cells only
+        let exterior_positions = cell_state
+            .slot_configuration()
+            .exterior_layout
+            .generate_positions(main_container_content.size(), &slot_hex_layout);
+
+        for (index, pos) in exterior_positions.iter().enumerate() {
+            let slot_indicator = SlotIndicator::new(SlotPosition::exterior(index));
+            let opacity = SlotState::Normal.get_opacity(false);
+
+            let real_pos = Vec2::new(
+                main_container_content.min.x + pos.x,
+                main_container_content.min.y + pos.y, // - 32.0,
+            );
+            commands
+                .spawn((
+                    Sprite {
+                        image: slot_image.clone(),
+                        custom_size: Some(Vec2::new(112.0, 130.0)),
+                        color: Color::srgba(1.0, 1.0, 1.0, opacity),
+                        ..default()
+                    },
+                    Transform::from_translation(
+                        camera::utils::screen_to_world(real_pos.x, real_pos.y, screen_w, screen_h)
+                            .extend(5.0),
+                    ),
+                    // Transform::from_translation(Vec3::new(real_pos.x, -real_pos.y, 5.0)),
+                    Pickable::default(),
+                    slot_indicator,
+                    Slot,
+                    SlotVisualState::default(),
+                    CellSceneVisual,
+                    CELL_SCENE_LAYER,
+                ))
+                .observe(on_slot_hover_enter)
+                .observe(on_slot_hover_leave)
+                .observe(on_slot_drag_start)
+                .observe(on_slot_drag)
+                .observe(on_slot_drag_end)
+                .observe(on_slot_drag_drop)
+                .observe(on_slot_drag_enter)
+                .observe(on_slot_drag_leave)
+                .observe(on_slot_click);
+        }
     }
 }
 
@@ -590,129 +741,197 @@ pub fn update_unit_portraits(
 }
 
 pub fn sync_slot_hierarchy_on_relation_change(
-    changed_units: Query<(Entity, &InSlot), Changed<InSlot>>,
-    slot_query: Query<(&SlotIndicator, &Transform), With<Slot>>,
-    mut portrait_query: Query<(&mut SlotUnitPortrait, &mut Transform), Without<Slot>>,
-    // mut transform_query: Query<&mut Transform>,
+    changed_units: Query<(Entity, &InSlot, &Children), Changed<InSlot>>,
+    slot_query: Query<(&SlotIndicator, &Transform), Without<SlotUnitPortrait>>,
+    mut portrait_query: Query<&mut SlotUnitPortrait>,
+    mut border_query: Query<&mut SlotBorderOverlay>,
+    mut transform_query: Query<&mut Transform, Without<SlotIndicator>>,
 ) {
-    for (unit_entity, in_slot) in changed_units.iter() {
+    for (unit_entity, in_slot, children) in changed_units.iter() {
         info!("Entity {:?} changed slot", unit_entity);
         let new_slot_entity = in_slot.0;
 
-        // Mettre à jour le slot_position dans SlotUnitPortrait si nécessaire
-        if let Ok((slot_indicator, slot_transform)) = slot_query.get(new_slot_entity)
-            && let Ok((mut portrait, mut transform)) = portrait_query.get_mut(unit_entity)
-        {
-            info!("New slot: {:?}", slot_indicator.position);
-            portrait.slot_position = slot_indicator.position;
-            transform.translation.x = slot_transform.translation.x;
-            transform.translation.y = slot_transform.translation.y;
-            transform.translation.z = 10.0;
+        if let Ok((slot_indicator, slot_transform)) = slot_query.get(new_slot_entity) {
+            // Update container position
+            if let Ok(mut transform) = transform_query.get_mut(unit_entity) {
+                transform.translation.x = slot_transform.translation.x;
+                transform.translation.y = slot_transform.translation.y;
+                transform.translation.z = 10.0;
+            }
+
+            // Update portrait slot_position
+            if let Ok(mut portrait) = portrait_query.get_mut(unit_entity) {
+                info!("New slot: {:?}", slot_indicator.position);
+                portrait.slot_position = slot_indicator.position;
+            }
+
+            // Update border slot_position (child of container)
+            for child in children.iter() {
+                if let Ok(mut border) = border_query.get_mut(child) {
+                    border.slot_position = slot_indicator.position;
+                }
+            }
         }
+    }
+}
+
+pub fn sync_slot_visuals(
+    drag_state: Res<DragState>,
+    unit_selection: Res<UnitSelectionState>,
+    cell_state: Res<CellState>,
+    units_cache: Res<UnitsCache>,
+    // Slot hex sprites
+    mut slot_query: Query<(&SlotIndicator, &SlotVisualState, &mut Sprite), With<Slot>>,
+    // Unit portrait sprites
+    mut portrait_query: Query<(&SlotUnitSprite, &mut Sprite), Without<Slot>>,
+    // Border overlay sprites
+    mut border_query: Query<
+        (&SlotBorderOverlay, &mut Sprite),
+        (Without<Slot>, Without<SlotUnitSprite>),
+    >,
+    container_query: Query<&SlotUnitPortrait>,
+) {
+    let Some(viewed_cell) = cell_state.cell() else {
+        return;
+    };
+
+    let is_dragging = drag_state.active.is_some();
+
+    // ── Slot hex visuals ──
+    for (indicator, vis_state, mut sprite) in slot_query.iter_mut() {
+        sprite.color = if let Some(validity) = vis_state.drag_target {
+            // Drag target feedback — highest priority
+            match validity {
+                DragTargetValidity::Valid => Color::srgba_u8(128, 255, 128, 128),
+                DragTargetValidity::Invalid => Color::srgba_u8(255, 128, 128, 128),
+            }
+        } else {
+            // Normal opacity based on occupied state
+            let opacity = indicator.state.get_opacity(false); //indicator.is_occupied());
+            Color::srgba(1.0, 1.0, 1.0, opacity)
+        };
+    }
+
+    let dragged_unit_id = drag_state.active.as_ref().and_then(|d| {
+        // Find the unit_id of the dragged container
+        container_query.get(d.unit_entity).ok().map(|p| p.unit_id)
+    });
+
+    // ── Portrait visuals ──
+    for (unit_sprite, mut sprite) in portrait_query.iter_mut() {
+        let drag_target = slot_query.iter().find_map(|(ind, vis, _)| {
+            if ind.occupied_by == Some(unit_sprite.unit_id) {
+                vis.drag_target
+            } else {
+                None
+            }
+        });
+
+        let is_selected = unit_selection.is_selected(unit_sprite.unit_id);
+        let is_being_dragged = dragged_unit_id == Some(unit_sprite.unit_id);
+
+        // TODO: When changing slot, the border is not "selected anymore if the unit is selected
+        // Find if this unit's slot is hovered
+        let is_hovered = slot_query
+            .iter()
+            .any(|(ind, vis, _)| ind.occupied_by == Some(unit_sprite.unit_id) && vis.hovered);
+
+        sprite.color = if is_being_dragged {
+            Color::WHITE
+        } else if drag_target == Some(DragTargetValidity::Invalid) {
+            Color::srgba_u8(255, 128, 128, 196)
+        } else if is_hovered && !is_dragging {
+            Color::srgb_u8(217, 230, 196) // hover highlight
+        } else if is_selected {
+            Color::srgb_u8(179, 217, 196) // selection tint
+        } else {
+            Color::WHITE
+        };
+    }
+
+    // ── Border visuals ──
+    for (border, mut sprite) in border_query.iter_mut() {
+        let drag_target = slot_query.iter().find_map(|(ind, vis, _)| {
+            if ind.position == border.slot_position && ind.occupied_by.is_some() {
+                vis.drag_target
+            } else {
+                None
+            }
+        });
+
+        let border_unit_id = units_cache.get_unit_at_slot(&viewed_cell, &border.slot_position);
+        let is_being_dragged = border_unit_id.is_some() && border_unit_id == dragged_unit_id;
+
+        let is_selected = units_cache
+            .get_unit_at_slot(&viewed_cell, &border.slot_position)
+            .map(|uid| unit_selection.is_selected(uid))
+            .unwrap_or(false);
+
+        sprite.color = if is_being_dragged {
+            Color::srgba_u8(255, 255, 255, 191) // normal
+        } else if drag_target == Some(DragTargetValidity::Invalid) {
+            Color::srgba_u8(255, 128, 128, 204) // red border
+        } else if is_selected {
+            Color::srgba_u8(179, 217, 255, 230) // selection tint
+        } else {
+            Color::srgba_u8(255, 255, 255, 191) // normal
+        };
     }
 }
 
 fn on_slot_hover_enter(
     event: On<Pointer<Over>>,
-    drag_state: Res<DragState>,
-    mut slot_query: Query<(&SlotIndicator, &mut Sprite, &mut Transform), With<Slot>>,
-    mut portrait_sprite_query: Query<(&SlotUnitPortrait, &mut Transform), Without<Slot>>,
+    mut query: Query<&mut SlotVisualState, With<Slot>>,
 ) {
-    let slot_entity = event.event_target();
-    let Ok((indicator, mut slot_sprite, mut slot_transform)) = slot_query.get_mut(slot_entity)
-    else {
-        return;
-    };
-
-    let is_occupied = indicator.occupied_by.is_some();
-    let is_dragging = drag_state.active.is_some();
-
-    info!(
-        "On hover: slot {:?} occupied: {:?} / is dragging: {:?}",
-        slot_entity, is_occupied, is_dragging
-    );
-
-    if is_dragging {
-        slot_sprite.color = if is_occupied {
-            // Force update z to 12 to ensure that when is_dragging the color is correctly displayed
-            info!("  Dragging and occupied");
-            slot_transform.translation.z = 12.;
-            Color::srgba(1.0, 0.5, 0.5, 0.6) // red = invalid drop target
-        } else {
-            info!("  Dragging and empty");
-            Color::srgba(0.5, 1.0, 0.5, 0.6) // green = valid drop target
-        };
-        if let Some(unit_id) = indicator.occupied_by {
-            for (unit_sprite, mut transform) in portrait_sprite_query.iter_mut() {
-                if unit_sprite.unit_id == unit_id {
-                    transform.translation.z = 10.;
-                    info!(
-                        "Slot {} / portrait {}",
-                        slot_transform.translation.z, transform.translation.z
-                    );
-                    //             sprite.color = Color::srgb(1.0, 0.0, 0.0);
-                    break;
-                }
-            }
-        }
-    } else if is_occupied {
-        info!("  Simply occupied");
-        // Force update z to 5 to ensure it is ALWAYS below the portrait.
-        slot_transform.translation.z = 5.;
-
-        // Reset color and opacity to default
-        let hover_opacity = indicator.state.get_hover_opacity(true);
-        slot_sprite.color = Color::srgba(1.0, 1.0, 1.0, hover_opacity);
-
-        if let Some(unit_id) = indicator.occupied_by {
-            for (unit_sprite, mut transform) in portrait_sprite_query.iter_mut() {
-                if unit_sprite.unit_id == unit_id {
-                    transform.translation.z = 10.;
-                    info!(
-                        "Slot {} / portrait {}",
-                        slot_transform.translation.z, transform.translation.z
-                    );
-                    //             sprite.color = Color::srgb(1.0, 0.0, 0.0);
-                    break;
-                }
-            }
-        }
+    if let Ok(mut state) = query.get_mut(event.event_target()) {
+        state.hovered = true;
     }
 }
 
 fn on_slot_hover_leave(
     event: On<Pointer<Out>>,
-    drag_state: Res<DragState>,
-    mut slot_query: Query<(&SlotIndicator, &mut Sprite, &mut Transform), With<Slot>>,
-    mut portrait_sprite_query: Query<(&SlotUnitSprite, &mut Sprite), Without<Slot>>,
+    mut query: Query<&mut SlotVisualState, With<Slot>>,
 ) {
-    let slot_entity = event.event_target();
-    let Ok((indicator, mut slot_sprite, mut slot_transform)) = slot_query.get_mut(slot_entity)
-    else {
+    if let Ok(mut state) = query.get_mut(event.event_target()) {
+        state.hovered = false;
+    }
+}
+
+fn on_slot_drag_enter(
+    event: On<Pointer<DragEnter>>,
+    mut drag_state: ResMut<DragState>,
+    query: Query<&SlotIndicator, With<Slot>>,
+    mut vis_query: Query<&mut SlotVisualState, With<Slot>>,
+) {
+    if drag_state.active.is_none() {
         return;
-    };
+    }
+    let entity = event.event_target();
+    drag_state.hovered_slot = Some(entity);
 
-    info!(
-        "On leave: slot {:?} occupied: {:?} / is dragging: {:?}",
-        slot_entity,
-        indicator.occupied_by.is_some(),
-        drag_state.active.is_some()
-    );
+    if let Ok(indicator) = query.get(entity)
+        && let Ok(mut state) = vis_query.get_mut(entity)
+    {
+        state.drag_target = Some(if indicator.occupied_by.is_none() {
+            DragTargetValidity::Valid
+        } else {
+            DragTargetValidity::Invalid
+        });
+    }
+}
 
-    // Force z = 5 to ensure when leaving it is always below the portrait
-    slot_transform.translation.z = 5.;
-    // Reset color and opacity to default
-    let opacity = indicator.state.get_opacity(indicator.is_occupied());
-    slot_sprite.color = Color::srgba(1.0, 1.0, 1.0, opacity);
-
-    // if let Some(unit_id) = indicator.occupied_by {
-    //     for (unit_sprite, mut sprite) in portrait_sprite_query.iter_mut() {
-    //         if unit_sprite.unit_id == unit_id {
-    //             sprite.color = Color::WHITE;
-    //             break;
-    //         }
-    //     }
-    // }
+fn on_slot_drag_leave(
+    event: On<Pointer<DragLeave>>,
+    mut drag_state: ResMut<DragState>,
+    mut vis_query: Query<&mut SlotVisualState, With<Slot>>,
+) {
+    let entity = event.event_target();
+    if let Ok(mut state) = vis_query.get_mut(entity) {
+        state.drag_target = None;
+    }
+    if drag_state.hovered_slot == Some(entity) {
+        drag_state.hovered_slot = None;
+    }
 }
 
 fn on_slot_drag_start(
@@ -771,7 +990,7 @@ fn on_slot_drag_end(
         return;
     };
 
-    let target_slot = drag_state.hovered_slot.take();
+    let _target_slot = drag_state.hovered_slot.take();
 
     if let Ok(mut transform) = container_query.get_mut(drag_info.unit_entity) {
         transform.translation.x = drag_info.origin.x;
@@ -781,30 +1000,22 @@ fn on_slot_drag_end(
         warn!("Can't reset slot position");
     }
 
-    if target_slot.is_none()
-        && let Ok(mut transform) = container_query.get_mut(drag_info.unit_entity)
-    {
-        transform.translation.x = drag_info.origin.x;
-        transform.translation.y = drag_info.origin.y;
-        transform.translation.z = 10.0;
-    }
+    // if target_slot.is_none()
+    //     && let Ok(mut transform) = container_query.get_mut(drag_info.unit_entity)
+    // {
+    //     transform.translation.x = drag_info.origin.x;
+    //     transform.translation.y = drag_info.origin.y;
+    //     transform.translation.z = 10.0;
+    // }
 }
-
 fn on_slot_drag_drop(
     mut event: On<Pointer<DragDrop>>,
     cell_state: Res<CellState>,
     mut drag_state: ResMut<DragState>,
     mut network_client: ResMut<NetworkClient>,
-    mut slot_query: Query<
-        (
-            &SlotIndicator,
-            Option<&SlotOccupant>,
-            &mut Sprite,
-            &mut Transform,
-        ),
-        With<Slot>,
-    >,
-    mut container_query: Query<&mut Transform, (With<SlotUnitPortrait>, Without<Slot>)>,
+    slot_query: Query<(&SlotIndicator, Option<&SlotOccupant>), With<Slot>>,
+    mut container_query: Query<&mut Transform, With<SlotUnitPortrait>>,
+    mut vis_query: Query<&mut SlotVisualState, With<Slot>>,
 ) {
     event.propagate(false);
 
@@ -812,60 +1023,39 @@ fn on_slot_drag_drop(
         return;
     };
 
-    let target_slot = drag_state.hovered_slot.take();
+    let drop_target = event.event_target();
+    drag_state.hovered_slot = None;
 
-    // Reset source slot visual + z
-    if let Ok((indicator, _, mut sprite, mut transform)) = slot_query.get_mut(drag_info.source_slot)
-    {
-        transform.translation.z = 5.0;
-        info!(
-            "Reset source {:?} slot to {}",
-            drag_info.source_slot, transform.translation.z
-        );
-        let opacity = indicator.state.get_opacity(false);
-        sprite.color = Color::srgba(1.0, 1.0, 1.0, opacity);
-    }
-
-    // Reset target slot visual + z
-    if let Some(target) = target_slot
-        && let Ok((indicator, _, mut sprite, mut transform)) = slot_query.get_mut(target)
-    {
-        transform.translation.z = 5.0;
-        info!(
-            "Reset source {:?} slot to {}",
-            target, transform.translation.z
-        );
-        let opacity = indicator.state.get_opacity(false);
-        sprite.color = Color::srgba(1.0, 1.0, 1.0, opacity);
+    // Reset all visual states — sync_slot_visuals handles the rest
+    for mut state in vis_query.iter_mut() {
+        state.drag_target = None;
+        state.hovered = false;
     }
 
     // Try the drop
     let drop_valid = (|| {
-        let target_slot_entity = target_slot?;
-
-        if target_slot_entity == drag_info.source_slot {
+        if drop_target == drag_info.source_slot {
             return None;
         }
 
-        let (_, maybe_source_occupant, _, _) = slot_query.get(drag_info.source_slot).ok()?;
+        let (_, maybe_source_occupant) = slot_query.get(drag_info.source_slot).ok()?;
         maybe_source_occupant?;
 
-        let (target_slot_indicator, maybe_target_occupant, _, _) =
-            slot_query.get(target_slot_entity).ok()?;
+        let (target_indicator, maybe_target_occupant) = slot_query.get(drop_target).ok()?;
         if maybe_target_occupant.is_some() {
             return None;
         }
 
         let viewed_cell = cell_state.cell()?;
-        let (source_slot_indicator, _, _, _) = slot_query.get(drag_info.source_slot).ok()?;
-        let unit_id = source_slot_indicator.occupied_by?;
+        let (source_indicator, _) = slot_query.get(drag_info.source_slot).ok()?;
+        let unit_id = source_indicator.occupied_by?;
 
         info!("Sending MoveUnitToSlot");
         network_client.send_message(ClientMessage::MoveUnitToSlot {
             unit_id,
             cell: viewed_cell,
-            from_slot: source_slot_indicator.position,
-            to_slot: target_slot_indicator.position,
+            from_slot: source_indicator.position,
+            to_slot: target_indicator.position,
         });
 
         Some(())
@@ -874,78 +1064,13 @@ fn on_slot_drag_drop(
 
     // Reset container position if drop invalid
     if let Ok(mut transform) = container_query.get_mut(drag_info.unit_entity) {
-        // Whatever happens, reset container z to 10. after the drop
+        // Whatever happens, reset the z position to 10. (a drop can happen outside of any slot)
         transform.translation.z = 10.0;
-        info!(
-            "Reset portrait {:?} to {}",
-            drag_info.unit_entity, transform.translation.z
-        );
 
-        // If drop is invalid, then reset the container's position to the origin
         if !drop_valid {
             transform.translation.x = drag_info.origin.x;
             transform.translation.y = drag_info.origin.y;
         }
-    }
-}
-
-fn on_slot_drag_enter(
-    event: On<Pointer<DragEnter>>,
-    mut drag_state: ResMut<DragState>,
-    mut slot_query: Query<(&SlotIndicator, &mut Sprite, &mut Transform), With<Slot>>,
-) {
-    info!("DRAG ENTER");
-    if drag_state.active.is_none() {
-        return;
-    }
-
-    let slot_entity = event.event_target();
-
-    if let Ok((indicator, mut sprite, mut transform)) = slot_query.get_mut(slot_entity) {
-        drag_state.hovered_slot = Some(slot_entity);
-
-        let is_valid_target = indicator.occupied_by.is_none();
-        info!(
-            "On DRAG target {:?} validity: {:?}",
-            slot_entity, is_valid_target
-        );
-
-        transform.translation.z = 12.;
-
-        sprite.color = if is_valid_target {
-            Color::srgba(0.5, 1.0, 0.5, 0.5)
-        } else {
-            Color::srgba(1.0, 0.5, 0.5, 0.5)
-        }
-    }
-}
-
-fn on_slot_drag_leave(
-    event: On<Pointer<DragLeave>>,
-    mut drag_state: ResMut<DragState>,
-    mut slot_query: Query<(&SlotIndicator, &mut Transform, &mut Sprite), With<Slot>>,
-) {
-    info!("DRAG LEAVE");
-    let slot_entity = event.event_target();
-
-    let Ok((slot_indicator, mut transform, mut sprite)) = slot_query.get_mut(slot_entity) else {
-        return;
-    };
-
-    info!(
-        "On drag leave target {:?} validity {:?}",
-        slot_entity,
-        slot_indicator.occupied_by.is_some()
-    );
-
-    // Always reset visual + z, regardless of hovered_slot state
-    transform.translation.z = 5.0;
-    let opacity = slot_indicator.state.get_opacity(false);
-    sprite.color = Color::srgba(1.0, 1.0, 1.0, opacity);
-
-    // Only clear hovered_slot if it's still us
-    if drag_state.hovered_slot != Some(slot_entity) {
-        drag_state.hovered_slot = None;
     }
 }
 
