@@ -3,9 +3,9 @@ use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
-use crate::camera::resources::SceneRenderTarget;
+use crate::camera::resources::{CellSceneRenderTarget, SceneRenderTarget};
 use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo};
-use crate::states::AppState;
+use crate::states::{AppState, GameView};
 use crate::ui::carousel::components::{Carousel, CarouselAlpha, CarouselItem};
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::resources::{ActionContextState, UIState};
@@ -100,6 +100,7 @@ pub struct ActionPanelQueries<'w, 's> {
 pub struct CardResources<'w> {
     pub asset_server: Res<'w, AssetServer>,
     pub render_target: Res<'w, SceneRenderTarget>,
+    pub cell_render_target: Res<'w, CellSceneRenderTarget>,
     pub materials: ResMut<'w, Assets<FrostedGlassMaterial>>,
 }
 
@@ -237,6 +238,7 @@ pub fn update_action_panel_content(
     mut commands: Commands,
     ui_state: Res<UIState>,
     action_context: Res<ActionContextState>,
+    game_view: Res<State<GameView>>,
     mut panel: ActionPanelQueries,
     mut cards: CardResources,
     data: ActionDataResources,
@@ -248,8 +250,6 @@ pub fn update_action_panel_content(
         return;
     }
 
-    // TODO : L'espace pour afficher le carousel n'est pas remis à jour lorsqu'on change de batiment
-    // TODO : ce qui donne un carousel beaucoup trop petit que ce qu'il devrait être...
     let Some(mode) = ui_state.action_mode else {
         if !last_action_ids.is_empty() {
             for entity in &panel.containers {
@@ -371,6 +371,15 @@ pub fn update_action_panel_content(
     // Unique ID for this carousel instance
     let carousel_id = 1u32; // Messages uses 0
 
+    let scene_texture = match game_view.get() {
+        GameView::Cell => cards
+            .cell_render_target
+            .handle
+            .clone()
+            .unwrap_or_else(|| cards.render_target.0.clone()),
+        _ => cards.render_target.0.clone(),
+    };
+
     if use_carousel {
         // ── CAROUSEL MODE ──
         let carousel_entity = commands
@@ -403,7 +412,7 @@ pub fn update_action_panel_content(
                 &mut commands,
                 &cards.asset_server,
                 &mut cards.materials,
-                &cards.render_target,
+                scene_texture.clone(),
                 action,
                 CARD_WIDTH,
                 CARD_HEIGHT,
@@ -438,7 +447,7 @@ pub fn update_action_panel_content(
                 &mut commands,
                 &cards.asset_server,
                 &mut cards.materials,
-                &cards.render_target,
+                scene_texture.clone(),
                 action,
                 CARD_WIDTH,
                 CARD_HEIGHT,
@@ -454,7 +463,7 @@ fn spawn_action_card(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<FrostedGlassMaterial>,
-    render_target: &SceneRenderTarget,
+    scene_texture: Handle<Image>,
     action: &ActionEntry,
     width: f32,
     height: f32,
@@ -480,7 +489,7 @@ fn spawn_action_card(
     let material = materials.add(FrostedGlassMaterial::from(
         FrostedGlassConfig::card()
             .with_border_radius(10.0)
-            .with_scene_texture(render_target.0.clone()),
+            .with_scene_texture(scene_texture),
     ));
 
     let card = commands
@@ -516,6 +525,7 @@ fn spawn_action_card(
                     column_gap: Val::Px(6.0),
                     ..default()
                 },
+                BackgroundColor(Color::NONE),
                 CarouselAlpha::new(card_opacity),
             ))
             .with_children(|top| {
@@ -542,6 +552,7 @@ fn spawn_action_card(
                         ..default()
                     },
                     TextColor(name_color),
+                    BackgroundColor(Color::NONE),
                     CarouselAlpha::new(card_opacity),
                     Pickable::IGNORE,
                 ));
@@ -556,6 +567,7 @@ fn spawn_action_card(
                         ..default()
                     },
                     TextColor(desc_color),
+                    BackgroundColor(Color::NONE),
                     CarouselAlpha::new(card_opacity),
                     Pickable::IGNORE,
                 ));
@@ -568,6 +580,7 @@ fn spawn_action_card(
                     row_gap: Val::Px(2.0),
                     ..default()
                 },
+                BackgroundColor(Color::NONE),
                 CarouselAlpha::new(card_opacity),
             ))
             .with_children(|bottom| {
@@ -587,6 +600,7 @@ fn spawn_action_card(
                             ..default()
                         },
                         TextColor(cost_color),
+                        BackgroundColor(Color::NONE),
                         CarouselAlpha::new(card_opacity),
                         Pickable::IGNORE,
                     ));
@@ -608,6 +622,7 @@ fn spawn_action_card(
                             ..default()
                         },
                         TextColor(output_color),
+                        BackgroundColor(Color::NONE),
                         CarouselAlpha::new(card_opacity),
                         Pickable::IGNORE,
                     ));

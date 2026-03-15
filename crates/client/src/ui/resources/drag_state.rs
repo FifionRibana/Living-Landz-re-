@@ -11,4 +11,5 @@ pub struct DragInfo {
     pub source_slot: Entity,
     pub unit_entity: Entity,
     pub source_position: SlotPosition,
+    pub origin: Vec2,
 }

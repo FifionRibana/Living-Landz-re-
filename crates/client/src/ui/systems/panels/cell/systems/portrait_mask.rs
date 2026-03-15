@@ -10,14 +10,14 @@ use crate::ui::components::PendingLayerComposition;
 pub fn apply_hex_mask_to_portraits(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut pending_query: Query<(Entity, &PendingHexMask, &mut ImageNode)>,
+    mut pending_query: Query<(Entity, &PendingHexMask, &mut Sprite)>,
 ) {
     let pending_count = pending_query.iter().count();
     if pending_count > 0 {
         info!("Processing {} portraits with PendingHexMask", pending_count);
     }
 
-    for (entity, pending, mut image_node) in &mut pending_query {
+    for (entity, pending, mut sprite) in &mut pending_query {
         // Check if both images are loaded
         let Some(portrait_img) = images.get(&pending.portrait_handle) else {
             // Portrait not loaded yet
@@ -69,14 +69,13 @@ pub fn apply_hex_mask_to_portraits(
                 TARGET_HEIGHT
             );
 
-            let resized = resize_image_nearest_neighbor(
+            resize_image_nearest_neighbor(
                 portrait_data,
                 portrait_img.texture_descriptor.size.width,
                 portrait_img.texture_descriptor.size.height,
                 TARGET_WIDTH,
                 TARGET_HEIGHT,
-            );
-            resized
+            )
         } else {
             portrait_data.clone()
         };
@@ -150,7 +149,7 @@ pub fn apply_hex_mask_to_portraits(
 
         // Add the masked image to assets and update the ImageNode
         let masked_handle = images.add(masked_image);
-        image_node.image = masked_handle;
+        sprite.image = masked_handle;
 
         info!("Applied hex mask successfully, updated ImageNode");
 
@@ -164,9 +163,9 @@ pub fn apply_hex_mask_to_portraits(
 pub fn compose_portrait_layers(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut query: Query<(Entity, &PendingLayerComposition, &mut ImageNode)>,
+    mut query: Query<(Entity, &PendingLayerComposition, &mut Sprite)>,
 ) {
-    for (entity, pending, mut image_node) in &mut query {
+    for (entity, pending, mut sprite) in &mut query {
         // Check if ALL layer images + mask are loaded
         let all_loaded = pending
             .layer_handles
@@ -272,8 +271,8 @@ pub fn compose_portrait_layers(
         );
 
         let composed_handle = images.add(composed_image);
-        image_node.image = composed_handle;
-        image_node.color = Color::WHITE; // Make visible
+        sprite.image = composed_handle;
+        sprite.color = Color::WHITE; // Make visible
 
         info!("✓ Composed lord portrait layers + hex mask");
 
