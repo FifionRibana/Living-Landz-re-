@@ -331,7 +331,7 @@ pub struct SlotVisualState {
     pub drag_target: Option<DragTargetValidity>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DragTargetValidity {
     Valid,   // green
     Invalid, // red

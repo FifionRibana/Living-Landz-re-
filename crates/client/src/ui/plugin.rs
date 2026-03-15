@@ -216,6 +216,7 @@ impl Plugin for UiPlugin {
                     systems::panels::compose_portrait_layers
                         .before(systems::panels::update_unit_portraits),
                     systems::panels::sync_slot_hierarchy_on_relation_change,
+                    systems::panels::sync_slot_visuals,
                     systems::panels::auto_assign_unslotted_units
                         .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
                 )
@@ -237,10 +238,10 @@ impl Plugin for UiPlugin {
                     // Slot visual feedback
                     // systems::update_slot_visual_feedback,
                     // systems::update_slot_overlay_visual_feedback,
-                    systems::refresh_overlay_on_selection_change
-                        .after(systems::handle_empty_slot_click),
-                    systems::update_unit_selection_portrait_tint
-                        .after(systems::handle_empty_slot_click),
+                    // systems::refresh_overlay_on_selection_change
+                    //     .after(systems::handle_empty_slot_click),
+                    // systems::update_unit_selection_portrait_tint
+                        // .after(systems::handle_empty_slot_click),
                     // Unit details tab + panel
                     systems::update_panel_visibility,
                     systems::update_tab_badge,
