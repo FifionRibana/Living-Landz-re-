@@ -21,10 +21,8 @@ pub fn handle_carousel_scroll(
         if delta.abs() < 0.001 {
             continue;
         }
-        info!("Handling carousel scroll: {}", delta);
 
         for mut carousel in query.iter_mut() {
-            info!("Carousel id: {} scrolling of {}", carousel.id, delta);
             carousel.target_scroll += delta * 40.0;
             carousel.snap_timer = 0.0;
         }
@@ -111,13 +109,11 @@ pub fn update_carousel_items(
             node.left = Val::Px(x_pos + centering_offset);
             node.position_type = PositionType::Absolute;
 
-            info!("> Updating carousel {} item index {} ({}). Node left: {:?} and position type: {:?}", carousel.id, item.index, item.carousel_id, node.left, node.position_type);
-
-
             // --- LOGIQUE VISUELLE ---
             if let Some(material) = materials.get_mut(material_handle) {
                 // 1. Position brute pour le shader (effet Wipe)
                 material.uniforms.edge_fade = x_pos;
+                material.uniforms._padding.x = container_width;
 
                 // 2. CALCUL DE VISIBILITÉ CORRIGÉ
                 // On veut que la carte soit 100% opaque pendant presque tout son trajet.
@@ -131,8 +127,14 @@ pub fn update_carousel_items(
                 let fade_end = teleport_boundary;
 
                 let visibility = ((fade_end - dist_abs) / (fade_end - fade_start)).clamp(0.0, 1.0);
-                let children_visibility = ((fade_end - 2.0 * feather - dist_abs)
-                    / (fade_end - 2.0 * feather - fade_start))
+                // let children_visibility = ((fade_end - 2.0 * feather - dist_abs)
+                //     / (fade_end - 2.0 * feather - fade_start))
+                //     .clamp(0.0, 1.0);
+                let half_container = container_width / 2.0;
+                let children_fade_start = half_container - carousel.item_width * 1.5;
+                let children_fade_end = half_container - carousel.item_width * 0.5;
+                let children_visibility = ((children_fade_end - dist_abs)
+                    / (children_fade_end - children_fade_start))
                     .clamp(0.0, 1.0);
 
                 // On applique cette visibilité
@@ -247,20 +249,26 @@ fn update_descendants_opacity(
 ) {
     if let Ok(children) = children_query.get(parent) {
         for child in children.iter() {
-            // Si l'enfant a le composant CarouselAlpha, on met à jour sa couleur
             if let Ok((alpha_conf, text, bg, img)) = faders_query.get_mut(child) {
                 let final_alpha = alpha_conf.base_alpha * visibility;
 
                 if let Some(mut t) = text {
                     t.0.set_alpha(final_alpha);
-                } else if let Some(mut b) = bg {
-                    b.0.set_alpha(final_alpha);
-                } else if let Some(mut i) = img {
+                }
+
+                if let Some(mut b) = bg {
+                    // Only animate BackgroundColor if it was intentionally opaque
+                    // Color::NONE (0,0,0,0) should stay transparent
+                    if alpha_conf.has_visible_background {
+                        b.0.set_alpha(final_alpha);
+                    }
+                }
+
+                if let Some(mut i) = img {
                     i.color.set_alpha(final_alpha);
                 }
             }
 
-            // On continue la récursion pour les enfants des enfants
             update_descendants_opacity(child, visibility, children_query, faders_query);
         }
     }
