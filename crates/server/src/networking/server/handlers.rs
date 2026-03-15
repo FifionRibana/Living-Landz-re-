@@ -186,6 +186,36 @@ fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> Ga
     }
 }
 
+/// Check if a player controls a unit, either directly (lord) or via organization membership.
+async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_id: u64) -> bool {
+    // 1. Direct ownership (lord)
+    let unit = match db_tables.units.load_unit(unit_id).await {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    if unit.player_id == Some(player_id) {
+        return true;
+    }
+
+    // 2. Organization membership — unit belongs to an org led by the player's lord
+    let result = sqlx::query(
+        r#"
+        SELECT 1 FROM organizations.members om
+        JOIN organizations.organizations o ON o.id = om.organization_id
+        JOIN units.units lord ON lord.id = o.leader_unit_id
+        WHERE om.unit_id = $1 AND lord.player_id = $2 AND lord.is_lord = true
+        LIMIT 1
+        "#,
+    )
+    .bind(unit_id as i64)
+    .bind(player_id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await;
+
+    matches!(result, Ok(Some(_)))
+}
+
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
@@ -1483,7 +1513,7 @@ async fn handle_client_message(
             };
 
             // Vérifier que l'unité appartient au joueur
-            if unit_data.player_id != Some(player_id) {
+            if !player_controls_unit(&db_tables, player_id, unit_id).await {
                 return vec![ServerMessage::ActionError {
                     reason: "Cette unité ne vous appartient pas".to_string(),
                 }];
