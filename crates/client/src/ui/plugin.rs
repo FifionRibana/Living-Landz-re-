@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::{
     carousel,
-    resources::{ActionContextState, ActionState, CellViewState, ChatState, UIState},
+    resources::{ActionContextState, ActionState, ChatState, UIState},
     systems,
 };
 use crate::states::{AppState, GameView, Overlay};
@@ -226,22 +226,6 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    // Drag & drop
-                    systems::handle_slot_drag_start,
-                    systems::detect_drag_movement.after(systems::handle_slot_drag_start),
-                    systems::update_drag_visual.after(systems::detect_drag_movement),
-                    systems::handle_slot_drop.after(systems::detect_drag_movement),
-                    systems::cancel_drag_on_escape,
-                    // Unit selection
-                    systems::handle_unit_deselect,
-                    systems::handle_empty_slot_click,
-                    // Slot visual feedback
-                    // systems::update_slot_visual_feedback,
-                    // systems::update_slot_overlay_visual_feedback,
-                    // systems::refresh_overlay_on_selection_change
-                    //     .after(systems::handle_empty_slot_click),
-                    // systems::update_unit_selection_portrait_tint
-                        // .after(systems::handle_empty_slot_click),
                     // Unit details tab + panel
                     systems::update_panel_visibility,
                     systems::update_tab_badge,
@@ -358,7 +342,6 @@ fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(ChatState::default());
     commands.insert_resource(ActionState::default());
     commands.insert_resource(ActionContextState::default());
-    commands.insert_resource(CellViewState::default());
     commands.insert_resource(CellState::default());
     commands.insert_resource(DragState::default());
     commands.insert_resource(UIState::default());
@@ -372,7 +355,6 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<ChatState>();
     commands.remove_resource::<ActionState>();
     commands.remove_resource::<ActionContextState>();
-    commands.remove_resource::<CellViewState>();
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();
     commands.remove_resource::<UIState>();

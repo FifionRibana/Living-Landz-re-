@@ -9,7 +9,6 @@ use crate::camera::resources::CELL_SCENE_LAYER;
 use crate::ui::components::{
     CellSceneSlotSprite, CellSceneVisual, DragTargetValidity, Slot, SlotVisualState,
 };
-use crate::ui::resources::CellViewState;
 use crate::{
     networking::client::NetworkClient,
     state::resources::{UnitsCache, UnitsDataCache},
