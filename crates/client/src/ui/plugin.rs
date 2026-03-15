@@ -185,7 +185,13 @@ impl Plugin for UiPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             // Clean up when leaving Cell view
-            .add_systems(OnExit(GameView::Cell), on_exit_cell_view)
+            .add_systems(
+                OnExit(GameView::Cell),
+                (
+                    on_exit_cell_view,
+                    systems::panels::cleanup_cell_scene_visuals,
+                ),
+            )
             // ─── Update systems ──────────────────────────────────────────
             // Global ESC handler
             .add_systems(Update, handle_escape_key.run_if(in_state(AppState::InGame)))
@@ -229,8 +235,8 @@ impl Plugin for UiPlugin {
                     systems::handle_unit_deselect,
                     systems::handle_empty_slot_click,
                     // Slot visual feedback
-                    systems::update_slot_visual_feedback,
-                    systems::update_slot_overlay_visual_feedback,
+                    // systems::update_slot_visual_feedback,
+                    // systems::update_slot_overlay_visual_feedback,
                     systems::refresh_overlay_on_selection_change
                         .after(systems::handle_empty_slot_click),
                     systems::update_unit_selection_portrait_tint
