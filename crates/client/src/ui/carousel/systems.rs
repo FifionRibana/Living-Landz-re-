@@ -60,7 +60,6 @@ pub fn update_carousel_items(
         }
         // --- ÉTAPE DE SMOOTHING ---
         // On fait glisser current_scroll vers target_scroll
-
         carousel.current_scroll = carousel
             .current_scroll
             .lerp(carousel.target_scroll, dt * carousel.lerp_speed);
@@ -75,13 +74,6 @@ pub fn update_carousel_items(
         let teleport_boundary = total_content_width / 2.0;
         let centering_offset = (container_width / 2.0) - (carousel.item_width / 2.0);
 
-        let container_limit = container_width * 0.45;
-        let feather = 50.0;
-
-        // if carousel.target_scroll.abs() > total_content_width {
-        //     carousel.target_scroll %= total_content_width;
-        //     carousel.current_scroll %= total_content_width;
-        // }
         // Smooth wrapping: keep both values in sync
         if carousel.target_scroll > total_content_width {
             carousel.target_scroll -= total_content_width;
@@ -127,10 +119,7 @@ pub fn update_carousel_items(
                 let fade_end = teleport_boundary;
 
                 let visibility = ((fade_end - dist_abs) / (fade_end - fade_start)).clamp(0.0, 1.0);
-                // let children_visibility = ((fade_end - 2.0 * feather - dist_abs)
-                //     / (fade_end - 2.0 * feather - fade_start))
-                //     .clamp(0.0, 1.0);
-                let half_container = container_width / 2.0;
+                 let half_container = container_width / 2.0;
                 let children_fade_start = half_container - carousel.item_width * 1.5;
                 let children_fade_end = half_container - carousel.item_width * 0.5;
                 let children_visibility = ((children_fade_end - dist_abs)
@@ -140,23 +129,6 @@ pub fn update_carousel_items(
                 // On applique cette visibilité
                 material.uniforms.visibility = visibility;
 
-                // // 2. Calcul de l'opacité globale (effet Fade)
-                // // On veut que la carte soit à 0.0 d'opacité à l'endroit précis de la téléportation
-                // let dist_abs = x_pos.abs();
-
-                // // La visibilité commence à baisser à 70% du chemin vers le bord
-                // let fade_start = teleport_boundary * 0.7;
-                // let visibility =
-                //     ((teleport_boundary - dist_abs) / (teleport_boundary - fade_start)).clamp(0.0, 1.0);
-
-                // 3. Application au Verre (Uniforms)
-                // On multiplie les opacités de base par notre facteur de visibilité
-                // (Ici 0.3 et 0.85 sont tes valeurs de base du FrostedGlassConfig)
-                // material.uniforms.opacity_top = 0.3 * visibility;
-                // material.uniforms.opacity_bottom = 0.85 * visibility;
-
-                // material.uniforms.visibility = visibility;
-
                 // Mise à jour récursive des enfants avec CarouselAlpha
                 update_descendants_opacity(
                     entity,
@@ -164,18 +136,6 @@ pub fn update_carousel_items(
                     children_query,
                     &mut faders_query,
                 );
-
-                // // 4. Application au Contenu (Texte, Icônes)
-                // if let Some(children) = children {
-                //     for child in children.iter() {
-                //         if let Ok(mut text_color) = text_query.get_mut(child) {
-                //             text_color.0.set_alpha(children_visibility);
-                //         }
-                //         // if let Ok(mut bg_color) = ui_color_query.get_mut(child) {
-                //         //     bg_color.0.set_alpha(visibility);
-                //         // }
-                //     }
-                // }
             }
         }
     }
