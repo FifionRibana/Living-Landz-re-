@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use shared::SlotPosition;
 
-use crate::ui::resources::ActionModeEnum;
 use crate::states::GameView;
+use crate::ui::resources::ActionModeEnum;
 
 #[derive(Component)]
 pub struct ClockText;
@@ -304,9 +304,7 @@ impl SlotIndicator {
 }
 
 #[derive(Component)]
-pub struct Slot {
-    pub slot_position: SlotPosition,
-}
+pub struct Slot;
 
 #[derive(Component)]
 pub struct SlotUnitPortrait {
@@ -326,13 +324,25 @@ pub struct SlotBorderOverlay {
     pub slot_position: shared::SlotPosition,
 }
 
+/// Logical state — set by observers
+#[derive(Component, Default)]
+pub struct SlotVisualState {
+    pub hovered: bool,
+    pub drag_target: Option<DragTargetValidity>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum DragTargetValidity {
+    Valid,   // green
+    Invalid, // red
+}
+
 /// Component to mark portraits that need hex masking
 #[derive(Component)]
 pub struct PendingHexMask {
     pub portrait_handle: Handle<Image>,
     pub mask_handle: Handle<Image>,
 }
-
 
 #[derive(Component)]
 pub struct CellViewBackButton;
@@ -385,4 +395,14 @@ pub struct OrganizationBadgeText;
 pub struct PendingLayerComposition {
     pub layer_handles: [Handle<Image>; 4], // bust, face, clothes, hair
     pub mask_handle: Option<Handle<Image>>,
+}
+
+/// Marker for all sprites on the CELL_SCENE_LAYER
+#[derive(Component)]
+pub struct CellSceneVisual;
+
+/// Sprite counterpart of a SlotIndicator on CELL_SCENE_LAYER
+#[derive(Component)]
+pub struct CellSceneSlotSprite {
+    pub slot_position: SlotPosition,
 }

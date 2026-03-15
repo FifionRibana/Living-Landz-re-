@@ -28,7 +28,7 @@ fn is_slot_unit_selected(
 // ─── Base slot hex image ────────────────────────────────────
 
 /// Update the base hex slot image based on interaction state.
-pub fn update_slot_visual_feedback(
+/*pub fn update_slot_visual_feedback(
     cell_view_state: Res<CellViewState>,
     mut slot_query: Query<(&Interaction, &SlotIndicator, &mut ImageNode), Changed<Interaction>>,
 ) {
@@ -60,13 +60,13 @@ pub fn update_slot_visual_feedback(
             }
         };
     }
-}
+}*/
 
 // ─── Border overlay (on top of portrait) ────────────────────
 
 /// Update the border overlay color based on interaction state.
 /// Selection-aware: in Interaction::None, uses green tint if unit is selected.
-pub fn update_slot_overlay_visual_feedback(
+/*pub fn update_slot_overlay_visual_feedback(
     cell_view_state: Res<CellViewState>,
     unit_selection: Res<UnitSelectionState>,
     units_cache: Res<UnitsCache>,
@@ -101,7 +101,7 @@ pub fn update_slot_overlay_visual_feedback(
             }
         };
     }
-}
+}*/
 
 /// Refresh border overlays every frame for non-hovered/pressed slots.
 /// Ensures selection state is always visually in sync, including on state entry.
@@ -109,16 +109,16 @@ pub fn refresh_overlay_on_selection_change(
     cell_view_state: Res<CellViewState>,
     unit_selection: Res<UnitSelectionState>,
     units_cache: Res<UnitsCache>,
-    mut border_query: Query<(&Interaction, &SlotBorderOverlay, &mut ImageNode)>,
+    mut border_query: Query<(&SlotBorderOverlay, &mut Sprite)>,
 ) {
     let Some(viewed_cell) = cell_view_state.viewed_cell else {
         return;
     };
 
-    for (interaction, border, mut image_node) in &mut border_query {
-        if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
-            continue;
-        }
+    for (border, mut sprite) in &mut border_query {
+        // if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+        //     continue;
+        // }
 
         let is_selected = is_slot_unit_selected(
             &viewed_cell,
@@ -134,8 +134,8 @@ pub fn refresh_overlay_on_selection_change(
         };
 
         // Only write if different to avoid unnecessary change detection
-        if image_node.color != target {
-            image_node.color = target;
+        if sprite.color != target {
+            sprite.color = target;
         }
     }
 }
@@ -146,17 +146,17 @@ pub fn refresh_overlay_on_selection_change(
 /// Runs every frame to ensure consistency on state entry.
 pub fn update_unit_selection_portrait_tint(
     unit_selection: Res<UnitSelectionState>,
-    mut sprite_query: Query<(&SlotUnitSprite, &mut ImageNode)>,
+    mut sprite_query: Query<(&SlotUnitSprite, &mut Sprite)>,
 ) {
-    for (sprite, mut image_node) in &mut sprite_query {
-        let target = if unit_selection.is_selected(sprite.unit_id) {
+    for (slot_sprite, mut sprite) in &mut sprite_query {
+        let target = if unit_selection.is_selected(slot_sprite.unit_id) {
             SELECTED_PORTRAIT_TINT
         } else {
             NORMAL_PORTRAIT_TINT
         };
 
-        if image_node.color != target {
-            image_node.color = target;
+        if sprite.color != target {
+            sprite.color = target;
         }
     }
 }

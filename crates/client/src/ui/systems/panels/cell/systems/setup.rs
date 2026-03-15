@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 
+use crate::camera::resources::CELL_SCENE_LAYER;
 use crate::states::GameView;
 use crate::ui::{
-    components::CellViewBackgroundImage,
+    components::CellSceneVisual,
     resources::CellState,
     systems::{
         load_building_background, load_separators, load_terrain_background,
@@ -12,149 +13,128 @@ use crate::ui::{
 };
 
 pub fn setup_cell_panel(mut commands: Commands) {
-    commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.),
-                height: Val::Percent(100.),
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.95)),
-            DespawnOnExit(GameView::Cell),
-            CellViewPanel,
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Text::new("CELL VIEW"),
-                TextFont {
-                    font_size: 28.0,
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ));
-        });
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            ..default()
+        },
+        // No BackgroundColor — the CellSceneDisplay sprite provides the background
+        DespawnOnExit(GameView::Cell),
+        CellViewPanel,
+        Pickable {
+            should_block_lower: false,
+            is_hoverable: false
+        }
+    ));
 }
 
 pub fn setup_cell_layout(
     mut commands: Commands,
-    container_query: Query<Entity, With<CellViewPanel>>,
-    children_query: Query<&Children>,
     asset_server: Res<AssetServer>,
     cell_state: Res<CellState>,
+    windows: Query<&Window>,
+    old_visuals: Query<Entity, With<CellSceneVisual>>,
 ) {
-    let Some(viewed_cell) = cell_state.cell() else {
+    let Some(_viewed_cell) = cell_state.cell() else {
         return;
     };
 
-    // Get cell data
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    // Despawn previous scene visuals
+    for entity in &old_visuals {
+        commands.entity(entity).despawn();
+    }
+
+    let screen_w = window.width();
+    let screen_h = window.height();
     let biome = cell_state.biome();
 
-    // Clear existing content in container (needed when switching cells while in CellView)
-    for container_entity in &container_query {
-        if let Ok(children) = children_query.get(container_entity) {
-            for child in children.iter() {
-                commands.entity(child).despawn();
-            }
-        }
+    info!("Setting up cell scene visuals");
 
-        // Rebuild content
-        commands.entity(container_entity).with_children(|parent| {
-            info!("Setting up cell layout: {:?}", viewed_cell);
-            // 1. Terrain background (full screen, behind everything)
-            let terrain_bg = load_terrain_background(&asset_server, biome);
-            parent.spawn((
-                ImageNode {
-                    image: terrain_bg,
+    // 1. Terrain background — full screen Sprite
+    let terrain_bg = load_terrain_background(&asset_server, biome);
+    commands.spawn((
+        Sprite {
+            image: terrain_bg,
+            custom_size: Some(Vec2::new(screen_w, screen_h)),
+            ..default()
+        },
+        Transform::from_translation(Vec3::ZERO),
+        CellSceneVisual,
+        CELL_SCENE_LAYER,
+    ));
+
+    // 2. Building background + separators
+    if let Some(building_data) = cell_state.building_data {
+        let building_bg = load_building_background(&asset_server, &building_data);
+
+        if cell_state.has_interior() {
+            // Building: square centered, height-based
+            let side = screen_h;
+            commands.spawn((
+                Sprite {
+                    image: building_bg,
+                    custom_size: Some(Vec2::new(side, side)),
                     ..default()
                 },
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                CellViewBackgroundImage,
+                Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+                CellSceneVisual,
+                CELL_SCENE_LAYER,
             ));
 
-            // 2. Building background and separators container (if building exists)
-            if let Some(building_data) = cell_state.building_data {
-                let building_bg = load_building_background(&asset_server, &building_data);
+            // Separators
+            let (left_sep, right_sep) = load_separators(&asset_server, Some(&building_data));
+            let sep_width = screen_h * 0.08;
 
-                // Check if building has interior slots
-                if cell_state.has_interior() {
-                    // Buildings WITH interior: square 1:1 ratio with separators
-                    let (left_separator, right_separator) =
-                        load_separators(&asset_server, Some(&building_data));
+            commands.spawn((
+                Sprite {
+                    image: left_sep,
+                    custom_size: Some(Vec2::new(sep_width, screen_h)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(-side / 2.0, 0.0, 2.0)),
+                CellSceneVisual,
+                CELL_SCENE_LAYER,
+            ));
 
-                    parent
-                        .spawn((Node {
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            position_type: PositionType::Absolute,
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            flex_direction: FlexDirection::Row,
-                            ..default()
-                        },))
-                        .with_children(|building_container| {
-                            // Left separator
-                            building_container.spawn((
-                                ImageNode {
-                                    image: left_separator,
-                                    ..default()
-                                },
-                                Node {
-                                    height: Val::Percent(100.0),
-                                    width: Val::Auto,
-                                    ..default()
-                                },
-                            ));
+            commands.spawn((
+                Sprite {
+                    image: right_sep,
+                    custom_size: Some(Vec2::new(sep_width, screen_h)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(side / 2.0, 0.0, 2.0)),
+                CellSceneVisual,
+                CELL_SCENE_LAYER,
+            ));
+        } else {
+            // No interior — full screen
+            commands.spawn((
+                Sprite {
+                    image: building_bg,
+                    custom_size: Some(Vec2::new(screen_w, screen_h)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+                CellSceneVisual,
+                CELL_SCENE_LAYER,
+            ));
+        }
+    }
+}
 
-                            // Building background (square 1:1 ratio, height constrained)
-                            building_container.spawn((
-                                ImageNode {
-                                    image: building_bg,
-                                    ..default()
-                                },
-                                Node {
-                                    height: Val::Percent(100.0),
-                                    aspect_ratio: Some(1.0), // Force 1:1 ratio
-                                    ..default()
-                                },
-                            ));
-
-                            // Right separator
-                            building_container.spawn((
-                                ImageNode {
-                                    image: right_separator,
-                                    ..default()
-                                },
-                                Node {
-                                    height: Val::Percent(100.0),
-                                    width: Val::Auto,
-                                    ..default()
-                                },
-                            ));
-                        });
-                } else {
-                    // Buildings WITHOUT interior (only exterior): 16:9 ratio, no separators
-                    parent.spawn((
-                        ImageNode {
-                            image: building_bg,
-                            ..default()
-                        },
-                        Node {
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            position_type: PositionType::Absolute,
-                            ..default()
-                        },
-                    ));
-                }
-            }
-        });
+pub fn cleanup_cell_scene_visuals(
+    mut commands: Commands,
+    visuals: Query<Entity, With<CellSceneVisual>>,
+) {
+    for entity in &visuals {
+        commands.entity(entity).despawn();
     }
 }
