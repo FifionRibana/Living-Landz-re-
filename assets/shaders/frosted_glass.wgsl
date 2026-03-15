@@ -119,7 +119,9 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     
     // 2. Définition de la zone de visibilité (le "masque")
     // On utilise la largeur de l'écran ou une valeur fixe pour les bords du carousel
-    let container_limit = material.screen_size.x * 0.5 - 50.0; 
+    // _padding.x = container width (set by carousel system), 0 = use screen width
+    let effective_width = select(material.screen_size.x, material._padding.x, material._padding.x > 0.0);
+    let container_limit = effective_width * 0.5 - 50.0;
     let feather = 50.0; // Largeur de la transition du wipe en pixels
     
     // window_mask sera 1.0 au centre et 0.0 au-delà de container_limit
