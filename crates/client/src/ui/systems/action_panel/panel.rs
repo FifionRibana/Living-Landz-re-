@@ -776,6 +776,20 @@ pub fn update_action_detail_panel(
             .with_scene_texture(scene_texture),
     ));
 
+    // Build a name → quantity map for ingredient display
+    let inventory_map: Vec<(String, i32)> = if let Some(ref game_data) = game_data_ref {
+        game_data
+            .inventory
+            .iter()
+            .map(|(item_id, qty)| {
+                let name = game_data.item_name(*item_id);
+                (name, *qty)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let panel = commands
         .spawn((
             MaterialNode(material),
@@ -802,45 +816,103 @@ pub fn update_action_detail_panel(
                 TextColor(Color::srgb_u8(67, 60, 37)),
             ));
 
-            // ── Costs → Outputs ──
-            if !action.costs.is_empty() || !action.outputs.is_empty() {
-                let mut line = String::new();
-
-                if !action.costs.is_empty() {
-                    let costs = action
-                        .costs
-                        .iter()
-                        .map(|c| format!("{} ×{}", c.name, c.quantity))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    line.push_str(&costs);
-                }
-
-                if !action.costs.is_empty() && !action.outputs.is_empty() {
-                    line.push_str("  →  ");
-                }
-
-                if !action.outputs.is_empty() {
-                    let outputs = action
-                        .outputs
-                        .iter()
-                        .map(|o| format!("{} ×{}", o.name, o.quantity))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    line.push_str(&outputs);
-                }
-
-                panel.spawn((
-                    Text::new(line),
-                    TextFont {
-                        font_size: 11.0,
+            // ── Ingredients ──
+            if !action.costs.is_empty() {
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(4.0),
                         ..default()
-                    },
-                    TextColor(Color::srgb_u8(120, 110, 90)),
-                ));
+                    })
+                    .with_children(|ingredients_col| {
+                        ingredients_col.spawn((
+                            Text::new("Ingrédients"),
+                            TextFont {
+                                font_size: 10.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgba_u8(140, 130, 110, 200)),
+                        ));
+
+                        for cost in &action.costs {
+                            // Find available quantity in inventory
+                            let available = inventory_map
+                                .iter()
+                                .find(|(name, _)| *name == cost.name)
+                                .map(|(_, qty)| *qty)
+                                .unwrap_or(0);
+                            let enough = available >= cost.quantity as i32;
+
+                            ingredients_col
+                                .spawn(Node {
+                                    flex_direction: FlexDirection::Row,
+                                    align_items: AlignItems::Center,
+                                    column_gap: Val::Px(8.0),
+                                    ..default()
+                                })
+                                .with_children(|row| {
+                                    // Item name
+                                    row.spawn((
+                                        Text::new(&cost.name),
+                                        TextFont {
+                                            font_size: 12.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::srgb_u8(67, 60, 37)),
+                                    ));
+
+                                    // Quantity: required / available
+                                    let qty_text = format!("{} / {}", cost.quantity, available);
+                                    row.spawn((
+                                        Text::new(qty_text),
+                                        TextFont {
+                                            font_size: 11.0,
+                                            ..default()
+                                        },
+                                        TextColor(if enough {
+                                            Color::srgb_u8(60, 130, 80) // green
+                                        } else {
+                                            Color::srgb_u8(200, 60, 60) // red
+                                        }),
+                                    ));
+                                });
+                        }
+                    });
             }
 
-           // ── Units + Execute row ──
+            // ── Outputs ──
+            if !action.outputs.is_empty() {
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(8.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn((
+                            Text::new("Produit :"),
+                            TextFont {
+                                font_size: 10.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgba_u8(140, 130, 110, 200)),
+                        ));
+
+                        for output in &action.outputs {
+                            row.spawn((
+                                Text::new(format!("{} ×{}", output.name, output.quantity)),
+                                TextFont {
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb_u8(60, 130, 80)),
+                            ));
+                        }
+                    });
+            }
+
+            // ── Units + Execute row ──
             panel
                 .spawn(Node {
                     flex_direction: FlexDirection::Row,
@@ -870,12 +942,9 @@ pub fn update_action_detail_panel(
                         } else {
                             for &unit_id in selected {
                                 if let Some(unit) = units_data_cache.get_unit(unit_id) {
-                                    let avatar = unit
-                                        .avatar_url
-                                        .clone()
-                                        .unwrap_or_else(|| {
-                                            "ui/icons/unit_placeholder.png".to_string()
-                                        });
+                                    let avatar = unit.avatar_url.clone().unwrap_or_else(|| {
+                                        "ui/icons/unit_placeholder.png".to_string()
+                                    });
 
                                     portraits
                                         .spawn(Node {
