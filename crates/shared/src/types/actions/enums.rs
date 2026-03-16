@@ -113,6 +113,19 @@ impl ActionTypeEnum {
             _ => None,
         }
     }
+
+    pub fn to_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "Action",
+            Self::BuildBuilding => "Construction",
+            Self::BuildRoad => "Route",
+            Self::MoveUnit => "Déplacement",
+            Self::SendMessage => "Message",
+            Self::HarvestResource => "Récolte",
+            Self::CraftResource => "Fabrication",
+            Self::TrainUnit => "Formation",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

@@ -18,4 +18,10 @@ pub struct PendingIndicator;
 pub struct InProgressIndicator;
 
 #[derive(Component)]
-pub struct CompletedIndicator;
+pub struct CompletedIndicator {
+    pub completed_at: u64
+}
+
+/// Marker for the fill portion of the progress bar
+#[derive(Component)]
+pub struct ProgressBarFill;
