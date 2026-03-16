@@ -694,6 +694,8 @@ pub fn update_action_detail_panel(
     root_query: Query<Entity, With<ActionPanelRoot>>,
     existing_panel: Query<Entity, With<ActionDetailPanel>>,
     game_view: Res<State<GameView>>,
+    unit_selection: Res<UnitSelectionState>,
+    units_data_cache: Res<UnitsDataCache>,
 ) {
     if !selection.is_changed() {
         return;
@@ -833,14 +835,69 @@ pub fn update_action_detail_panel(
                 ));
             }
 
-            // ── Execute button ──
+           // ── Units + Execute row ──
             panel
                 .spawn(Node {
                     flex_direction: FlexDirection::Row,
-                    justify_content: JustifyContent::FlexEnd,
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
                     ..default()
                 })
                 .with_children(|row| {
+                    // Unit portraits
+                    row.spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(4.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|portraits| {
+                        let selected = unit_selection.selected_ids();
+                        if selected.is_empty() {
+                            portraits.spawn((
+                                Text::new("Aucune unité sélectionnée"),
+                                TextFont {
+                                    font_size: 10.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgba_u8(160, 140, 120, 180)),
+                            ));
+                        } else {
+                            for &unit_id in selected {
+                                if let Some(unit) = units_data_cache.get_unit(unit_id) {
+                                    let avatar = unit
+                                        .avatar_url
+                                        .clone()
+                                        .unwrap_or_else(|| {
+                                            "ui/icons/unit_placeholder.png".to_string()
+                                        });
+
+                                    portraits
+                                        .spawn(Node {
+                                            width: Val::Px(36.0),
+                                            height: Val::Px(36.0),
+                                            ..default()
+                                        })
+                                        .with_children(|frame| {
+                                            frame.spawn((
+                                                ImageNode {
+                                                    image: cards.asset_server.load(&avatar),
+                                                    ..default()
+                                                },
+                                                Node {
+                                                    width: Val::Percent(100.0),
+                                                    height: Val::Percent(100.0),
+                                                    ..default()
+                                                },
+                                                BorderRadius::all(Val::Px(18.0)),
+                                            ));
+                                        });
+                                }
+                            }
+                        }
+                    });
+
+                    // Execute button
                     row.spawn((
                         Node {
                             padding: UiRect::new(
