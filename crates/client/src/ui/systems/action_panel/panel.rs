@@ -4,11 +4,11 @@ use bevy::state::state_scoped::DespawnOnExit;
 use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
 use crate::camera::resources::{CellSceneRenderTarget, SceneRenderTarget};
-use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo};
+use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo, UnitsDataCache};
 use crate::states::{AppState, GameView};
 use crate::ui::carousel::components::{Carousel, CarouselAlpha, CarouselItem};
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
-use crate::ui::resources::{ActionContextState, ActionSelectionState, UIState};
+use crate::ui::resources::{ActionContextState, ActionSelectionState, UIState, UnitSelectionState};
 
 // ─── Markers ────────────────────────────────────────────────
 
@@ -243,6 +243,7 @@ pub fn update_action_panel_content(
     mut cards: CardResources,
     data: ActionDataResources,
     windows: Query<&Window>,
+    mut action_selection: ResMut<ActionSelectionState>,
     mut last_action_ids: Local<Vec<String>>,
 ) {
     if !ui_state.is_changed() && !action_context.is_changed() && !data.inventory_cache.is_changed()
@@ -256,6 +257,7 @@ pub fn update_action_panel_content(
                 commands.entity(entity).despawn();
             }
             last_action_ids.clear();
+            action_selection.close();
         }
         return;
     };
@@ -309,6 +311,9 @@ pub fn update_action_panel_content(
         return;
     }
     *last_action_ids = new_ids;
+
+    // Close detail panel when actions change (new building, new mode)
+    action_selection.close();
 
     // Despawn old entries + carousel
     for entity in &panel.containers {
