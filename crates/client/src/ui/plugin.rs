@@ -399,6 +399,7 @@ fn handle_escape_key(
     overlay: Option<Res<State<Overlay>>>,
     mut next_view: ResMut<NextState<GameView>>,
     mut next_overlay: ResMut<NextState<Overlay>>,
+    mut action_selection: Option<ResMut<ActionSelectionState>>,
 ) {
     if !keyboard.just_pressed(KeyCode::Escape) {
         return;
@@ -413,7 +414,16 @@ fn handle_escape_key(
         return;
     }
 
-    // Priority 2: exit cell view
+    // Priority 2: close action detail panel if open
+    if let Some(ref mut selection) = action_selection {
+        if selection.expanded_action.is_some() {
+            info!("Closing action detail panel via ESC");
+            selection.close();
+            return;
+        }
+    }
+
+    // Priority 3: exit cell view
     if let Some(ref gv) = game_view
         && *gv.get() == GameView::Cell
     {
@@ -422,7 +432,7 @@ fn handle_escape_key(
         return;
     }
 
-    // Priority 3: open pause menu
+    // Priority 4: open pause menu
     info!("Opening pause menu");
     next_overlay.set(Overlay::PauseMenu);
 }
