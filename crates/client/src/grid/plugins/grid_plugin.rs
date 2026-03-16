@@ -18,7 +18,7 @@ impl Plugin for GridPlugin {
                 (
                     systems::update_action_indicators,
                     systems::animate_in_progress_indicators,
-                    systems::update_action_timer_text,
+                    systems::update_action_progress,
                     systems::cleanup_completed_indicators,
                     systems::update_road_preview,
                     systems::draw_road_preview,
