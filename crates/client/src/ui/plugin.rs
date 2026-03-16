@@ -10,12 +10,15 @@ use super::{
     resources::{ActionContextState, ActionState, ChatState, UIState},
     systems,
 };
-use crate::states::{AppState, GameView, Overlay};
 use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
 use crate::ui::systems::panels::character_creation::resources::CharacterCreationState;
 use crate::ui::systems::panels::coat_of_arms_creation::resources::CoatOfArmsCreationState;
 use crate::{state::resources, ui::resources::ContextMenuState};
+use crate::{
+    states::{AppState, GameView, Overlay},
+    ui::resources::ActionSelectionState,
+};
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -290,6 +293,10 @@ impl Plugin for UiPlugin {
                     systems::action_panel::update_action_panel_content
                         .after(systems::action_panel::compute_action_context),
                     systems::action_panel::handle_action_entry_click,
+                    systems::action_panel::update_action_detail_panel
+                        .after(systems::action_panel::handle_action_entry_click),
+                    systems::action_panel::handle_execute_button,
+                    systems::action_panel::update_selected_card_highlight,
                     systems::action_panel::update_action_entry_hover,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -342,6 +349,7 @@ fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(ChatState::default());
     commands.insert_resource(ActionState::default());
     commands.insert_resource(ActionContextState::default());
+    commands.insert_resource(ActionSelectionState::default());
     commands.insert_resource(CellState::default());
     commands.insert_resource(DragState::default());
     commands.insert_resource(UIState::default());
@@ -355,6 +363,7 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<ChatState>();
     commands.remove_resource::<ActionState>();
     commands.remove_resource::<ActionContextState>();
+    commands.remove_resource::<ActionSelectionState>();
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();
     commands.remove_resource::<UIState>();
