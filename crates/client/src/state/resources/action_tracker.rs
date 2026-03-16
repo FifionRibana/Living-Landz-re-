@@ -10,7 +10,20 @@ pub struct TrackedAction {
     pub cell: GridCell,
     pub action_type: ActionTypeEnum,
     pub status: ActionStatusEnum,
+    pub start_time: u64,
     pub completion_time: u64,
+}
+
+impl TrackedAction {
+    /// Progress from 0.0 to 1.0 based on current time
+    pub fn progress(&self, current_time: u64) -> f32 {
+        if self.completion_time <= self.start_time {
+            return 1.0;
+        }
+        let elapsed = current_time.saturating_sub(self.start_time) as f32;
+        let total = (self.completion_time - self.start_time) as f32;
+        (elapsed / total).clamp(0.0, 1.0)
+    }
 }
 
 /// Resource pour suivre les actions en cours côté client
