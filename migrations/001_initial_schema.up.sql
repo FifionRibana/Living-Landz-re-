@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 9Gbrcv1xdaih4pOvCdVKD8hZkjCyCpBUD3TYn0uL42LcMUIjy1jDAfJ8qWAG0Rk
+\restrict WdS0PDWDAvqS22er524zGwjOV6Dq7pMCs5lVzTreYPxP0bB05GLXDJktRrkinrc
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -32,7 +32,7 @@ ALTER SCHEMA actions OWNER TO living_landz_srv;
 -- Name: SCHEMA actions; Type: COMMENT; Schema: -; Owner: living_landz_srv
 --
 
-COMMENT ON SCHEMA actions IS 'Système des actions planifiées';
+COMMENT ON SCHEMA actions IS 'Syst├¿me des actions planifi├®es';
 
 
 --
@@ -48,7 +48,7 @@ ALTER SCHEMA buildings OWNER TO living_landz_srv;
 -- Name: SCHEMA buildings; Type: COMMENT; Schema: -; Owner: living_landz_srv
 --
 
-COMMENT ON SCHEMA buildings IS 'Bâtiments et constructions';
+COMMENT ON SCHEMA buildings IS 'B├ótiments et constructions';
 
 
 --
@@ -80,7 +80,7 @@ ALTER SCHEMA organizations OWNER TO living_landz_srv;
 -- Name: SCHEMA organizations; Type: COMMENT; Schema: -; Owner: living_landz_srv
 --
 
-COMMENT ON SCHEMA organizations IS 'Système des organisations (territoires, guildes, ordres religieux, etc.)';
+COMMENT ON SCHEMA organizations IS 'Syst├¿me des organisations (territoires, guildes, ordres religieux, etc.)';
 
 
 --
@@ -96,7 +96,7 @@ ALTER SCHEMA resources OWNER TO living_landz_srv;
 -- Name: SCHEMA resources; Type: COMMENT; Schema: -; Owner: living_landz_srv
 --
 
-COMMENT ON SCHEMA resources IS 'Ressources et économie';
+COMMENT ON SCHEMA resources IS 'Ressources et ├®conomie';
 
 
 --
@@ -128,7 +128,7 @@ ALTER SCHEMA units OWNER TO living_landz_srv;
 -- Name: SCHEMA units; Type: COMMENT; Schema: -; Owner: living_landz_srv
 --
 
-COMMENT ON SCHEMA units IS 'Système des unités et personnages';
+COMMENT ON SCHEMA units IS 'Syst├¿me des unit├®s et personnages';
 
 
 --
@@ -137,32 +137,58 @@ COMMENT ON SCHEMA units IS 'Système des unités et personnages';
 
 CREATE FUNCTION organizations.cleanup_leader_on_officer_removal() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    org_type_id SMALLINT;
-    was_leader_role BOOLEAN;
-BEGIN
-    -- Get organization type
-    SELECT organization_type_id INTO org_type_id
-    FROM organizations.organizations
-    WHERE id = OLD.organization_id;
-
-    -- Check if this was a leader role
-    SELECT is_leader_role INTO was_leader_role
-    FROM organizations.organization_role_compatibility
-    WHERE organization_type_id = org_type_id
-    AND role_type_id = OLD.role_type_id;
-
-    -- If it was a leader role, clear the organization's leader_unit_id
-    IF was_leader_role THEN
-        UPDATE organizations.organizations
-        SET leader_unit_id = NULL
-        WHERE id = OLD.organization_id
-        AND leader_unit_id = OLD.unit_id;
-    END IF;
-
-    RETURN OLD;
-END;
+    AS $$
+
+DECLARE
+
+    org_type_id SMALLINT;
+
+    was_leader_role BOOLEAN;
+
+BEGIN
+
+    -- Get organization type
+
+    SELECT organization_type_id INTO org_type_id
+
+    FROM organizations.organizations
+
+    WHERE id = OLD.organization_id;
+
+
+
+    -- Check if this was a leader role
+
+    SELECT is_leader_role INTO was_leader_role
+
+    FROM organizations.organization_role_compatibility
+
+    WHERE organization_type_id = org_type_id
+
+    AND role_type_id = OLD.role_type_id;
+
+
+
+    -- If it was a leader role, clear the organization's leader_unit_id
+
+    IF was_leader_role THEN
+
+        UPDATE organizations.organizations
+
+        SET leader_unit_id = NULL
+
+        WHERE id = OLD.organization_id
+
+        AND leader_unit_id = OLD.unit_id;
+
+    END IF;
+
+
+
+    RETURN OLD;
+
+END;
+
 $$;
 
 
@@ -174,15 +200,24 @@ ALTER FUNCTION organizations.cleanup_leader_on_officer_removal() OWNER TO living
 
 CREATE FUNCTION organizations.remove_officer_on_member_removal() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF OLD.membership_status = 'active' AND NEW.membership_status != 'active' THEN
-        DELETE FROM organizations.officers
-        WHERE organization_id = NEW.organization_id
-        AND unit_id = NEW.unit_id;
-    END IF;
-    RETURN NEW;
-END;
+    AS $$
+
+BEGIN
+
+    IF OLD.membership_status = 'active' AND NEW.membership_status != 'active' THEN
+
+        DELETE FROM organizations.officers
+
+        WHERE organization_id = NEW.organization_id
+
+        AND unit_id = NEW.unit_id;
+
+    END IF;
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -194,33 +229,60 @@ ALTER FUNCTION organizations.remove_officer_on_member_removal() OWNER TO living_
 
 CREATE FUNCTION organizations.update_organization_population() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    org_id BIGINT;
-BEGIN
-    -- Get organization_id from either NEW or OLD record
-    IF TG_OP = 'DELETE' THEN
-        org_id := OLD.organization_id;
-    ELSE
-        org_id := NEW.organization_id;
-    END IF;
-
-    -- Update population count
-    UPDATE organizations.organizations
-    SET population = (
-        SELECT COUNT(*)
-        FROM organizations.members
-        WHERE organization_id = org_id
-        AND membership_status = 'active'
-    )
-    WHERE id = org_id;
-
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
-    ELSE
-        RETURN NEW;
-    END IF;
-END;
+    AS $$
+
+DECLARE
+
+    org_id BIGINT;
+
+BEGIN
+
+    -- Get organization_id from either NEW or OLD record
+
+    IF TG_OP = 'DELETE' THEN
+
+        org_id := OLD.organization_id;
+
+    ELSE
+
+        org_id := NEW.organization_id;
+
+    END IF;
+
+
+
+    -- Update population count
+
+    UPDATE organizations.organizations
+
+    SET population = (
+
+        SELECT COUNT(*)
+
+        FROM organizations.members
+
+        WHERE organization_id = org_id
+
+        AND membership_status = 'active'
+
+    )
+
+    WHERE id = org_id;
+
+
+
+    IF TG_OP = 'DELETE' THEN
+
+        RETURN OLD;
+
+    ELSE
+
+        RETURN NEW;
+
+    END IF;
+
+END;
+
 $$;
 
 
@@ -232,11 +294,16 @@ ALTER FUNCTION organizations.update_organization_population() OWNER TO living_la
 
 CREATE FUNCTION organizations.update_organization_timestamp() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
+    AS $$
+
+BEGIN
+
+    NEW.updated_at = NOW();
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -248,17 +315,28 @@ ALTER FUNCTION organizations.update_organization_timestamp() OWNER TO living_lan
 
 CREATE FUNCTION organizations.update_territory_area() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    UPDATE organizations.organizations
-    SET total_area_km2 = (
-        SELECT COUNT(*) * 0.01
-        FROM organizations.territory_cells
-        WHERE organization_id = NEW.organization_id
-    )
-    WHERE id = NEW.organization_id;
-    RETURN NEW;
-END;
+    AS $$
+
+BEGIN
+
+    UPDATE organizations.organizations
+
+    SET total_area_km2 = (
+
+        SELECT COUNT(*) * 0.01
+
+        FROM organizations.territory_cells
+
+        WHERE organization_id = NEW.organization_id
+
+    )
+
+    WHERE id = NEW.organization_id;
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -270,11 +348,16 @@ ALTER FUNCTION organizations.update_territory_area() OWNER TO living_landz_srv;
 
 CREATE FUNCTION organizations.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
+    AS $$
+
+BEGIN
+
+    NEW.updated_at = NOW();
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -286,74 +369,142 @@ ALTER FUNCTION organizations.update_updated_at_column() OWNER TO living_landz_sr
 
 CREATE FUNCTION organizations.validate_officer_role() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    org_type_id SMALLINT;
-    is_compatible BOOLEAN;
-    is_leader_role BOOLEAN;
-    current_leader_count INT;
-    is_member BOOLEAN;
-    is_leader BOOLEAN;
-BEGIN
-    -- Get organization type
-    SELECT organization_type_id INTO org_type_id
-    FROM organizations.organizations
-    WHERE id = NEW.organization_id;
-
-    -- Check if unit is a member or the leader
-    SELECT EXISTS (
-        SELECT 1 FROM organizations.members
-        WHERE organization_id = NEW.organization_id
-        AND unit_id = NEW.unit_id
-        AND membership_status = 'active'
-    ) INTO is_member;
-
-    SELECT EXISTS (
-        SELECT 1 FROM organizations.organizations
-        WHERE id = NEW.organization_id
-        AND leader_unit_id = NEW.unit_id
-    ) INTO is_leader;
-
-    IF NOT (is_member OR is_leader) THEN
-        RAISE EXCEPTION 'Unit must be a member or leader of the organization before becoming an officer';
-    END IF;
-
-    -- Check if role is compatible with organization type
-    SELECT
-        COUNT(*) > 0,
-        COALESCE(MAX(orc.is_leader_role), false)
-    INTO is_compatible, is_leader_role
-    FROM organizations.organization_role_compatibility orc
-    WHERE orc.organization_type_id = org_type_id
-    AND orc.role_type_id = NEW.role_type_id;
-
-    IF NOT is_compatible THEN
-        RAISE EXCEPTION 'Role type % is not compatible with this organization type', NEW.role_type_id;
-    END IF;
-
-    -- If this is a leader role, ensure there's only one leader
-    IF is_leader_role THEN
-        SELECT COUNT(*) INTO current_leader_count
-        FROM organizations.officers o
-        JOIN organizations.organization_role_compatibility orc
-            ON orc.role_type_id = o.role_type_id
-            AND orc.organization_type_id = org_type_id
-        WHERE o.organization_id = NEW.organization_id
-        AND orc.is_leader_role = true
-        AND (TG_OP = 'INSERT' OR o.id != NEW.id);
-
-        IF current_leader_count > 0 THEN
-            RAISE EXCEPTION 'Organization already has a leader';
-        END IF;
-
-        -- Update the organization's leader_unit_id
-        UPDATE organizations.organizations
-        SET leader_unit_id = NEW.unit_id
-        WHERE id = NEW.organization_id;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+
+DECLARE
+
+    org_type_id SMALLINT;
+
+    is_compatible BOOLEAN;
+
+    is_leader_role BOOLEAN;
+
+    current_leader_count INT;
+
+    is_member BOOLEAN;
+
+    is_leader BOOLEAN;
+
+BEGIN
+
+    -- Get organization type
+
+    SELECT organization_type_id INTO org_type_id
+
+    FROM organizations.organizations
+
+    WHERE id = NEW.organization_id;
+
+
+
+    -- Check if unit is a member or the leader
+
+    SELECT EXISTS (
+
+        SELECT 1 FROM organizations.members
+
+        WHERE organization_id = NEW.organization_id
+
+        AND unit_id = NEW.unit_id
+
+        AND membership_status = 'active'
+
+    ) INTO is_member;
+
+
+
+    SELECT EXISTS (
+
+        SELECT 1 FROM organizations.organizations
+
+        WHERE id = NEW.organization_id
+
+        AND leader_unit_id = NEW.unit_id
+
+    ) INTO is_leader;
+
+
+
+    IF NOT (is_member OR is_leader) THEN
+
+        RAISE EXCEPTION 'Unit must be a member or leader of the organization before becoming an officer';
+
+    END IF;
+
+
+
+    -- Check if role is compatible with organization type
+
+    SELECT
+
+        COUNT(*) > 0,
+
+        COALESCE(MAX(orc.is_leader_role), false)
+
+    INTO is_compatible, is_leader_role
+
+    FROM organizations.organization_role_compatibility orc
+
+    WHERE orc.organization_type_id = org_type_id
+
+    AND orc.role_type_id = NEW.role_type_id;
+
+
+
+    IF NOT is_compatible THEN
+
+        RAISE EXCEPTION 'Role type % is not compatible with this organization type', NEW.role_type_id;
+
+    END IF;
+
+
+
+    -- If this is a leader role, ensure there's only one leader
+
+    IF is_leader_role THEN
+
+        SELECT COUNT(*) INTO current_leader_count
+
+        FROM organizations.officers o
+
+        JOIN organizations.organization_role_compatibility orc
+
+            ON orc.role_type_id = o.role_type_id
+
+            AND orc.organization_type_id = org_type_id
+
+        WHERE o.organization_id = NEW.organization_id
+
+        AND orc.is_leader_role = true
+
+        AND (TG_OP = 'INSERT' OR o.id != NEW.id);
+
+
+
+        IF current_leader_count > 0 THEN
+
+            RAISE EXCEPTION 'Organization already has a leader';
+
+        END IF;
+
+
+
+        -- Update the organization's leader_unit_id
+
+        UPDATE organizations.organizations
+
+        SET leader_unit_id = NEW.unit_id
+
+        WHERE id = NEW.organization_id;
+
+    END IF;
+
+
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -365,57 +516,108 @@ ALTER FUNCTION organizations.validate_officer_role() OWNER TO living_landz_srv;
 
 CREATE FUNCTION organizations.validate_organization_constraints() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    org_type RECORD;
-    territory_count INT;
-    current_population INT;
-    current_area DECIMAL;
-BEGIN
-    -- Get organization type info
-    SELECT * INTO org_type
-    FROM organizations.organization_types
-    WHERE id = NEW.organization_type_id;
-
-    -- Check if requires territory
-    IF org_type.requires_territory THEN
-        SELECT COUNT(*) INTO territory_count
-        FROM organizations.territory_cells
-        WHERE organization_id = NEW.id;
-
-        -- Non-territorial organizations must have headquarters in existing org
-        IF territory_count = 0 AND NOT org_type.category = 'territorial' THEN
-            IF NEW.headquarters_cell_q IS NULL THEN
-                RAISE EXCEPTION 'Organization type % requires a headquarters location', org_type.name;
-            END IF;
-        END IF;
-    END IF;
-
-    -- Validate parent relationship
-    IF NEW.parent_organization_id IS NOT NULL THEN
-        IF NOT org_type.can_have_parent THEN
-            RAISE EXCEPTION 'Organization type % cannot have a parent organization', org_type.name;
-        END IF;
-    END IF;
-
-    -- Check minimum population (if updating)
-    IF TG_OP = 'UPDATE' AND org_type.min_population IS NOT NULL THEN
-        IF NEW.population < org_type.min_population THEN
-            RAISE EXCEPTION 'Organization type % requires minimum population of %, current: %',
-                org_type.name, org_type.min_population, NEW.population;
-        END IF;
-    END IF;
-
-    -- Check minimum area (if updating)
-    IF TG_OP = 'UPDATE' AND org_type.min_area_km2 IS NOT NULL THEN
-        IF NEW.total_area_km2 < org_type.min_area_km2 THEN
-            RAISE EXCEPTION 'Organization type % requires minimum area of % km², current: % km²',
-                org_type.name, org_type.min_area_km2, NEW.total_area_km2;
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+
+DECLARE
+
+    org_type RECORD;
+
+    territory_count INT;
+
+    current_population INT;
+
+    current_area DECIMAL;
+
+BEGIN
+
+    -- Get organization type info
+
+    SELECT * INTO org_type
+
+    FROM organizations.organization_types
+
+    WHERE id = NEW.organization_type_id;
+
+
+
+    -- Check if requires territory
+
+    IF org_type.requires_territory THEN
+
+        SELECT COUNT(*) INTO territory_count
+
+        FROM organizations.territory_cells
+
+        WHERE organization_id = NEW.id;
+
+
+
+        -- Non-territorial organizations must have headquarters in existing org
+
+        IF territory_count = 0 AND NOT org_type.category = 'territorial' THEN
+
+            IF NEW.headquarters_cell_q IS NULL THEN
+
+                RAISE EXCEPTION 'Organization type % requires a headquarters location', org_type.name;
+
+            END IF;
+
+        END IF;
+
+    END IF;
+
+
+
+    -- Validate parent relationship
+
+    IF NEW.parent_organization_id IS NOT NULL THEN
+
+        IF NOT org_type.can_have_parent THEN
+
+            RAISE EXCEPTION 'Organization type % cannot have a parent organization', org_type.name;
+
+        END IF;
+
+    END IF;
+
+
+
+    -- Check minimum population (if updating)
+
+    IF TG_OP = 'UPDATE' AND org_type.min_population IS NOT NULL THEN
+
+        IF NEW.population < org_type.min_population THEN
+
+            RAISE EXCEPTION 'Organization type % requires minimum population of %, current: %',
+
+                org_type.name, org_type.min_population, NEW.population;
+
+        END IF;
+
+    END IF;
+
+
+
+    -- Check minimum area (if updating)
+
+    IF TG_OP = 'UPDATE' AND org_type.min_area_km2 IS NOT NULL THEN
+
+        IF NEW.total_area_km2 < org_type.min_area_km2 THEN
+
+            RAISE EXCEPTION 'Organization type % requires minimum area of % km┬▓, current: % km┬▓',
+
+                org_type.name, org_type.min_area_km2, NEW.total_area_km2;
+
+        END IF;
+
+    END IF;
+
+
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -427,21 +629,36 @@ ALTER FUNCTION organizations.validate_organization_constraints() OWNER TO living
 
 CREATE FUNCTION public.update_zone_cell_count() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF (TG_OP = 'INSERT') THEN
-        UPDATE terrain.voronoi_zones
-        SET cell_count = cell_count + 1,
-            area_m2 = (cell_count + 1) * 50.0
-        WHERE id = NEW.zone_id;
-    ELSIF (TG_OP = 'DELETE') THEN
-        UPDATE terrain.voronoi_zones
-        SET cell_count = cell_count - 1,
-            area_m2 = (cell_count - 1) * 50.0
-        WHERE id = OLD.zone_id;
-    END IF;
-    RETURN NULL;
-END;
+    AS $$
+
+BEGIN
+
+    IF (TG_OP = 'INSERT') THEN
+
+        UPDATE terrain.voronoi_zones
+
+        SET cell_count = cell_count + 1,
+
+            area_m2 = (cell_count + 1) * 50.0
+
+        WHERE id = NEW.zone_id;
+
+    ELSIF (TG_OP = 'DELETE') THEN
+
+        UPDATE terrain.voronoi_zones
+
+        SET cell_count = cell_count - 1,
+
+            area_m2 = (cell_count - 1) * 50.0
+
+        WHERE id = OLD.zone_id;
+
+    END IF;
+
+    RETURN NULL;
+
+END;
+
 $$;
 
 
@@ -453,39 +670,72 @@ ALTER FUNCTION public.update_zone_cell_count() OWNER TO living_landz_srv;
 
 CREATE FUNCTION resources.update_item_decay() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    item_record RECORD;
-    time_diff_seconds BIGINT;
-    time_diff_days DECIMAL;
-    decay_amount DECIMAL;
-BEGIN
-    -- Récupérer les infos de l'item
-    SELECT is_perishable, base_decay_rate_per_day
-    INTO item_record
-    FROM resources.items
-    WHERE id = NEW.item_id;
-
-    -- Si l'item est périssable et a un decay rate
-    IF item_record.is_perishable AND item_record.base_decay_rate_per_day > 0 THEN
-        -- Si c'est une nouvelle instance ou pas de dernière mise à jour
-        IF NEW.last_decay_update IS NULL THEN
-            NEW.last_decay_update := NOW();
-            NEW.current_decay := 0.0;
-        ELSE
-            -- Calculer le temps écoulé en jours
-            time_diff_seconds := EXTRACT(EPOCH FROM (NOW() - NEW.last_decay_update));
-            time_diff_days := time_diff_seconds / 86400.0;
-
-            -- Calculer le decay
-            decay_amount := item_record.base_decay_rate_per_day * time_diff_days;
-            NEW.current_decay := LEAST(1.0, NEW.current_decay + decay_amount);
-            NEW.last_decay_update := NOW();
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+
+DECLARE
+
+    item_record RECORD;
+
+    time_diff_seconds BIGINT;
+
+    time_diff_days DECIMAL;
+
+    decay_amount DECIMAL;
+
+BEGIN
+
+    -- R├®cup├®rer les infos de l'item
+
+    SELECT is_perishable, base_decay_rate_per_day
+
+    INTO item_record
+
+    FROM resources.items
+
+    WHERE id = NEW.item_id;
+
+
+
+    -- Si l'item est p├®rissable et a un decay rate
+
+    IF item_record.is_perishable AND item_record.base_decay_rate_per_day > 0 THEN
+
+        -- Si c'est une nouvelle instance ou pas de derni├¿re mise ├á jour
+
+        IF NEW.last_decay_update IS NULL THEN
+
+            NEW.last_decay_update := NOW();
+
+            NEW.current_decay := 0.0;
+
+        ELSE
+
+            -- Calculer le temps ├®coul├® en jours
+
+            time_diff_seconds := EXTRACT(EPOCH FROM (NOW() - NEW.last_decay_update));
+
+            time_diff_days := time_diff_seconds / 86400.0;
+
+
+
+            -- Calculer le decay
+
+            decay_amount := item_record.base_decay_rate_per_day * time_diff_days;
+
+            NEW.current_decay := LEAST(1.0, NEW.current_decay + decay_amount);
+
+            NEW.last_decay_update := NOW();
+
+        END IF;
+
+    END IF;
+
+
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -504,26 +754,46 @@ COMMENT ON FUNCTION resources.update_item_decay() IS 'Automatically updates item
 
 CREATE FUNCTION terrain.cell_to_chunk(cell_q integer, cell_r integer) RETURNS TABLE(chunk_x integer, chunk_y integer)
     LANGUAGE plpgsql IMMUTABLE
-    AS $$
-DECLARE
-    hex_size FLOAT := 16.0;
-    hex_ratio_x FLOAT := 1.0;
-    hex_ratio_y FLOAT := 0.866025404;
-    chunk_size_x FLOAT := 600.0;
-    chunk_size_y FLOAT := 503.0;
-    world_x FLOAT;
-    world_y FLOAT;
-BEGIN
-    -- Conversion hex flat-top layout
-    world_x := hex_size * hex_ratio_x * (1.5 * cell_q);
-    world_y := hex_size * hex_ratio_y * (SQRT(3.0) * (cell_r + cell_q / 2.0));
-
-    -- Calculer le chunk
-    chunk_x := FLOOR(world_x / chunk_size_x)::INT;
-    chunk_y := FLOOR(world_y / chunk_size_y)::INT;
-
-    RETURN NEXT;
-END;
+    AS $$
+
+DECLARE
+
+    hex_size FLOAT := 16.0;
+
+    hex_ratio_x FLOAT := 1.0;
+
+    hex_ratio_y FLOAT := 0.866025404;
+
+    chunk_size_x FLOAT := 600.0;
+
+    chunk_size_y FLOAT := 503.0;
+
+    world_x FLOAT;
+
+    world_y FLOAT;
+
+BEGIN
+
+    -- Conversion hex flat-top layout
+
+    world_x := hex_size * hex_ratio_x * (1.5 * cell_q);
+
+    world_y := hex_size * hex_ratio_y * (SQRT(3.0) * (cell_r + cell_q / 2.0));
+
+
+
+    -- Calculer le chunk
+
+    chunk_x := FLOOR(world_x / chunk_size_x)::INT;
+
+    chunk_y := FLOOR(world_y / chunk_size_y)::INT;
+
+
+
+    RETURN NEXT;
+
+END;
+
 $$;
 
 
@@ -535,11 +805,16 @@ ALTER FUNCTION terrain.cell_to_chunk(cell_q integer, cell_r integer) OWNER TO li
 
 CREATE FUNCTION units.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
+    AS $$
+
+BEGIN
+
+    NEW.updated_at = NOW();
+
+    RETURN NEW;
+
+END;
+
 $$;
 
 
@@ -1098,35 +1373,35 @@ COMMENT ON TABLE game.characters IS 'Personnages individuels des joueurs';
 -- Name: COLUMN characters.player_id; Type: COMMENT; Schema: game; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN game.characters.player_id IS 'Joueur propriétaire du personnage';
+COMMENT ON COLUMN game.characters.player_id IS 'Joueur propri├®taire du personnage';
 
 
 --
 -- Name: COLUMN characters.family_name; Type: COMMENT; Schema: game; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN game.characters.family_name IS 'Nom de famille d''usage (peut différer du nom de famille du joueur)';
+COMMENT ON COLUMN game.characters.family_name IS 'Nom de famille d''usage (peut diff├®rer du nom de famille du joueur)';
 
 
 --
 -- Name: COLUMN characters.second_name; Type: COMMENT; Schema: game; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN game.characters.second_name IS 'Deuxième prénom ou nom intermédiaire';
+COMMENT ON COLUMN game.characters.second_name IS 'Deuxi├¿me pr├®nom ou nom interm├®diaire';
 
 
 --
 -- Name: COLUMN characters.coat_of_arms_id; Type: COMMENT; Schema: game; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN game.characters.coat_of_arms_id IS 'Armoiries personnelles du caractère';
+COMMENT ON COLUMN game.characters.coat_of_arms_id IS 'Armoiries personnelles du caract├¿re';
 
 
 --
 -- Name: COLUMN characters.image_id; Type: COMMENT; Schema: game; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN game.characters.image_id IS 'Référence à une image du personnage';
+COMMENT ON COLUMN game.characters.image_id IS 'R├®f├®rence ├á une image du personnage';
 
 
 --
@@ -1355,21 +1630,21 @@ ALTER TABLE organizations.buildings OWNER TO living_landz_srv;
 -- Name: TABLE buildings; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON TABLE organizations.buildings IS 'Bâtiments possédés par les organisations';
+COMMENT ON TABLE organizations.buildings IS 'B├ótiments poss├®d├®s par les organisations';
 
 
 --
 -- Name: COLUMN buildings.acquired_by_unit_id; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.buildings.acquired_by_unit_id IS 'ID de l''unité qui a acquis ce bâtiment';
+COMMENT ON COLUMN organizations.buildings.acquired_by_unit_id IS 'ID de l''unit├® qui a acquis ce b├ótiment';
 
 
 --
 -- Name: COLUMN buildings.building_role; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.buildings.building_role IS 'Rôle du bâtiment: headquarters, warehouse, barracks, etc.';
+COMMENT ON COLUMN organizations.buildings.building_role IS 'R├┤le du b├ótiment: headquarters, warehouse, barracks, etc.';
 
 
 --
@@ -1482,7 +1757,7 @@ COMMENT ON TABLE organizations.members IS 'Membres des organisations';
 -- Name: COLUMN members.invited_by_unit_id; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.members.invited_by_unit_id IS 'ID de l''unité qui a invité ce membre';
+COMMENT ON COLUMN organizations.members.invited_by_unit_id IS 'ID de l''unit├® qui a invit├® ce membre';
 
 
 --
@@ -1540,7 +1815,7 @@ COMMENT ON TABLE organizations.officers IS 'Officiers et postes importants dans 
 -- Name: COLUMN officers.appointed_by_unit_id; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.officers.appointed_by_unit_id IS 'ID de l''unité qui a nommé cet officier';
+COMMENT ON COLUMN organizations.officers.appointed_by_unit_id IS 'ID de l''unit├® qui a nomm├® cet officier';
 
 
 --
@@ -1581,7 +1856,7 @@ ALTER TABLE organizations.organization_role_compatibility OWNER TO living_landz_
 -- Name: TABLE organization_role_compatibility; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON TABLE organizations.organization_role_compatibility IS 'Définit quels rôles sont compatibles avec quels types d''organisation';
+COMMENT ON TABLE organizations.organization_role_compatibility IS 'D├®finit quels r├┤les sont compatibles avec quels types d''organisation';
 
 
 --
@@ -1614,28 +1889,28 @@ COMMENT ON TABLE organizations.organization_types IS 'Types d''organisations dis
 -- Name: COLUMN organization_types.category; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organization_types.category IS 'Catégorie: territorial, religious, commercial, social';
+COMMENT ON COLUMN organizations.organization_types.category IS 'Cat├®gorie: territorial, religious, commercial, social';
 
 
 --
 -- Name: COLUMN organization_types.requires_territory; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organization_types.requires_territory IS 'Nécessite un territoire pour exister';
+COMMENT ON COLUMN organizations.organization_types.requires_territory IS 'N├®cessite un territoire pour exister';
 
 
 --
 -- Name: COLUMN organization_types.can_have_vassals; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organization_types.can_have_vassals IS 'Peut avoir des vassaux/organisations subordonnées';
+COMMENT ON COLUMN organizations.organization_types.can_have_vassals IS 'Peut avoir des vassaux/organisations subordonn├®es';
 
 
 --
 -- Name: COLUMN organization_types.can_have_parent; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organization_types.can_have_parent IS 'Peut avoir une organisation parente (vassalité)';
+COMMENT ON COLUMN organizations.organization_types.can_have_parent IS 'Peut avoir une organisation parente (vassalit├®)';
 
 
 --
@@ -1676,35 +1951,35 @@ COMMENT ON TABLE organizations.organizations IS 'Table principale des organisati
 -- Name: COLUMN organizations.parent_organization_id; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organizations.parent_organization_id IS 'Organisation parente (vassalité)';
+COMMENT ON COLUMN organizations.organizations.parent_organization_id IS 'Organisation parente (vassalit├®)';
 
 
 --
 -- Name: COLUMN organizations.headquarters_cell_q; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organizations.headquarters_cell_q IS 'Coordonnée Q de la cellule du siège';
+COMMENT ON COLUMN organizations.organizations.headquarters_cell_q IS 'Coordonn├®e Q de la cellule du si├¿ge';
 
 
 --
 -- Name: COLUMN organizations.total_area_km2; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organizations.total_area_km2 IS 'Superficie totale en km² (calculée automatiquement)';
+COMMENT ON COLUMN organizations.organizations.total_area_km2 IS 'Superficie totale en km┬▓ (calcul├®e automatiquement)';
 
 
 --
 -- Name: COLUMN organizations.treasury_gold; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organizations.treasury_gold IS 'Or dans la trésorerie';
+COMMENT ON COLUMN organizations.organizations.treasury_gold IS 'Or dans la tr├®sorerie';
 
 
 --
 -- Name: COLUMN organizations.population; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.organizations.population IS 'Population totale (calculée automatiquement)';
+COMMENT ON COLUMN organizations.organizations.population IS 'Population totale (calcul├®e automatiquement)';
 
 
 --
@@ -1747,14 +2022,14 @@ ALTER TABLE organizations.role_types OWNER TO living_landz_srv;
 -- Name: TABLE role_types; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON TABLE organizations.role_types IS 'Rôles/postes disponibles dans les organisations';
+COMMENT ON TABLE organizations.role_types IS 'R├┤les/postes disponibles dans les organisations';
 
 
 --
 -- Name: COLUMN role_types.authority_level; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.role_types.authority_level IS 'Niveau d''autorité: 1=le plus élevé, 100=le plus bas';
+COMMENT ON COLUMN organizations.role_types.authority_level IS 'Niveau d''autorit├®: 1=le plus ├®lev├®, 100=le plus bas';
 
 
 --
@@ -1775,7 +2050,7 @@ ALTER TABLE organizations.territory_cells OWNER TO living_landz_srv;
 -- Name: TABLE territory_cells; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON TABLE organizations.territory_cells IS 'Cellules de territoire contrôlées par les organisations';
+COMMENT ON TABLE organizations.territory_cells IS 'Cellules de territoire contr├┤l├®es par les organisations';
 
 
 --
@@ -1876,14 +2151,14 @@ ALTER TABLE organizations.treasury_items OWNER TO living_landz_srv;
 -- Name: TABLE treasury_items; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON TABLE organizations.treasury_items IS 'Inventaire/trésorerie des organisations';
+COMMENT ON TABLE organizations.treasury_items IS 'Inventaire/tr├®sorerie des organisations';
 
 
 --
 -- Name: COLUMN treasury_items.quantity; Type: COMMENT; Schema: organizations; Owner: living_landz_srv
 --
 
-COMMENT ON COLUMN organizations.treasury_items.quantity IS 'Quantité d''items (pour items stackables)';
+COMMENT ON COLUMN organizations.treasury_items.quantity IS 'Quantit├® d''items (pour items stackables)';
 
 
 --
@@ -4262,13 +4537,6 @@ CREATE INDEX idx_train_unit_id ON actions.train_unit_actions USING btree (unit_i
 
 
 --
--- Name: idx_unique_cell_action; Type: INDEX; Schema: actions; Owner: living_landz_srv
---
-
-CREATE UNIQUE INDEX idx_unique_cell_action ON actions.scheduled_actions USING btree (cell_q, cell_r) WHERE (status_id = ANY (ARRAY[1, 2]));
-
-
---
 -- Name: idx_building_agriculture; Type: INDEX; Schema: buildings; Owner: living_landz_srv
 --
 
@@ -5847,5 +6115,5 @@ GRANT ALL ON SCHEMA public TO living_landz_srv;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 9Gbrcv1xdaih4pOvCdVKD8hZkjCyCpBUD3TYn0uL42LcMUIjy1jDAfJ8qWAG0Rk
+\unrestrict WdS0PDWDAvqS22er524zGwjOV6Dq7pMCs5lVzTreYPxP0bB05GLXDJktRrkinrc
 
