@@ -1318,6 +1318,26 @@ async fn handle_client_message(
                 }
             }
 
+            // 4. Check production line capacity
+            let building_type = db_tables.buildings
+                .get_building_type_at_cell(&cell)
+                .await
+                .unwrap_or(None);
+
+            if let Some(bt) = building_type {
+                let max_lines = bt.production_lines() as usize;
+                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+
+                if active_count >= max_lines {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!(
+                            "Toutes les lignes de production sont occupées ({}/{})",
+                            active_count, max_lines
+                        ),
+                    }];
+                }
+            }
+
             // ── Schedule the action ─────────────────────────
 
             let mut responses = Vec::new();
@@ -1426,6 +1446,26 @@ async fn handle_client_message(
                     tracing::error!("Failed to load lord: {}", e);
                     return vec![ServerMessage::ActionError {
                         reason: "Erreur serveur".to_string(),
+                    }];
+                }
+            }
+
+            // 3. Check production line capacity
+            let building_type = db_tables.buildings
+                .get_building_type_at_cell(&cell)
+                .await
+                .unwrap_or(None);
+
+            if let Some(bt) = building_type {
+                let max_lines = bt.production_lines() as usize;
+                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+
+                if active_count >= max_lines {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!(
+                            "Toutes les lignes de production sont occupées ({}/{})",
+                            active_count, max_lines
+                        ),
                     }];
                 }
             }
@@ -1610,6 +1650,27 @@ async fn handle_client_message(
             target_profession,
         } => {
             let mut responses = Vec::new();
+
+            // 1. Check production line capacity
+            let building_type = db_tables.buildings
+                .get_building_type_at_cell(&cell)
+                .await
+                .unwrap_or(None);
+
+            if let Some(bt) = building_type {
+                let max_lines = bt.production_lines() as usize;
+                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+
+                if active_count >= max_lines {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!(
+                            "Toutes les lignes de production sont occupées ({}/{})",
+                            active_count, max_lines
+                        ),
+                    }];
+                }
+            }
+            
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::TrainUnit(TrainUnitAction {
                 player_id,
