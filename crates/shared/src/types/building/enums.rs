@@ -364,6 +364,37 @@ impl BuildingTypeEnum {
             Self::Cedar | Self::Larch | Self::Oak => 0,
         }
     }
+
+    /// Number of concurrent production actions this building supports.
+    pub fn production_lines(&self) -> u32 {
+        match self {
+            // Manufacturing — 1-2 lines
+            Self::Blacksmith => 2,
+            Self::BlastFurnace => 1,
+            Self::Bloomery => 1,
+            Self::CarpenterShop => 2,
+            Self::GlassFactory => 1,
+            // Agriculture — multiple fields
+            Self::Farm => 3,
+            // Animal breeding — 1 line each
+            Self::Cowshed => 1,
+            Self::Piggery => 1,
+            Self::Sheepfold => 1,
+            Self::Stable => 1,
+            // Commerce/food
+            Self::Bakehouse => 2,
+            Self::Brewery => 2,
+            Self::Distillery => 1,
+            Self::Slaughterhouse => 1,
+            Self::IceHouse => 0,
+            Self::Market => 1,
+            // Non-production buildings
+            Self::Theater => 0,
+            Self::Temple => 1,
+            // Natural — harvest only
+            Self::Cedar | Self::Larch | Self::Oak => 1,
+        }
+    }
     
     // TODO : This will be "What unit this building can train."
     // TODO : The base unit should simply be: Settler then the settler has to be trained

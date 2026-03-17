@@ -11,10 +11,10 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use crate::dev::DevConfig;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
+use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
@@ -2053,6 +2053,27 @@ impl ActionProcessor {
             "Broadcasting message to all players (chunk-specific broadcast not yet implemented)"
         );
         self.sessions.broadcast(message).await;
+    }
+
+    /// Count active (Pending + InProgress) production actions on a cell.
+    pub async fn active_production_count_on_cell(&self, cell: &GridCell) -> usize {
+        let active_actions = self.active_actions.read().await;
+        active_actions
+            .values()
+            .filter(|a| {
+                a.cell == *cell
+                    && matches!(
+                        a.status,
+                        ActionStatusEnum::Pending | ActionStatusEnum::InProgress
+                    )
+                    && matches!(
+                        a.action_type,
+                        ActionTypeEnum::CraftResource
+                            | ActionTypeEnum::HarvestResource
+                            | ActionTypeEnum::TrainUnit
+                    )
+            })
+            .count()
     }
 }
 
