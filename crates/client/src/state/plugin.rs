@@ -21,7 +21,10 @@ impl Plugin for ClientStatePlugin {
             .init_resource::<resources::NotificationState>()
             .insert_resource(resources::GameTimeConfig::default())
             .insert_resource(resources::StreamingConfig::default())
-            .add_systems(Startup, (resources::setup_tree_atlas, resources::setup_building_atlas))
+            .add_systems(
+                Startup,
+                (resources::setup_tree_atlas, resources::setup_building_atlas),
+            )
             // ─── World data — scoped to InGame ──────────────────────────
             .add_systems(OnEnter(AppState::InGame), init_world_resources)
             .add_systems(OnExit(AppState::InGame), cleanup_world_resources)
@@ -47,6 +50,7 @@ fn init_world_resources(mut commands: Commands) {
     commands.insert_resource(resources::ActionTracker::default());
     commands.insert_resource(resources::CurrentOrganization::default());
     commands.insert_resource(resources::InventoryCache::default());
+    commands.insert_resource(resources::UnitWorkState::default());
 }
 
 fn cleanup_world_resources(mut commands: Commands) {
@@ -56,4 +60,5 @@ fn cleanup_world_resources(mut commands: Commands) {
     commands.remove_resource::<resources::ActionTracker>();
     commands.remove_resource::<resources::CurrentOrganization>();
     commands.remove_resource::<resources::InventoryCache>();
+    commands.remove_resource::<resources::UnitWorkState>();
 }

@@ -799,6 +799,28 @@ impl ActionProcessor {
                     }
                 }
 
+                // Free units assigned to this action
+                match self.db_tables.units.clear_units_working_on(action_id).await {
+                    Ok(freed_unit_ids) => {
+                        for uid in &freed_unit_ids {
+                            let msg = ServerMessage::UnitWorkStatusUpdate {
+                                unit_id: *uid,
+                                working_on_action_id: None,
+                            };
+                            self.send_message_to_player(action_info.player_id, msg)
+                                .await;
+                        }
+                        tracing::info!(
+                            "Freed {} units from action {}",
+                            freed_unit_ids.len(),
+                            action_id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to free units from action {}: {}", action_id, e);
+                    }
+                }
+
                 // Envoyer notification au joueur qui a lancé l'action
                 let status_message = ServerMessage::ActionStatusUpdate {
                     action_id,
@@ -2008,6 +2030,7 @@ impl ActionProcessor {
             ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
             ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
             ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
+            ServerMessage::UnitWorkStatusUpdate { .. } => "UnitWorkStatusUpdate",
             ServerMessage::HamletFounded { .. } => "HamletFounded",
             ServerMessage::HamletFoundError { .. } => "HamletFoundError",
             ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
