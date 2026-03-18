@@ -42,6 +42,7 @@ pub struct ActionInfo {
     pub start_time: u64,
     pub duration_ms: u64,
     pub completion_time: u64,
+    // TODO: Ajouter action_name et unit_ids
 }
 
 pub struct ActionProcessor {
@@ -196,6 +197,8 @@ impl ActionProcessor {
                     status: ActionStatusEnum::InProgress,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
                 };
 
                 self.send_message_to_player(action_info.player_id, message)
@@ -830,6 +833,8 @@ impl ActionProcessor {
                     status: ActionStatusEnum::Completed,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
                 };
 
                 self.send_message_to_player(action_info.player_id, status_message)
@@ -1951,6 +1956,8 @@ impl ActionProcessor {
                 status: ActionStatusEnum::Failed,
                 action_type: action_info.action_type,
                 completion_time: action_info.completion_time,
+                action_name: None,
+                unit_ids: vec![],
             };
 
             self.send_message_to_player(action_info.player_id, message)

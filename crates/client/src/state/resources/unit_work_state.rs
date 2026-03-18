@@ -24,4 +24,13 @@ impl UnitWorkState {
     pub fn working_on(&self, unit_id: u64) -> Option<u64> {
         self.working.get(&unit_id).copied()
     }
+
+    /// Get all unit_ids working on a specific action
+    pub fn units_for_action(&self, action_id: u64) -> Vec<u64> {
+        self.working
+            .iter()
+            .filter(|(_, aid)| **aid == action_id)
+            .map(|(&uid, _)| uid)
+            .collect()
+    }
 }

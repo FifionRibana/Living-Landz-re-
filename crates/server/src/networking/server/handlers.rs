@@ -1151,6 +1151,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::BuildBuilding,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None, // TODO: building is the same as a production
+                        unit_ids: vec![],
                     });
                 }
                 Err(e) => {
@@ -1231,6 +1233,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::BuildRoad,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None, // TODO: building is the same as a production
+                        unit_ids: vec![],
                     });
                 }
                 Err(e) => {
@@ -1443,6 +1447,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::CraftResource,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: Some(recipe.name.clone()),
+                        unit_ids: unit_ids.clone(),
                     });
                 }
                 Err(e) => {
@@ -1602,6 +1608,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::HarvestResource,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None, //TODO: Should have something here
+                        unit_ids: unit_ids.clone(),
                     });
                 }
                 Err(e) => {
@@ -1711,6 +1719,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::MoveUnit,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None, // TODO: movement should also be something but not in slots
+                        unit_ids: vec![],
                     });
                 }
                 Err(e) => {
@@ -1811,6 +1821,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::TrainUnit,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None, // TODO: Training should display something
+                        unit_ids: vec![],
                     });
                 }
                 Err(e) => {
@@ -1976,6 +1988,8 @@ async fn handle_client_message(
                         status: ActionStatusEnum::Pending,
                         action_type: ActionTypeEnum::SendMessage,
                         completion_time: start_time + (duration_ms / 1000),
+                        action_name: None,
+                        unit_ids: vec![],
                     });
                 }
                 Err(e) => {

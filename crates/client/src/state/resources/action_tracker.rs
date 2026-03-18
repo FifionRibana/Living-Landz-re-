@@ -12,6 +12,8 @@ pub struct TrackedAction {
     pub status: ActionStatusEnum,
     pub start_time: u64,
     pub completion_time: u64,
+    pub action_name: Option<String>,
+    pub unit_ids: Vec<u64>, 
 }
 
 impl TrackedAction {
