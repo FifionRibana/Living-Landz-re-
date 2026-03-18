@@ -234,6 +234,7 @@ pub enum ClientMessage {
         chunk_id: TerrainChunkId,
         cell: GridCell,
         resource_specific_type: ResourceSpecificTypeEnum,
+        unit_ids: Vec<u64>,
     },
     ActionCraftResource {
         player_id: u64,
@@ -241,6 +242,7 @@ pub enum ClientMessage {
         cell: GridCell,
         recipe_id: String,
         quantity: u32,
+        unit_ids: Vec<u64>,
     },
     ActionTrainUnit {
         player_id: u64,
@@ -402,6 +404,8 @@ pub enum ServerMessage {
         status: crate::ActionStatusEnum,
         action_type: crate::ActionTypeEnum,
         completion_time: u64,
+        action_name: Option<String>,
+        unit_ids: Vec<u64>, 
     },
 
     /// Action result broadcast to all players in the chunk after completion
@@ -433,6 +437,12 @@ pub enum ServerMessage {
         unit_id: u64,
         new_profession: ProfessionEnum,
         new_avatar_url: Option<String>,
+    },
+
+    /// Unit work status changed (assigned to or freed from an action)
+    UnitWorkStatusUpdate {
+        unit_id: u64,
+        working_on_action_id: Option<u64>,
     },
 
     // ========================================================================

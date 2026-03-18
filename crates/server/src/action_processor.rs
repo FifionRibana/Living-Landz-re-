@@ -11,10 +11,10 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use crate::dev::DevConfig;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
+use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
@@ -42,6 +42,7 @@ pub struct ActionInfo {
     pub start_time: u64,
     pub duration_ms: u64,
     pub completion_time: u64,
+    // TODO: Ajouter action_name et unit_ids
 }
 
 pub struct ActionProcessor {
@@ -196,6 +197,8 @@ impl ActionProcessor {
                     status: ActionStatusEnum::InProgress,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
                 };
 
                 self.send_message_to_player(action_info.player_id, message)
@@ -799,6 +802,28 @@ impl ActionProcessor {
                     }
                 }
 
+                // Free units assigned to this action
+                match self.db_tables.units.clear_units_working_on(action_id).await {
+                    Ok(freed_unit_ids) => {
+                        for uid in &freed_unit_ids {
+                            let msg = ServerMessage::UnitWorkStatusUpdate {
+                                unit_id: *uid,
+                                working_on_action_id: None,
+                            };
+                            self.send_message_to_player(action_info.player_id, msg)
+                                .await;
+                        }
+                        tracing::info!(
+                            "Freed {} units from action {}",
+                            freed_unit_ids.len(),
+                            action_id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to free units from action {}: {}", action_id, e);
+                    }
+                }
+
                 // Envoyer notification au joueur qui a lancé l'action
                 let status_message = ServerMessage::ActionStatusUpdate {
                     action_id,
@@ -808,6 +833,8 @@ impl ActionProcessor {
                     status: ActionStatusEnum::Completed,
                     action_type: action_info.action_type,
                     completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
                 };
 
                 self.send_message_to_player(action_info.player_id, status_message)
@@ -1929,6 +1956,8 @@ impl ActionProcessor {
                 status: ActionStatusEnum::Failed,
                 action_type: action_info.action_type,
                 completion_time: action_info.completion_time,
+                action_name: None,
+                unit_ids: vec![],
             };
 
             self.send_message_to_player(action_info.player_id, message)
@@ -2008,6 +2037,7 @@ impl ActionProcessor {
             ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
             ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
             ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
+            ServerMessage::UnitWorkStatusUpdate { .. } => "UnitWorkStatusUpdate",
             ServerMessage::HamletFounded { .. } => "HamletFounded",
             ServerMessage::HamletFoundError { .. } => "HamletFoundError",
             ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
@@ -2053,6 +2083,27 @@ impl ActionProcessor {
             "Broadcasting message to all players (chunk-specific broadcast not yet implemented)"
         );
         self.sessions.broadcast(message).await;
+    }
+
+    /// Count active (Pending + InProgress) production actions on a cell.
+    pub async fn active_production_count_on_cell(&self, cell: &GridCell) -> usize {
+        let active_actions = self.active_actions.read().await;
+        active_actions
+            .values()
+            .filter(|a| {
+                a.cell == *cell
+                    && matches!(
+                        a.status,
+                        ActionStatusEnum::Pending | ActionStatusEnum::InProgress
+                    )
+                    && matches!(
+                        a.action_type,
+                        ActionTypeEnum::CraftResource
+                            | ActionTypeEnum::HarvestResource
+                            | ActionTypeEnum::TrainUnit
+                    )
+            })
+            .count()
     }
 }
 

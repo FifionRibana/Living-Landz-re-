@@ -10,12 +10,15 @@ use super::{
     resources::{ActionContextState, ActionState, ChatState, UIState},
     systems,
 };
-use crate::states::{AppState, GameView, Overlay};
 use crate::ui::resources::{CellState, DragState};
 use crate::ui::systems::panels::auth::AuthPlugin;
 use crate::ui::systems::panels::character_creation::resources::CharacterCreationState;
 use crate::ui::systems::panels::coat_of_arms_creation::resources::CoatOfArmsCreationState;
 use crate::{state::resources, ui::resources::ContextMenuState};
+use crate::{
+    states::{AppState, GameView, Overlay},
+    ui::resources::ActionSelectionState,
+};
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -190,6 +193,7 @@ impl Plugin for UiPlugin {
                 (
                     on_exit_cell_view,
                     systems::panels::cleanup_cell_scene_visuals,
+                    systems::action_panel::cleanup_production_panel,
                 ),
             )
             // ─── Update systems ──────────────────────────────────────────
@@ -219,6 +223,15 @@ impl Plugin for UiPlugin {
                     systems::panels::sync_slot_visuals,
                     systems::panels::auto_assign_unslotted_units
                         .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
+                )
+                    .run_if(in_state(GameView::Cell)),
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::action_panel::setup_production_panel,
+                    systems::action_panel::update_production_panel,
+                    systems::action_panel::handle_production_slot_click,
                 )
                     .run_if(in_state(GameView::Cell)),
             )
@@ -290,6 +303,10 @@ impl Plugin for UiPlugin {
                     systems::action_panel::update_action_panel_content
                         .after(systems::action_panel::compute_action_context),
                     systems::action_panel::handle_action_entry_click,
+                    systems::action_panel::update_action_detail_panel
+                        .after(systems::action_panel::handle_action_entry_click),
+                    systems::action_panel::handle_execute_button,
+                    systems::action_panel::update_selected_card_highlight,
                     systems::action_panel::update_action_entry_hover,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -342,6 +359,7 @@ fn init_view_resources(mut commands: Commands) {
     commands.insert_resource(ChatState::default());
     commands.insert_resource(ActionState::default());
     commands.insert_resource(ActionContextState::default());
+    commands.insert_resource(ActionSelectionState::default());
     commands.insert_resource(CellState::default());
     commands.insert_resource(DragState::default());
     commands.insert_resource(UIState::default());
@@ -355,6 +373,7 @@ fn cleanup_view_resources(mut commands: Commands) {
     commands.remove_resource::<ChatState>();
     commands.remove_resource::<ActionState>();
     commands.remove_resource::<ActionContextState>();
+    commands.remove_resource::<ActionSelectionState>();
     commands.remove_resource::<CellState>();
     commands.remove_resource::<DragState>();
     commands.remove_resource::<UIState>();
@@ -390,6 +409,7 @@ fn handle_escape_key(
     overlay: Option<Res<State<Overlay>>>,
     mut next_view: ResMut<NextState<GameView>>,
     mut next_overlay: ResMut<NextState<Overlay>>,
+    mut action_selection: Option<ResMut<ActionSelectionState>>,
 ) {
     if !keyboard.just_pressed(KeyCode::Escape) {
         return;
@@ -404,7 +424,16 @@ fn handle_escape_key(
         return;
     }
 
-    // Priority 2: exit cell view
+    // Priority 2: close action detail panel if open
+    if let Some(ref mut selection) = action_selection {
+        if selection.expanded_action.is_some() {
+            info!("Closing action detail panel via ESC");
+            selection.close();
+            return;
+        }
+    }
+
+    // Priority 3: exit cell view
     if let Some(ref gv) = game_view
         && *gv.get() == GameView::Cell
     {
@@ -413,7 +442,7 @@ fn handle_escape_key(
         return;
     }
 
-    // Priority 3: open pause menu
+    // Priority 4: open pause menu
     info!("Opening pause menu");
     next_overlay.set(Overlay::PauseMenu);
 }
