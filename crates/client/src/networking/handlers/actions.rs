@@ -28,6 +28,8 @@ pub fn handle_action_events(
                 status,
                 action_type,
                 completion_time,
+                action_name,
+                unit_ids,
             } => {
                 let Some(ref mut action_tracker) = action_tracker else {
                     continue;
@@ -52,6 +54,8 @@ pub fn handle_action_events(
                     status: *status,
                     start_time,
                     completion_time: *completion_time,
+                    action_name: action_name.clone(),
+                    unit_ids: unit_ids.clone()
                 };
 
                 action_tracker.update_action(tracked_action);
