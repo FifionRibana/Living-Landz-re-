@@ -225,6 +225,14 @@ impl Plugin for UiPlugin {
                 )
                     .run_if(in_state(GameView::Cell)),
             )
+            .add_systems(
+                Update,
+                (
+                    systems::action_panel::setup_production_panel,
+                    systems::action_panel::update_production_panel,
+                )
+                    .run_if(in_state(GameView::Cell)),
+            )
             // Cell view: unit drag & drop, selection, visual feedback
             .add_systems(
                 Update,
