@@ -404,6 +404,8 @@ pub enum ServerMessage {
         status: crate::ActionStatusEnum,
         action_type: crate::ActionTypeEnum,
         completion_time: u64,
+        action_name: Option<String>,
+        unit_ids: Vec<u64>, 
     },
 
     /// Action result broadcast to all players in the chunk after completion

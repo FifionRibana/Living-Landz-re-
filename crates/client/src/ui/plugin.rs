@@ -193,6 +193,7 @@ impl Plugin for UiPlugin {
                 (
                     on_exit_cell_view,
                     systems::panels::cleanup_cell_scene_visuals,
+                    systems::action_panel::cleanup_production_panel,
                 ),
             )
             // ─── Update systems ──────────────────────────────────────────
@@ -222,6 +223,15 @@ impl Plugin for UiPlugin {
                     systems::panels::sync_slot_visuals,
                     systems::panels::auto_assign_unslotted_units
                         .run_if(resource_exists::<CellState>.and(resource_changed::<CellState>)),
+                )
+                    .run_if(in_state(GameView::Cell)),
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::action_panel::setup_production_panel,
+                    systems::action_panel::update_production_panel,
+                    systems::action_panel::handle_production_slot_click,
                 )
                     .run_if(in_state(GameView::Cell)),
             )
