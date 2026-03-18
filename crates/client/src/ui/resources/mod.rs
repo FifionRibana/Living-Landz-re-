@@ -1,4 +1,5 @@
 mod action_context;
+mod action_selection_state;
 mod action_state;
 mod cell_state;
 mod chat_state;
@@ -9,6 +10,7 @@ mod ui_state;
 mod unit_selection_state;
 
 pub use action_context::ActionContextState;
+pub use action_selection_state::ActionSelectionState;
 pub use action_state::ActionState;
 pub use cell_state::CellState;
 pub use chat_state::ChatState;
