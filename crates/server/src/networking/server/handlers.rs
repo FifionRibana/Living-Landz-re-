@@ -326,6 +326,7 @@ pub async fn handle_connection(
                     ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
                     ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
                     ServerMessage::UnitProfessionChanged { .. } => "UnitProfessionChanged",
+                    ServerMessage::UnitWorkStatusUpdate { .. } => "UnitWorkStatusUpdate",
                     ServerMessage::HamletFounded { .. } => "HamletFounded",
                     ServerMessage::HamletFoundError { .. } => "HamletFoundError",
                     ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
@@ -1248,6 +1249,7 @@ async fn handle_client_message(
             cell,
             recipe_id,
             quantity,
+            unit_ids,
         } => {
             // ── Validation ──────────────────────────────────
 
@@ -1319,14 +1321,17 @@ async fn handle_client_message(
             }
 
             // 4. Check production line capacity
-            let building_type = db_tables.buildings
+            let building_type = db_tables
+                .buildings
                 .get_building_type_at_cell(&cell)
                 .await
                 .unwrap_or(None);
 
             if let Some(bt) = building_type {
                 let max_lines = bt.production_lines() as usize;
-                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+                let active_count = action_processor
+                    .active_production_count_on_cell(&cell)
+                    .await;
 
                 if active_count >= max_lines {
                     return vec![ServerMessage::ActionError {
@@ -1334,6 +1339,20 @@ async fn handle_client_message(
                             "Toutes les lignes de production sont occupées ({}/{})",
                             active_count, max_lines
                         ),
+                    }];
+                }
+            }
+
+            // 5. Validate units aren't already busy
+            if !unit_ids.is_empty() {
+                let busy = db_tables
+                    .units
+                    .get_busy_units(&unit_ids)
+                    .await
+                    .unwrap_or_default();
+                if !busy.is_empty() {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!("Certaines unités sont déjà occupées : {:?}", busy),
                     }];
                 }
             }
@@ -1385,6 +1404,28 @@ async fn handle_client_message(
             .await
             {
                 Ok(action_id) => {
+                    // Assign units to this action
+                    if !unit_ids.is_empty() {
+                        if let Err(e) = db_tables
+                            .units
+                            .set_units_working_on(&unit_ids, action_id)
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to assign units to action {}: {}",
+                                action_id,
+                                e
+                            );
+                        } else {
+                            for &uid in &unit_ids {
+                                responses.push(ServerMessage::UnitWorkStatusUpdate {
+                                    unit_id: uid,
+                                    working_on_action_id: Some(action_id),
+                                });
+                            }
+                        }
+                    }
+
                     tracing::info!(
                         "Craft action {} scheduled: recipe '{}' x{} for player {} \
                          (duration: {}s)",
@@ -1419,6 +1460,7 @@ async fn handle_client_message(
             chunk_id,
             cell,
             resource_specific_type,
+            unit_ids,
         } => {
             // ── Validation ──────────────────────────────────
 
@@ -1451,14 +1493,17 @@ async fn handle_client_message(
             }
 
             // 3. Check production line capacity
-            let building_type = db_tables.buildings
+            let building_type = db_tables
+                .buildings
                 .get_building_type_at_cell(&cell)
                 .await
                 .unwrap_or(None);
 
             if let Some(bt) = building_type {
                 let max_lines = bt.production_lines() as usize;
-                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+                let active_count = action_processor
+                    .active_production_count_on_cell(&cell)
+                    .await;
 
                 if active_count >= max_lines {
                     return vec![ServerMessage::ActionError {
@@ -1466,6 +1511,20 @@ async fn handle_client_message(
                             "Toutes les lignes de production sont occupées ({}/{})",
                             active_count, max_lines
                         ),
+                    }];
+                }
+            }
+
+            // 4. Validate units aren't already busy
+            if !unit_ids.is_empty() {
+                let busy = db_tables
+                    .units
+                    .get_busy_units(&unit_ids)
+                    .await
+                    .unwrap_or_default();
+                if !busy.is_empty() {
+                    return vec![ServerMessage::ActionError {
+                        reason: format!("Certaines unités sont déjà occupées : {:?}", busy),
                     }];
                 }
             }
@@ -1513,6 +1572,28 @@ async fn handle_client_message(
             .await
             {
                 Ok(action_id) => {
+                    // Assign units to this action
+                    if !unit_ids.is_empty() {
+                        if let Err(e) = db_tables
+                            .units
+                            .set_units_working_on(&unit_ids, action_id)
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to assign units to action {}: {}",
+                                action_id,
+                                e
+                            );
+                        } else {
+                            for &uid in &unit_ids {
+                                responses.push(ServerMessage::UnitWorkStatusUpdate {
+                                    unit_id: uid,
+                                    working_on_action_id: Some(action_id),
+                                });
+                            }
+                        }
+                    }
+
                     responses.push(ServerMessage::ActionStatusUpdate {
                         action_id,
                         player_id,
@@ -1652,14 +1733,17 @@ async fn handle_client_message(
             let mut responses = Vec::new();
 
             // 1. Check production line capacity
-            let building_type = db_tables.buildings
+            let building_type = db_tables
+                .buildings
                 .get_building_type_at_cell(&cell)
                 .await
                 .unwrap_or(None);
 
             if let Some(bt) = building_type {
                 let max_lines = bt.production_lines() as usize;
-                let active_count = action_processor.active_production_count_on_cell(&cell).await;
+                let active_count = action_processor
+                    .active_production_count_on_cell(&cell)
+                    .await;
 
                 if active_count >= max_lines {
                     return vec![ServerMessage::ActionError {
@@ -1670,7 +1754,7 @@ async fn handle_client_message(
                     }];
                 }
             }
-            
+
             let action_table = &db_tables.actions;
             let specific_data = SpecificAction::TrainUnit(TrainUnitAction {
                 player_id,

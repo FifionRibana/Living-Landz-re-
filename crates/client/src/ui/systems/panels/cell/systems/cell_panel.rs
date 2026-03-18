@@ -6,6 +6,7 @@ use shared::{SlotPosition, protocol::ClientMessage};
 
 use crate::camera;
 use crate::camera::resources::CELL_SCENE_LAYER;
+use crate::state::resources::UnitWorkState;
 use crate::ui::components::{
     CellSceneSlotSprite, CellSceneVisual, DragTargetValidity, Slot, SlotVisualState,
 };
@@ -779,6 +780,7 @@ pub fn sync_slot_visuals(
     unit_selection: Res<UnitSelectionState>,
     cell_state: Res<CellState>,
     units_cache: Res<UnitsCache>,
+    unit_work_state: Res<UnitWorkState>,
     // Slot hex sprites
     mut slot_query: Query<(&SlotIndicator, &SlotVisualState, &mut Sprite), With<Slot>>,
     // Unit portrait sprites
@@ -827,6 +829,7 @@ pub fn sync_slot_visuals(
         });
 
         let is_selected = unit_selection.is_selected(unit_sprite.unit_id);
+        let is_working = unit_work_state.is_working(unit_sprite.unit_id);
         let is_being_dragged = dragged_unit_id == Some(unit_sprite.unit_id);
 
         // TODO: When changing slot, the border is not "selected anymore if the unit is selected
@@ -839,6 +842,8 @@ pub fn sync_slot_visuals(
             Color::WHITE
         } else if drag_target == Some(DragTargetValidity::Invalid) {
             Color::srgba_u8(255, 128, 128, 196)
+        } else if is_working {
+            Color::srgb_u8(255, 200, 100) // warm orange tint — busy
         } else if is_hovered && !is_dragging {
             Color::srgb_u8(217, 230, 196) // hover highlight
         } else if is_selected {
@@ -936,6 +941,7 @@ fn on_slot_drag_leave(
 fn on_slot_drag_start(
     event: On<Pointer<DragStart>>,
     mut drag_state: ResMut<DragState>,
+    unit_work_state: Res<UnitWorkState>,
     slot_query: Query<(&SlotIndicator, Option<&SlotOccupant>), With<Slot>>,
     container_query: Query<&Transform, With<SlotUnitPortrait>>,
 ) {
@@ -950,6 +956,17 @@ fn on_slot_drag_start(
     };
 
     let unit_entity = occupant.get();
+
+    //? For now it is as is, but tbd if it is the desired behavior.
+    //? Perhaps you can drag but can't move the unit outside
+    // Get unit_id from the portrait
+    // Can't drag a working unit
+    if let Some(unit_id) = slot_indicator.occupied_by {
+        if unit_work_state.is_working(unit_id) {
+            info!("Unit {} is working, can't drag", unit_id);
+            return;
+        }
+    }
 
     let origin = container_query
         .get(unit_entity)

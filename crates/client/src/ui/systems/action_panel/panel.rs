@@ -1131,14 +1131,25 @@ pub fn handle_execute_button(
                 end_cell: end,
             });
         } else if let Some(recipe_id) = action_id.strip_prefix("produce_") {
+            let unit_ids: Vec<u64> = unit_selection.selected_ids().to_vec();
             network_client.send_message(shared::protocol::ClientMessage::ActionCraftResource {
                 player_id,
                 chunk_id,
                 cell,
                 recipe_id: recipe_id.to_string(),
                 quantity: 1,
+                unit_ids,
             });
             info!("✓ Production {} request sent", recipe_id);
+        } else if let Some(recipe_id) = action_id.strip_prefix("harvest_") {
+            // let unit_ids: Vec<u64> = unit_selection.selected_ids().to_vec();
+            // network_client.send_message(shared::protocol::ClientMessage::ActionHarvestResource {
+            //     player_id,
+            //     chunk_id,
+            //     cell,
+            //     unit_ids,
+            // });
+            // info!("✓ Harvest {} request sent", recipe_id);
         } else if let Some(profession_str) = action_id.strip_prefix("train_") {
             let target_profession = match profession_str {
                 "baker" => shared::ProfessionEnum::Baker,

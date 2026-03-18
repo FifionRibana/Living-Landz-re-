@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use shared::protocol::ServerMessage;
 
 use crate::networking::events::ServerEvent;
-use crate::state::resources::{PlayerInfo, UnitsCache, UnitsDataCache};
+use crate::state::resources::{PlayerInfo, UnitWorkState, UnitsCache, UnitsDataCache};
 use crate::ui::components::{SlotIndicator, SlotUnitPortrait};
 use crate::ui::systems::panels::InSlot;
 
@@ -11,6 +11,7 @@ pub fn handle_unit_events(
     mut events: MessageReader<ServerEvent>,
     mut units_cache: Option<ResMut<UnitsCache>>,
     mut units_data_cache: Option<ResMut<UnitsDataCache>>,
+    mut unit_work_state: ResMut<UnitWorkState>,
     mut player_info: ResMut<PlayerInfo>,
     mut commands: Commands,
     unit_query: Query<(Entity, &InSlot, &SlotUnitPortrait)>,
@@ -168,6 +169,19 @@ pub fn handle_unit_events(
                     lord.current_cell = *to_cell;
                     lord.current_chunk = *to_chunk;
                     info!("Lord position updated to ({},{})", to_cell.q, to_cell.r);
+                }
+            }
+
+            ServerMessage::UnitWorkStatusUpdate {
+                unit_id,
+                working_on_action_id,
+            } => {
+                if let Some(action_id) = working_on_action_id {
+                    info!("Unit {} assigned to action {}", unit_id, action_id);
+                    unit_work_state.set_working(*unit_id, *action_id);
+                } else {
+                    info!("Unit {} freed from work", unit_id);
+                    unit_work_state.clear_working(*unit_id);
                 }
             }
 

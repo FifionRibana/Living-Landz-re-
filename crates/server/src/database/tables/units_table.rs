@@ -806,4 +806,60 @@ impl UnitsTable {
 
         Ok(occupied_slots)
     }
+
+    /// Mark units as working on an action
+    pub async fn set_units_working_on(
+        &self,
+        unit_ids: &[u64],
+        action_id: u64,
+    ) -> Result<(), String> {
+        if unit_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Build parameterized query for multiple IDs
+        let ids: Vec<i64> = unit_ids.iter().map(|&id| id as i64).collect();
+        sqlx::query("UPDATE units.units SET working_on_action_id = $1 WHERE id = ANY($2)")
+            .bind(action_id as i64)
+            .bind(&ids)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to set working_on: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Clear working_on for all units assigned to an action
+    pub async fn clear_units_working_on(&self, action_id: u64) -> Result<Vec<u64>, String> {
+        let rows = sqlx::query(
+            "UPDATE units.units SET working_on_action_id = NULL 
+             WHERE working_on_action_id = $1 
+             RETURNING id",
+        )
+        .bind(action_id as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to clear working_on: {}", e))?;
+
+        Ok(rows.iter().map(|r| r.get::<i64, _>("id") as u64).collect())
+    }
+
+    /// Check if any of the given units are already working
+    pub async fn get_busy_units(&self, unit_ids: &[u64]) -> Result<Vec<u64>, String> {
+        if unit_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<i64> = unit_ids.iter().map(|&id| id as i64).collect();
+        let rows = sqlx::query(
+            "SELECT id FROM units.units 
+             WHERE id = ANY($1) AND working_on_action_id IS NOT NULL",
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to check busy units: {}", e))?;
+
+        Ok(rows.iter().map(|r| r.get::<i64, _>("id") as u64).collect())
+    }
 }
