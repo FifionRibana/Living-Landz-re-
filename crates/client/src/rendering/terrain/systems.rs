@@ -211,9 +211,9 @@ pub fn spawn_terrain(
                 bh.clone(),
                 BiomeParams {
                     has_biome: 1.0,
-                    resolution: global.biome_width as f32,
                     world_width: global.world_width,
                     world_height: global.world_height,
+                    ..default()
                 },
             )
         } else {
