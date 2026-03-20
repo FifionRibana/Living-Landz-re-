@@ -12,17 +12,161 @@
 @group(2) @binding(9) var<uniform> road_color_dark: vec4<f32>;
 @group(2) @binding(10) var<uniform> road_color_tracks: vec4<f32>;
 @group(2) @binding(11) var<uniform> chunk_info: vec4<f32>; // x,y = world offset; z,w = chunk width,height
+@group(2) @binding(12) var biome_texture: texture_2d<f32>;
+@group(2) @binding(13) var biome_sampler: sampler;
+@group(2) @binding(14) var<uniform> biome_params: vec4<f32>; // x = has_biome// AJOUTER après la ligne @group(2) @binding(14) :
+@group(2) @binding(15) var heightmap_texture: texture_2d<f32>;
 
 // ============================================================================
 // CONSTANTES PALETTE PAINTERLY
 // Couleurs désaturées et terreuses pour un rendu organique
 // ============================================================================
 
-// --- Végétation (4 teintes mélangées par bruit) ---
-const FOREST_DARK:   vec3<f32> = vec3<f32>(0.16, 0.24, 0.11);  // Sous-bois dense
-const FOREST_MID:    vec3<f32> = vec3<f32>(0.24, 0.33, 0.16);  // Forêt tempérée
-const MEADOW:        vec3<f32> = vec3<f32>(0.34, 0.40, 0.22);  // Prairie
-const DRY_GRASS:     vec3<f32> = vec3<f32>(0.42, 0.39, 0.24);  // Herbe sèche / foin
+// ============================================================================
+// PER-BIOME PALETTES
+// Each biome has 4 colors: dark, mid, light, accent
+// plus a noise frequency multiplier for texture variation
+// ============================================================================
+
+// BiomeTypeEnum IDs (from shared/types/terrain/enums.rs):
+// 0=Undefined, 1=Ocean, 2=DeepOcean, 3=Desert, 4=Savanna,
+// 5=Grassland, 6=TropicalSeasonalForest, 7=TropicalRainForest,
+// 8=TropicalDeciduousForest, 9=TemperateRainForest, 10=Wetland,
+// 11=Taiga, 12=Tundra, 13=Lake, 14=ColdDesert, 15=Ice
+
+struct BiomePalette {
+    dark: vec3<f32>,
+    mid: vec3<f32>,
+    light: vec3<f32>,
+    accent: vec3<f32>,
+    noise_scale: f32,
+    detail_amount: f32,
+}
+
+fn get_biome_palette(biome_id: u32) -> BiomePalette {
+    var p: BiomePalette;
+
+    switch biome_id {
+        // Desert (3)
+        case 3u: {
+            p.dark   = vec3<f32>(0.62, 0.52, 0.32);
+            p.mid    = vec3<f32>(0.72, 0.62, 0.40);
+            p.light  = vec3<f32>(0.80, 0.72, 0.48);
+            p.accent = vec3<f32>(0.68, 0.58, 0.35);
+            p.noise_scale = 0.6;
+            p.detail_amount = 0.08;
+        }
+        // Savanna (4)
+        case 4u: {
+            p.dark   = vec3<f32>(0.38, 0.36, 0.20);
+            p.mid    = vec3<f32>(0.50, 0.46, 0.26);
+            p.light  = vec3<f32>(0.58, 0.52, 0.30);
+            p.accent = vec3<f32>(0.44, 0.40, 0.22);
+            p.noise_scale = 0.8;
+            p.detail_amount = 0.15;
+        }
+        // Grassland (5)
+        case 5u: {
+            p.dark   = vec3<f32>(0.24, 0.33, 0.16);
+            p.mid    = vec3<f32>(0.34, 0.40, 0.22);
+            p.light  = vec3<f32>(0.42, 0.39, 0.24);
+            p.accent = vec3<f32>(0.30, 0.36, 0.19);
+            p.noise_scale = 1.0;
+            p.detail_amount = 0.20;
+        }
+        // TropicalSeasonalForest (6)
+        case 6u: {
+            p.dark   = vec3<f32>(0.14, 0.26, 0.08);
+            p.mid    = vec3<f32>(0.22, 0.36, 0.12);
+            p.light  = vec3<f32>(0.32, 0.42, 0.18);
+            p.accent = vec3<f32>(0.26, 0.38, 0.14);
+            p.noise_scale = 1.2;
+            p.detail_amount = 0.25;
+        }
+        // TropicalRainForest (7)
+        case 7u: {
+            p.dark   = vec3<f32>(0.08, 0.20, 0.06);
+            p.mid    = vec3<f32>(0.14, 0.30, 0.10);
+            p.light  = vec3<f32>(0.20, 0.36, 0.14);
+            p.accent = vec3<f32>(0.12, 0.28, 0.08);
+            p.noise_scale = 1.4;
+            p.detail_amount = 0.30;
+        }
+        // TropicalDeciduousForest (8)
+        case 8u: {
+            p.dark   = vec3<f32>(0.12, 0.24, 0.10);
+            p.mid    = vec3<f32>(0.20, 0.34, 0.16);
+            p.light  = vec3<f32>(0.30, 0.40, 0.20);
+            p.accent = vec3<f32>(0.24, 0.36, 0.14);
+            p.noise_scale = 1.1;
+            p.detail_amount = 0.22;
+        }
+        // TemperateRainForest (9)
+        case 9u: {
+            p.dark   = vec3<f32>(0.10, 0.22, 0.14);
+            p.mid    = vec3<f32>(0.18, 0.32, 0.20);
+            p.light  = vec3<f32>(0.26, 0.38, 0.24);
+            p.accent = vec3<f32>(0.16, 0.28, 0.18);
+            p.noise_scale = 1.3;
+            p.detail_amount = 0.28;
+        }
+        // Wetland (10)
+        case 10u: {
+            p.dark   = vec3<f32>(0.10, 0.20, 0.16);
+            p.mid    = vec3<f32>(0.16, 0.28, 0.22);
+            p.light  = vec3<f32>(0.24, 0.34, 0.26);
+            p.accent = vec3<f32>(0.14, 0.26, 0.20);
+            p.noise_scale = 0.7;
+            p.detail_amount = 0.18;
+        }
+        // Taiga (11)
+        case 11u: {
+            p.dark   = vec3<f32>(0.10, 0.16, 0.10);
+            p.mid    = vec3<f32>(0.16, 0.22, 0.14);
+            p.light  = vec3<f32>(0.22, 0.28, 0.18);
+            p.accent = vec3<f32>(0.18, 0.20, 0.14);
+            p.noise_scale = 0.9;
+            p.detail_amount = 0.15;
+        }
+        // Tundra (12)
+        case 12u: {
+            p.dark   = vec3<f32>(0.32, 0.28, 0.22);
+            p.mid    = vec3<f32>(0.40, 0.36, 0.28);
+            p.light  = vec3<f32>(0.48, 0.44, 0.34);
+            p.accent = vec3<f32>(0.36, 0.32, 0.26);
+            p.noise_scale = 0.7;
+            p.detail_amount = 0.12;
+        }
+        // ColdDesert (14)
+        case 14u: {
+            p.dark   = vec3<f32>(0.38, 0.38, 0.30);
+            p.mid    = vec3<f32>(0.48, 0.46, 0.36);
+            p.light  = vec3<f32>(0.56, 0.54, 0.42);
+            p.accent = vec3<f32>(0.42, 0.40, 0.32);
+            p.noise_scale = 0.6;
+            p.detail_amount = 0.10;
+        }
+        // Ice (15)
+        case 15u: {
+            p.dark   = vec3<f32>(0.72, 0.76, 0.80);
+            p.mid    = vec3<f32>(0.80, 0.84, 0.88);
+            p.light  = vec3<f32>(0.88, 0.90, 0.92);
+            p.accent = vec3<f32>(0.76, 0.82, 0.86);
+            p.noise_scale = 0.4;
+            p.detail_amount = 0.06;
+        }
+        // Default / fallback — neutral gray-brown (blends with anything)
+        default: {
+            p.dark   = vec3<f32>(1.0, 0.0, 0.0);
+            p.mid    = vec3<f32>(1.0, 0.0, 0.0);
+            p.light  = vec3<f32>(1.0, 0.0, 0.0);
+            p.accent = vec3<f32>(1.0, 0.0, 0.0);
+            p.noise_scale = 0.7;
+            p.detail_amount = 0.10;
+        }
+    }
+    return p;
+}
 
 // --- Sable multi-zones ---
 const SAND_WET:      vec3<f32> = vec3<f32>(0.45, 0.40, 0.30);  // Sable mouillé (près de l'eau)
@@ -88,46 +232,49 @@ fn fbm_rotated(p: vec2<f32>, octaves: i32) -> f32 {
 // ============================================================================
 // VEGETATION PAINTERLY
 // Mélange organique de 4 teintes piloté par bruit multi-échelle
+// Paramétré par BiomePalette pour varier selon le biome
 // ============================================================================
 
-fn painterly_vegetation(world_pos: vec2<f32>, base_green: vec3<f32>) -> vec3<f32> {
-    // ---- Couche 1 : grandes taches (prairies vs forêts) ----
-    // Fréquence très basse = grands patchs de ~120-200 pixels
-    let large_noise = fbm_rotated(world_pos * 0.005, 4);
-    
-    // ---- Couche 2 : variation moyenne (bosquets, clairières) ----
-    // Fréquence moyenne = patchs de ~40-60 pixels
-    let medium_noise = fbm_rotated(world_pos * 0.018 + vec2<f32>(43.7, 91.2), 4);
-    
-    // ---- Couche 3 : micro-détails (touffes d'herbe) ----
-    // Haute fréquence = variation pixel à pixel presque
-    let detail_noise = fbm(world_pos * 0.06 + vec2<f32>(17.3, 53.1), 3);
-    
+fn painterly_vegetation_biome(world_pos: vec2<f32>, palette: BiomePalette, base_green: vec3<f32>) -> vec3<f32> {
+    let ns = palette.noise_scale;
+
+    // ---- Couche 1 : grandes taches ----
+    let large_noise = fbm_rotated(world_pos * 0.005 * ns, 4);
+
+    // ---- Couche 2 : variation moyenne ----
+    let medium_noise = fbm_rotated(world_pos * 0.018 * ns + vec2<f32>(43.7, 91.2), 4);
+
+    // ---- Couche 3 : micro-détails ----
+    let detail_noise = fbm(world_pos * 0.06 * ns + vec2<f32>(17.3, 53.1), 3);
+
     // ---- Couche 4 : "coups de pinceau" directionnels ----
-    // Bruit étiré dans une direction pour simuler des stries de peinture
     let brush_pos = vec2<f32>(world_pos.x * 0.03, world_pos.y * 0.012);
     let brush_stroke = fbm(brush_pos + vec2<f32>(77.0, 33.0), 3);
-    
-    // Mélange des 4 teintes de vert
-    // Grande échelle : forêt sombre vs prairie claire
-    var color = mix(MEADOW, FOREST_MID, smoothstep(0.35, 0.65, large_noise));
-    
-    // Moyenne échelle : patches de forêt dense ou d'herbe sèche
-    color = mix(color, FOREST_DARK, smoothstep(0.58, 0.78, medium_noise) * 0.6);
-    color = mix(color, DRY_GRASS, smoothstep(0.60, 0.80, 1.0 - medium_noise) * 0.35);
-    
-    // Micro-détail : variation de luminosité (±12%)
-    color *= 0.88 + detail_noise * 0.24;
-    
-    // Coups de pinceau : légère variation de teinte chaude/froide
+
+    // Mélange des 4 teintes du biome
+    var color = mix(palette.light, palette.mid, smoothstep(0.35, 0.65, large_noise));
+
+    color = mix(color, palette.dark, smoothstep(0.58, 0.78, medium_noise) * 0.6);
+    color = mix(color, palette.accent, smoothstep(0.60, 0.80, 1.0 - medium_noise) * 0.35);
+
+    // Micro-détail : variation de luminosité
+    let detail_strength = palette.detail_amount * 1.2;
+    color *= (1.0 - detail_strength) + detail_noise * detail_strength * 2.0;
+
+    // Coups de pinceau
     let warm_shift = (brush_stroke - 0.5) * 0.08;
     color += vec3<f32>(warm_shift, warm_shift * 0.3, -warm_shift * 0.5);
-    
-    // Moduler subtilement avec la couleur de base passée en uniform
-    // (permet de garder un contrôle côté Rust)
-    color = mix(color, base_green, 0.15);
-    
+
+    // Moduler subtilement avec la couleur de base (uniform Rust)
+    color = mix(color, base_green, 0.10);
+
     return color;
+}
+
+// Legacy wrapper: uses default grassland palette (for compatibility)
+fn painterly_vegetation(world_pos: vec2<f32>, base_green: vec3<f32>) -> vec3<f32> {
+    let p = get_biome_palette(5u); // Grassland
+    return painterly_vegetation_biome(world_pos, p, base_green);
 }
 
 // ============================================================================
@@ -315,7 +462,7 @@ fn is_on_road(
 
 
 // ============================================================================
-// FRAGMENT SHADER — PAINTERLY
+// FRAGMENT SHADER — PAINTERLY + BIOMES
 // ============================================================================
 
 @fragment
@@ -323,6 +470,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let beach_start = params.x;
     let beach_end = params.y;
     let has_coast = params.z;
+    let has_biome = biome_params.x;
     
     #ifdef VERTEX_COLORS
         let vertex_alpha = in.color.a;
@@ -339,8 +487,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let chunk_size = vec2<f32>(chunk_info.z, chunk_info.w);
     let world_pos = chunk_offset + uv_corrected * chunk_size;
     
-    // ---- Végétation painterly (toujours calculée) ----
-    let vegetation = painterly_vegetation(world_pos, grass_color.rgb);
+    // ---- Sample biome and compute vegetation ----
+    var vegetation: vec3<f32>;
+    
+    if (has_biome > 0.5) {
+        vegetation = sample_vegetation_with_biome_blend(uv_corrected, world_pos, grass_color.rgb);
+    } else {
+        // Fallback: legacy single-palette vegetation
+        vegetation = painterly_vegetation(world_pos, grass_color.rgb);
+    }
     
     // ---- Chunk sans côte : 100% végétation ----
     if has_coast < 0.5 {
@@ -371,7 +526,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         beach_start,
         beach_end,
         vegetation,
-        sand_color.rgb * 0.92, // Légèrement désaturer le sable de base
+        sand_color.rgb * 0.92,
     );
     
     // Ambient occlusion côtière

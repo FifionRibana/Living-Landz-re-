@@ -41,14 +41,22 @@ pub struct TerrainMaterial {
     /// Permet au shader de calculer des coordonnées globales continues
     #[uniform(11)]
     pub chunk_info: ChunkInfo,
+
+    // Biome texture (R8: biome ID per pixel)
+    #[texture(12)]
+    #[sampler(13)]
+    pub biome_texture: Handle<Image>,
+
+    #[uniform(14)]
+    pub biome_params: BiomeParams,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
 pub struct SdfParams {
     pub beach_start: f32,
     pub beach_end: f32,
-    pub has_coast: f32,  // 1.0 if terrain has coast, 0.0 otherwise
-    pub _padding: f32,   // Unused, kept for vec4 alignment
+    pub has_coast: f32, // 1.0 if terrain has coast, 0.0 otherwise
+    pub _padding: f32,  // Unused, kept for vec4 alignment
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -57,6 +65,26 @@ pub struct RoadParams {
     pub edge_softness: f32,
     pub noise_frequency: f32,
     pub noise_amplitude: f32,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub struct BiomeParams {
+    /// 1.0 if biome texture is present, 0.0 otherwise
+    pub has_biome: f32,
+    pub resolution: f32,
+    pub _padding2: f32,
+    pub _padding3: f32,
+}
+
+impl Default for BiomeParams {
+    fn default() -> Self {
+        Self {
+            has_biome: 0.0,
+            resolution: 1.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
+        }
+    }
 }
 
 /// Informations de positionnement du chunk dans le monde
@@ -107,6 +135,8 @@ impl Default for TerrainMaterial {
             road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
             road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
             chunk_info: ChunkInfo::default(),
+            biome_texture: Handle::default(),
+            biome_params: BiomeParams::default(),
         }
     }
 }
