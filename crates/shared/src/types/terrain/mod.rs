@@ -1,4 +1,5 @@
 mod biomes;
+mod biome_texture_data;
 mod contour_segment;
 mod heightmap_chunk_data;
 mod ocean_data;
@@ -15,6 +16,7 @@ pub use enums::*;
 pub use lookups::*;
 
 pub use biomes::*;
+pub use biome_texture_data::*;
 pub use contour_segment::*;
 pub use heightmap_chunk_data::HeightmapChunkData;
 pub use ocean_data::OceanData;
