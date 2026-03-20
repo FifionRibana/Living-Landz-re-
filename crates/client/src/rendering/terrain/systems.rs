@@ -16,7 +16,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{ChunkInfo, RoadParams, SdfParams};
+use crate::rendering::terrain::materials::{BiomeParams, ChunkInfo, RoadParams, SdfParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -135,6 +135,58 @@ pub fn spawn_terrain(
 
         let mesh_handle = meshes.add(mesh);
 
+        // Create biome texture (real or dummy)
+        let (biome_texture, biome_params) = if let Some(ref biome_data) = terrain.biome_texture_data
+        {
+            let res = biome_data.resolution as u32;
+            let mut biome_image = Image::new(
+                Extent3d {
+                    width: res,
+                    height: res,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                biome_data.values.clone(),
+                TextureFormat::Rgba8Unorm,
+                default(),
+            );
+            // biome_image.sampler = bevy::image::ImageSampler::nearest();
+            let biome_tex = images.add(biome_image);
+            info!(
+                "Creating biome texture {}x{} for chunk {:?}",
+                res, res, terrain.id
+            );
+            (
+                biome_tex,
+                BiomeParams {
+                    has_biome: 1.0,
+                    resolution: res as f32,
+                    ..default()
+                },
+            )
+        } else {
+            // Dummy 1x1 biome texture (Grassland=5 as fallback)
+            let mut dummy_image = Image::new(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![5 * 17, 5 * 17, 0, 255],
+                TextureFormat::Rgba8Unorm,
+                default(),
+            );
+            // dummy_image.sampler = bevy::image::ImageSampler::nearest();
+            let dummy_biome = images.add(dummy_image);
+            (
+                dummy_biome,
+                BiomeParams {
+                    has_biome: 0.0,
+                    ..default()
+                },
+            )
+        };
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
@@ -199,6 +251,8 @@ pub fn spawn_terrain(
                     chunk_width: constants::CHUNK_SIZE.x,
                     chunk_height: constants::CHUNK_SIZE.y,
                 },
+                biome_texture: biome_texture.clone(),
+                biome_params,
             }))
         } else {
             info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
@@ -275,6 +329,8 @@ pub fn spawn_terrain(
                     chunk_width: constants::CHUNK_SIZE.x,
                     chunk_height: constants::CHUNK_SIZE.y,
                 },
+                biome_texture: biome_texture.clone(),
+                biome_params,
             }))
         };
 

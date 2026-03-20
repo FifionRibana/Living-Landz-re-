@@ -88,6 +88,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         map_name,
         &maps.binary_map,
         Some(&maps.heightmap),
+        Some(&maps.biome_map),
         &scale,
         &format!("assets/maps/{}_binarymap.bin", map_name),
     );

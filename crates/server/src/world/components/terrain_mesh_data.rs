@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
+use super::mesh_data::MeshData;
 use bevy::prelude::*;
 use bincode::{Decode, Encode};
 use i_triangle::float::{triangulatable::Triangulatable, triangulation::Triangulation};
-use image::{DynamicImage, ImageBuffer, Luma};
+use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
+use shared::{BiomeColor, BiomeTextureData, find_closest_biome, get_biome_color};
 use shared::{HeightmapChunkData, RoadChunkSdfData, TerrainChunkSdfData, constants};
 use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
-
-use super::mesh_data::MeshData;
 
 use crate::utils::{algorithm, file_system};
 use crate::world::resources::SdfConfig;
@@ -22,6 +22,7 @@ pub struct TerrainChunkMeshData {
     pub sdf_data: Vec<TerrainChunkSdfData>,
     pub heightmap_data: Option<HeightmapChunkData>,
     pub road_sdf_data: Option<RoadChunkSdfData>,
+    pub biome_texture_data: Option<BiomeTextureData>,
     pub outlines: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,
 }
@@ -39,6 +40,7 @@ impl TerrainChunkMeshData {
             sdf_data: self.sdf_data.clone(),
             heightmap_data: self.heightmap_data.clone(),
             road_sdf_data: self.road_sdf_data.clone(),
+            biome_texture_data: self.biome_texture_data.clone(),
             outline: self.outlines.clone(),
             generated_at: self.generated_at,
         }
@@ -62,6 +64,7 @@ impl TerrainMeshData {
         name: &str,
         image: &DynamicImage,
         heightmap_image: Option<&DynamicImage>,
+        biome_map: Option<&DynamicImage>,
         scale: &Vec2,
         cache_path: &str,
     ) -> (
@@ -77,9 +80,7 @@ impl TerrainMeshData {
                 scaled_image = image;
                 true
             }
-            _ => {
-                false
-            }
+            _ => false,
         };
 
         if !loaded {
@@ -237,6 +238,68 @@ impl TerrainMeshData {
 
         let chunk_heightmap_data_ref = &chunk_heightmap_data;
 
+        // Générer la biome texture et la découper en chunks (optionnel)
+        // Générer la biome texture et la découper en chunks (optionnel)
+        let chunk_biome_texture_data: HashMap<TerrainChunkId, Option<BiomeTextureData>> =
+            if let Some(biome_img) = biome_map {
+                tracing::info!("Generating global biome texture");
+                let t_biome = std::time::Instant::now();
+
+                let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
+                let biome_resolution = 256usize;
+                let global_biome_width = n_chunk_x as usize * biome_resolution;
+                let global_biome_height = n_chunk_y as usize * biome_resolution;
+
+                let global_biome = generate_global_biome_texture(
+                    &biome_rgba,
+                    global_biome_width,
+                    global_biome_height,
+                );
+
+                tracing::info!(
+                    "    Global biome texture {}x{} generated in {:?}",
+                    global_sdf_width,
+                    global_sdf_height,
+                    t_biome.elapsed()
+                );
+
+                tracing::info!("Splitting biome texture into chunks");
+                let t_biome_split = std::time::Instant::now();
+
+                let chunk_biome_values = split_biome_into_chunks(
+                    &global_biome,
+                    global_biome_width,
+                    global_biome_height,
+                    biome_resolution,
+                    n_chunk_x,
+                    n_chunk_y,
+                );
+
+                let result: HashMap<TerrainChunkId, Option<BiomeTextureData>> = chunk_biome_values
+                    .into_iter()
+                    .map(|(id, values)| {
+                        let data = BiomeTextureData::from_values(biome_resolution as u16, values);
+                        (id, Some(data))
+                    })
+                    .collect();
+
+                tracing::info!(
+                    "    Biome texture chunks created in {:?}",
+                    t_biome_split.elapsed()
+                );
+
+                result
+            } else {
+                // Pas de biome map : None pour tous les chunks
+                (0..n_chunk_y)
+                    .flat_map(|cy| {
+                        (0..n_chunk_x).map(move |cx| (TerrainChunkId { x: cx, y: cy }, None))
+                    })
+                    .collect()
+            };
+
+        let chunk_biome_texture_data_ref = &chunk_biome_texture_data;
+
         tracing::info!("Detecting chunks outlines");
         let t4 = std::time::Instant::now();
 
@@ -321,6 +384,10 @@ impl TerrainMeshData {
                                     .cloned()
                                     .unwrap_or(None),
                                 road_sdf_data: None, // Les routes seront ajoutées dynamiquement
+                                biome_texture_data: chunk_biome_texture_data_ref
+                                    .get(&id)
+                                    .cloned()
+                                    .unwrap_or(None),
                                 generated_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
@@ -1425,6 +1492,254 @@ fn sample_heightmap_bilinear(image: &ImageBuffer<Luma<u8>, Vec<u8>>, x: f32, y: 
     let v = v0 * (1.0 - fy) + v1 * fy;
 
     v.round().clamp(0.0, 255.0) as u8
+}
+
+/// Generates a global biome blend texture from the RGBA biome map.
+/// For each target pixel, samples a window at SOURCE resolution and takes
+/// a majority vote — this eliminates anti-aliased boundary pixels before
+/// they ever become biome IDs.
+///
+/// Output: Vec<u8> in RGBA8 format. For each pixel:
+///   R = primary biome ID * 17 (scaled to 0-255)
+///   G = secondary biome ID * 17
+///   B = blend factor (0 = 100% primary, 255 = 100% secondary)
+///   A = 255
+fn generate_global_biome_texture(
+    biome_map: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    target_width: usize,
+    target_height: usize,
+) -> Vec<u8> {
+    let img_w = biome_map.width() as i32;
+    let img_h = biome_map.height() as i32;
+    let scale_x = img_w as f32 / target_width as f32;
+    let scale_y = img_h as f32 / target_height as f32;
+    let total_pixels = target_width * target_height;
+
+    tracing::info!(
+        "    Biome blend texture: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
+        img_w,
+        img_h,
+        target_width,
+        target_height,
+        scale_x,
+        scale_y
+    );
+
+    let is_water_biome = |id: u8| -> bool { id <= 2 || id == 13 };
+
+    // Helper: sample biome ID at source pixel with clamping
+    let sample_id = |sx: i32, sy: i32| -> u8 {
+        let cx = sx.clamp(0, img_w - 1) as u32;
+        let cy = sy.clamp(0, img_h - 1) as u32;
+        let pixel = biome_map.get_pixel(cx, cy);
+        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+        find_closest_biome(&color).to_id() as u8
+    };
+
+    // Pass 1: For each target pixel, find the dominant pure biome at source resolution.
+    // "Pure" = pixel color matches a known biome exactly (distance < 5).
+    // Start with a small window (3x3) and expand up to 15x15 until we find pure pixels.
+    // This guarantees anti-aliased boundary pixels are never counted.
+    let max_radius: i32 = 7; // max window = 15x15
+    let purity_threshold = 5; // max color distance to count as "pure"
+
+    tracing::info!(
+        "    Sampling with expanding window, max radius: {}, purity threshold: {}",
+        max_radius,
+        purity_threshold
+    );
+
+    let clean_ids: Vec<u8> = (0..total_pixels)
+        .into_par_iter()
+        .map(|idx| {
+            let tx = idx % target_width;
+            let ty = idx / target_width;
+            let src_x = ((tx as f32 + 0.5) * scale_x) as i32;
+            let src_y = ((ty as f32 + 0.5) * scale_y) as i32;
+
+            // Try expanding radii until we find at least one pure pixel
+            for radius in 1..=max_radius {
+                let mut counts = [0u16; 16];
+                let mut total_pure = 0u16;
+
+                for dy in -radius..=radius {
+                    for dx in -radius..=radius {
+                        let cx = (src_x + dx).clamp(0, img_w - 1) as u32;
+                        let cy = (src_y + dy).clamp(0, img_h - 1) as u32;
+                        let pixel = biome_map.get_pixel(cx, cy);
+                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                        let biome_enum = find_closest_biome(&color);
+                        let id = biome_enum.to_id() as u8;
+
+                        // Only count pixels that are an exact match to a known biome
+                        let ref_color = get_biome_color(&biome_enum);
+                        let dist = color.distance_to(&ref_color);
+
+                        if dist < purity_threshold && (id as usize) < 16 && id > 2 && id != 13 {
+                            counts[id as usize] += 1;
+                            total_pure += 1;
+                        }
+                    }
+                }
+
+                // If we found pure pixels, pick the majority
+                if total_pure > 0 {
+                    let mut best_id = 5u8;
+                    let mut best_count = 0u16;
+                    for id in 0u8..16 {
+                        if counts[id as usize] > best_count {
+                            best_count = counts[id as usize];
+                            best_id = id;
+                        }
+                    }
+                    return best_id;
+                }
+            }
+
+            // Absolute fallback (should be very rare)
+            5u8 // Grassland
+        })
+        .collect();
+
+    // Pass 2: Dilate into any remaining water pixels
+    let mut ids = clean_ids;
+    for _ in 0..16 {
+        let snapshot = ids.clone();
+        for y in 0..target_height {
+            for x in 0..target_width {
+                let idx = y * target_width + x;
+                if !is_water_biome(snapshot[idx]) {
+                    continue;
+                }
+                let mut found = None;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let nx = (x as i32 + dx).clamp(0, target_width as i32 - 1) as usize;
+                        let ny = (y as i32 + dy).clamp(0, target_height as i32 - 1) as usize;
+                        let n = snapshot[ny * target_width + nx];
+                        if !is_water_biome(n) {
+                            found = Some(n);
+                            break;
+                        }
+                    }
+                    if found.is_some() {
+                        break;
+                    }
+                }
+                if let Some(b) = found {
+                    ids[idx] = b;
+                }
+            }
+        }
+    }
+    for pixel in ids.iter_mut() {
+        if is_water_biome(*pixel) {
+            *pixel = 5;
+        }
+    }
+
+    // Pass 3: Compute blend — find nearest different biome and distance
+    let transition_radius: i32 = 16;
+    let transition_width: f32 = 28.0;
+
+    let rgba: Vec<u8> = (0..total_pixels)
+        .into_par_iter()
+        .flat_map(|idx| {
+            let x = (idx % target_width) as i32;
+            let y = (idx / target_width) as i32;
+            let primary = ids[idx];
+
+            let mut nearest_dist_sq = i32::MAX;
+            let mut secondary = primary;
+
+            for dy in -transition_radius..=transition_radius {
+                let ny = y + dy;
+                if ny < 0 || ny >= target_height as i32 {
+                    continue;
+                }
+                for dx in -transition_radius..=transition_radius {
+                    let nx = x + dx;
+                    if nx < 0 || nx >= target_width as i32 {
+                        continue;
+                    }
+                    let dist_sq = dx * dx + dy * dy;
+                    if dist_sq >= nearest_dist_sq {
+                        continue;
+                    }
+                    let neighbor = ids[ny as usize * target_width + nx as usize];
+                    if neighbor != primary {
+                        nearest_dist_sq = dist_sq;
+                        secondary = neighbor;
+                    }
+                }
+            }
+
+            let blend = if nearest_dist_sq == i32::MAX {
+                0u8
+            } else {
+                let dist = (nearest_dist_sq as f32).sqrt();
+                let t = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
+                let smooth = t * t * (3.0 - 2.0 * t);
+                (smooth * 128.0) as u8
+            };
+
+            vec![primary * 17, secondary * 17, blend, 255u8]
+        })
+        .collect();
+
+    rgba
+}
+
+/// Splits a global biome RGBA texture into per-chunk textures.
+/// Uses the same overlap as split_sdf_into_chunks for seamless chunk borders.
+fn split_biome_into_chunks(
+    global_biome_rgba: &[u8],
+    global_width: usize,
+    global_height: usize,
+    chunk_resolution: usize,
+    n_chunk_x: i32,
+    n_chunk_y: i32,
+) -> HashMap<TerrainChunkId, Vec<u8>> {
+    let mut result = HashMap::new();
+    let overlap = 0.5f32;
+
+    for cy in 0..n_chunk_y {
+        for cx in 0..n_chunk_x {
+            let chunk_id = TerrainChunkId { x: cx, y: cy };
+            let mut values = Vec::with_capacity(chunk_resolution * chunk_resolution * 4);
+
+            let base_x = cx as f32 * chunk_resolution as f32;
+            let base_y = cy as f32 * chunk_resolution as f32;
+
+            for sy in 0..chunk_resolution {
+                for sx in 0..chunk_resolution {
+                    let t_x = sx as f32 / (chunk_resolution - 1) as f32;
+                    let t_y = sy as f32 / (chunk_resolution - 1) as f32;
+
+                    let global_x =
+                        (base_x - overlap + t_x * (chunk_resolution as f32 - 1.0 + 2.0 * overlap))
+                            .round()
+                            .clamp(0.0, (global_width - 1) as f32) as usize;
+                    let global_y = (base_y - overlap
+                        + t_y * (chunk_resolution as f32 - 1.0 + 2.0 * overlap))
+                        .round()
+                        .clamp(0.0, (global_height - 1) as f32)
+                        as usize;
+
+                    let src_idx = (global_y * global_width + global_x) * 4;
+                    values.push(global_biome_rgba[src_idx]);
+                    values.push(global_biome_rgba[src_idx + 1]);
+                    values.push(global_biome_rgba[src_idx + 2]);
+                    values.push(global_biome_rgba[src_idx + 3]);
+                }
+            }
+            result.insert(chunk_id, values);
+        }
+    }
+    result
 }
 
 /// Découpe la SDF globale en chunks avec overlap correct
