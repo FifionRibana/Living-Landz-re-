@@ -97,7 +97,7 @@ async fn main() {
 
     // Load world globals for on-demand chunk generation
     tracing::info!("=== Loading World Globals ===");
-    let world_global_state = world::systems::generate_world_globals(map_name, &db_tables).await;
+    let world_global_state = world::systems::load_or_generate_world_globals(map_name, &db_tables).await;
     let world_global_state_arc = Arc::new(world_global_state);
     tracing::info!("✓ World globals loaded");
 

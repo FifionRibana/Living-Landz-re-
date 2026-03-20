@@ -42,7 +42,7 @@ pub async fn generate_world_globals(
     let scale = Vec2::splat(5.);
     let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
 
-    let (mut global_state, terrain_global_data) =
+    let (mut global_state, terrain_global_data, sdf_global_data) =
         TerrainMeshData::generate_globals(
             map_name,
             &maps.binary_map,
@@ -51,6 +51,14 @@ pub async fn generate_world_globals(
             &scale,
             &cache_path,
         );
+
+    // Save SDF global data for fast server restart
+    db_tables
+        .terrain_global_data
+        .save_sdf_global_data(sdf_global_data)
+        .await
+        .expect("Failed to save SDF global data");
+    tracing::info!("✓ SDF global data saved");
 
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
@@ -100,6 +108,60 @@ pub async fn generate_world_globals(
 
     tracing::info!("✓ World globals generated in {:?}", start.elapsed());
     global_state
+}
+
+/// Load cached world globals from DB, or generate them if not found.
+/// This is the normal server startup path.
+pub async fn load_or_generate_world_globals(
+    map_name: &str,
+    db_tables: &DatabaseTables,
+) -> WorldGlobalState {
+    // Try to load cached SDF from DB
+    let cached_sdf = db_tables
+        .terrain_global_data
+        .load_sdf_global_data(map_name)
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(sdf_data) = cached_sdf {
+        tracing::info!("Found cached SDF global data, loading...");
+        let t = std::time::Instant::now();
+
+        let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
+        let grid_config = setup_grid_config();
+        let scale = Vec2::new(sdf_data.scale_x, sdf_data.scale_y);
+        let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
+
+        // Load scaled binary map from disk cache
+        let scaled_binary_map = match crate::utils::file_system::load_from_disk(&cache_path) {
+            Ok(img) => img,
+            Err(_) => {
+                tracing::warn!("Scaled binary map not cached, regenerating...");
+                return generate_world_globals(map_name, db_tables).await;
+            }
+        };
+
+        let global_state = WorldGlobalState {
+            map_name: map_name.to_string(),
+            maps: Some(maps),
+            scaled_binary_map,
+            global_sdf: sdf_data.sdf_values,
+            sdf_resolution: sdf_data.sdf_resolution as usize,
+            global_sdf_width: sdf_data.sdf_width as usize,
+            global_sdf_height: sdf_data.sdf_height as usize,
+            n_chunk_x: sdf_data.n_chunk_x,
+            n_chunk_y: sdf_data.n_chunk_y,
+            scale,
+            grid_config: Some(grid_config),
+        };
+
+        tracing::info!("✓ World globals loaded from cache in {:?}", t.elapsed());
+        global_state
+    } else {
+        tracing::info!("No cached SDF found, generating world globals...");
+        generate_world_globals(map_name, db_tables).await
+    }
 }
 
 /// Generate a single chunk's data on demand: terrain mesh, cells, buildings.
