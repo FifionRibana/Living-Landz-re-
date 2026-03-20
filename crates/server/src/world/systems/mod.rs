@@ -1,3 +1,6 @@
 mod world_generation;
 
-pub use world_generation::{generate_world, clear_world, save_world_to_png, regenerate_territory_contours, setup_grid_config};
+pub use world_generation::{
+    clear_world, generate_chunk_data, generate_world, generate_world_globals,
+    regenerate_territory_contours, save_world_to_png, setup_grid_config
+};

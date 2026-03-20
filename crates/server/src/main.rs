@@ -63,29 +63,11 @@ async fn main() {
 
     let mut map_name = "test_island";
 
-    if args.contains(&"--regenerate-world".to_string())
-        || args.contains(&"--generate-world".to_string())
-        || args.contains(&"--clear".to_string())
-        || args.contains(&"--save-png".to_string())
-        || args.contains(&"--regen-territory".to_string())
-    {
-        let result = args
-            .iter()
-            .find(|arg| arg.starts_with("--map="))
-            .map(|arg| {
-                map_name = arg.trim_start_matches("--map=");
-                tracing::info!("Using map: {}", map_name);
-                // Here you would set the map to be used in generation
-                map_name
-            });
-        if result.is_none() {
-            tracing::warn!(
-                "--map flag provided but no map name found, using default: {}",
-                map_name
-            );
-        }
-        map_name = result.unwrap_or(map_name);
+    // Parse --map= flag (used by all commands and normal server startup)
+    if let Some(arg) = args.iter().find(|arg| arg.starts_with("--map=")) {
+        map_name = arg.trim_start_matches("--map=");
     }
+    tracing::info!("Using map: {}", map_name);
 
     if args.contains(&"--clear".to_string()) {
         tracing::info!("=== Starting World Cleaning ===");
@@ -99,9 +81,12 @@ async fn main() {
         return;
     } else if args.contains(&"--generate-world".to_string()) {
         tracing::info!("=== Starting World Generation ===");
-        // World generation
         world::systems::generate_world(map_name, &db_tables, &game_state).await;
         tracing::info!("=== Generation Complete - Exiting ===");
+        return;
+    } else if args.contains(&"--generate-globals".to_string()) {
+        tracing::info!("=== Loading World Globals ===");
+        world::systems::generate_world_globals(map_name, &db_tables).await;
         return;
     } else if args.contains(&"--regen-territory".to_string()) {
         tracing::info!("=== Starting Territory Contours Regeneration ===");
@@ -109,6 +94,12 @@ async fn main() {
         tracing::info!("=== Regeneration Complete - Exiting ===");
         return;
     }
+
+    // Load world globals for on-demand chunk generation
+    tracing::info!("=== Loading World Globals ===");
+    let world_global_state = world::systems::generate_world_globals(map_name, &db_tables).await;
+    let world_global_state_arc = Arc::new(world_global_state);
+    tracing::info!("✓ World globals loaded");
 
     let sessions = networking::Sessions::default();
     let db_tables_arc = Arc::new(db_tables);
@@ -148,6 +139,7 @@ async fn main() {
         game_state_arc.clone(),
         grid_config_arc.clone(),
         dev_config_arc.clone(),
+        world_global_state_arc.clone(),
     );
 
     // Démarrer le processeur d'actions en arrière-plan
