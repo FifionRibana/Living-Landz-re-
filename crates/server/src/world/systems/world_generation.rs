@@ -42,7 +42,7 @@ pub async fn generate_world_globals(
     let scale = Vec2::splat(5.);
     let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
 
-    let (mut global_state, terrain_global_data, sdf_global_data) =
+    let (mut global_state, terrain_global_data, scaled_binary_map) =
         TerrainMeshData::generate_globals(
             map_name,
             &maps.binary_map,
@@ -51,14 +51,6 @@ pub async fn generate_world_globals(
             &scale,
             &cache_path,
         );
-
-    // Save SDF global data for fast server restart
-    db_tables
-        .terrain_global_data
-        .save_sdf_global_data(sdf_global_data)
-        .await
-        .expect("Failed to save SDF global data");
-    tracing::info!("✓ SDF global data saved");
 
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
@@ -85,14 +77,14 @@ pub async fn generate_world_globals(
     tracing::info!("=== PREPARING OCEAN DATA ===");
     let scaled_heightmap = image::imageops::resize(
         &global_maps.heightmap.to_luma8(),
-        global_state.scaled_binary_map.width(),
-        global_state.scaled_binary_map.height(),
+        scaled_binary_map.width(),
+        scaled_binary_map.height(),
         image::imageops::FilterType::Lanczos3,
     );
 
     let ocean_data = generate_ocean_data(
         map_name.to_string(),
-        &image::DynamicImage::ImageLuma8(global_state.scaled_binary_map.clone()),
+        &image::DynamicImage::ImageLuma8(scaled_binary_map),
         &image::DynamicImage::ImageLuma8(scaled_heightmap),
         global_state.n_chunk_x,
         global_state.n_chunk_y,
@@ -116,50 +108,52 @@ pub async fn load_or_generate_world_globals(
     map_name: &str,
     db_tables: &DatabaseTables,
 ) -> WorldGlobalState {
-    // Try to load cached SDF from DB
-    let cached_sdf = db_tables
+    // Check if terrain global data exists in DB (biome/heightmap/ocean)
+    let has_globals = db_tables
         .terrain_global_data
-        .load_sdf_global_data(map_name)
+        .load_terrain_global_data(map_name)
         .await
         .ok()
-        .flatten();
+        .flatten()
+        .is_some();
 
-    if let Some(sdf_data) = cached_sdf {
-        tracing::info!("Found cached SDF global data, loading...");
+    if has_globals {
+        tracing::info!("Found cached terrain globals, loading maps only...");
         let t = std::time::Instant::now();
 
         let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
         let grid_config = setup_grid_config();
-        let scale = Vec2::new(sdf_data.scale_x, sdf_data.scale_y);
-        let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
+        let scale = Vec2::splat(5.);
 
-        // Load scaled binary map from disk cache
-        let scaled_binary_map = match crate::utils::file_system::load_from_disk(&cache_path) {
-            Ok(img) => img,
-            Err(_) => {
-                tracing::warn!("Scaled binary map not cached, regenerating...");
-                return generate_world_globals(map_name, db_tables).await;
-            }
-        };
+        // Compute chunk dimensions from source image + scale
+        let scaled_width = maps.binary_map.width() as f32 * scale.x;
+        let scaled_height = maps.binary_map.height() as f32 * scale.y;
+        let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+        let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
+
+        let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map.to_luma8());
 
         let global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
-            scaled_binary_map,
-            global_sdf: sdf_data.sdf_values,
-            sdf_resolution: sdf_data.sdf_resolution as usize,
-            global_sdf_width: sdf_data.sdf_width as usize,
-            global_sdf_height: sdf_data.sdf_height as usize,
-            n_chunk_x: sdf_data.n_chunk_x,
-            n_chunk_y: sdf_data.n_chunk_y,
+            source_binary_flipped,
+            n_chunk_x,
+            n_chunk_y,
             scale,
+            sdf_resolution: 64,
+            max_distance: 150.0,
             grid_config: Some(grid_config),
         };
 
-        tracing::info!("✓ World globals loaded from cache in {:?}", t.elapsed());
+        tracing::info!(
+            "✓ World globals loaded in {:?} ({}x{} chunks, SDF computed per-chunk)",
+            t.elapsed(),
+            n_chunk_x,
+            n_chunk_y
+        );
         global_state
     } else {
-        tracing::info!("No cached SDF found, generating world globals...");
+        tracing::info!("No cached globals found, generating...");
         generate_world_globals(map_name, db_tables).await
     }
 }
@@ -279,12 +273,17 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         }
     }
 
-    // Generate biome mesh data (still global for now — legacy)
+    // Load cached scaled binary map for biome mesh generation
+    let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
+    let scaled_binary_map: image::ImageBuffer<image::Luma<u8>, Vec<u8>> =
+        crate::utils::file_system::load_from_disk(&cache_path)
+            .expect("Scaled binary map should be cached after generate_world_globals");
+
     let biome_mesh_data = BiomeMeshData::from_image(
         map_name,
         &global_maps.biome_map,
-        &global_state.scaled_binary_map,
-        &std::collections::HashMap::new(), // chunk_masks not used anymore
+        &scaled_binary_map,
+        &std::collections::HashMap::new(),
         &global_state.scale,
         "assets/maps/",
     );

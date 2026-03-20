@@ -183,9 +183,11 @@ impl TerrainMeshData {
             let t_biome = std::time::Instant::now();
 
             let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
-            let biome_resolution = 256usize;
-            let global_biome_width = n_chunk_x as usize * biome_resolution;
-            let global_biome_height = n_chunk_y as usize * biome_resolution;
+            let biome_base_resolution = 2048usize;
+            let biome_aspect = biome_img.height() as f32 / biome_img.width() as f32;
+            let global_biome_width = biome_base_resolution;
+            let global_biome_height =
+                (biome_base_resolution as f32 * biome_aspect).round() as usize;
 
             let global_biome =
                 generate_global_biome_texture(&biome_rgba, global_biome_width, global_biome_height);
@@ -357,7 +359,7 @@ impl TerrainMeshData {
     ) -> (
         crate::world::resources::WorldGlobalState,
         Option<shared::TerrainGlobalData>,
-        shared::SdfGlobalData,
+        ImageBuffer<image::Luma<u8>, Vec<u8>>, // scaled binary for ocean
     ) {
         let start = std::time::Instant::now();
 
@@ -391,28 +393,8 @@ impl TerrainMeshData {
         let n_chunk_x = (scaled_width as f32 / constants::CHUNK_SIZE.x).ceil() as i32;
         let n_chunk_y = (scaled_height as f32 / constants::CHUNK_SIZE.y).ceil() as i32;
 
-        // Generate global SDF
-        tracing::info!("Generating global SDF");
-        let t_sdf = std::time::Instant::now();
-        let sdf_resolution = 64usize;
-        let global_sdf_width = n_chunk_x as usize * sdf_resolution;
-        let global_sdf_height = n_chunk_y as usize * sdf_resolution;
-        let max_distance = 150.0f32;
-
-        let global_sdf = generate_global_sdf(
-            &scaled_image,
-            global_sdf_width,
-            global_sdf_height,
-            n_chunk_x as f32 * constants::CHUNK_SIZE.x,
-            n_chunk_y as f32 * constants::CHUNK_SIZE.y,
-            max_distance,
-        );
-        tracing::info!(
-            "    Global SDF {}x{} generated in {:?}",
-            global_sdf_width,
-            global_sdf_height,
-            t_sdf.elapsed()
-        );
+        // Prepare flipped source binary (for per-chunk SDF, not the upscaled one)
+        let source_binary_flipped = image::imageops::flip_vertical(&image.to_luma8());
 
         // Generate global biome + heightmap textures
         let terrain_global_data = if let Some(biome_img) = biome_map {
@@ -420,9 +402,11 @@ impl TerrainMeshData {
             let t_biome = std::time::Instant::now();
 
             let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
-            let biome_resolution = 256usize;
-            let global_biome_width = n_chunk_x as usize * biome_resolution;
-            let global_biome_height = n_chunk_y as usize * biome_resolution;
+            let biome_base_resolution = 4096usize;
+            let biome_aspect = biome_img.height() as f32 / biome_img.width() as f32;
+            let global_biome_width = biome_base_resolution;
+            let global_biome_height =
+                (biome_base_resolution as f32 * biome_aspect).round() as usize;
 
             let global_biome =
                 generate_global_biome_texture(&biome_rgba, global_biome_width, global_biome_height);
@@ -485,34 +469,16 @@ impl TerrainMeshData {
         let global_state = crate::world::resources::WorldGlobalState {
             map_name: name.to_string(),
             maps: None,
-            scaled_binary_map: scaled_image,
-            global_sdf: global_sdf.clone(),
-            sdf_resolution,
-            global_sdf_width,
-            global_sdf_height,
+            source_binary_flipped,
             n_chunk_x,
             n_chunk_y,
             scale: *scale,
+            sdf_resolution: 64,
+            max_distance: 150.0,
             grid_config: None,
         };
 
-        let sdf_global_data = shared::SdfGlobalData {
-            name: name.to_string(),
-            sdf_values: global_sdf,
-            sdf_resolution: sdf_resolution as u32,
-            sdf_width: global_sdf_width as u32,
-            sdf_height: global_sdf_height as u32,
-            n_chunk_x,
-            n_chunk_y,
-            scale_x: scale.x,
-            scale_y: scale.y,
-            generated_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        };
-
-        (global_state, terrain_global_data, sdf_global_data)
+        (global_state, terrain_global_data, scaled_image)
     }
 
     /// Generate a single chunk's terrain data from pre-computed globals.
@@ -521,7 +487,7 @@ impl TerrainMeshData {
         global: &crate::world::resources::WorldGlobalState,
     ) -> Option<TerrainChunkMeshData> {
         // Extract SDF for this chunk
-        let sdf_data = global.extract_chunk_sdf(&chunk_id);
+        let (sdf_data, chunk_mask) = global.generate_chunk_sdf_and_mask(&chunk_id);
 
         // Check if chunk has any land
         let has_land = sdf_data
@@ -533,8 +499,7 @@ impl TerrainMeshData {
             return None;
         }
 
-        // Crop binary mask and detect contours
-        let chunk_mask = global.crop_chunk_binary_mask(&chunk_id);
+        // Detect contours from binary mask
         let mut contours = TerrainMeshData::detect_image_contour(&chunk_mask);
 
         if contours.is_empty() && chunk_mask.get_pixel(10, 10)[0] > 0 {
@@ -1668,124 +1633,76 @@ fn generate_global_biome_texture(
     target_width: usize,
     target_height: usize,
 ) -> Vec<u8> {
-    let img_w = biome_map.width() as i32;
-    let img_h = biome_map.height() as i32;
-    let scale_x = img_w as f32 / target_width as f32;
-    let scale_y = img_h as f32 / target_height as f32;
-    let total_pixels = target_width * target_height;
+    use rayon::prelude::*;
+
+    let img_w = biome_map.width() as usize;
+    let img_h = biome_map.height() as usize;
 
     tracing::info!(
-        "    Biome blend texture: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
+        "    Biome blend texture: source {}x{} -> target {}x{}",
         img_w,
         img_h,
         target_width,
-        target_height,
-        scale_x,
-        scale_y
+        target_height
     );
 
     let is_water_biome = |id: u8| -> bool { id <= 2 || id == 13 };
 
-    // Helper: sample biome ID at source pixel with clamping
-    let sample_id = |sx: i32, sy: i32| -> u8 {
-        let cx = sx.clamp(0, img_w - 1) as u32;
-        let cy = sy.clamp(0, img_h - 1) as u32;
-        let pixel = biome_map.get_pixel(cx, cy);
-        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-        find_closest_biome(&color).to_id() as u8
-    };
+    // =========================================================================
+    // Step 1: Pre-compute biome IDs at SOURCE resolution (fast, ~1.9M pixels)
+    // =========================================================================
+    let t1 = std::time::Instant::now();
 
-    // Pass 1: For each target pixel, find the dominant pure biome at source resolution.
-    // "Pure" = pixel color matches a known biome exactly (distance < 5).
-    // Start with a small window (3x3) and expand up to 15x15 until we find pure pixels.
-    // This guarantees anti-aliased boundary pixels are never counted.
-    let max_radius: i32 = 7; // max window = 15x15
-    let purity_threshold = 5; // max color distance to count as "pure"
-
-    tracing::info!(
-        "    Sampling with expanding window, max radius: {}, purity threshold: {}",
-        max_radius,
-        purity_threshold
-    );
-
-    let clean_ids: Vec<u8> = (0..total_pixels)
+    let source_ids: Vec<u8> = (0..img_w * img_h)
         .into_par_iter()
         .map(|idx| {
-            let tx = idx % target_width;
-            let ty = idx / target_width;
-            let src_x = ((tx as f32 + 0.5) * scale_x) as i32;
-            let src_y = ((ty as f32 + 0.5) * scale_y) as i32;
+            let x = idx % img_w;
+            let y = idx / img_w;
+            let pixel = biome_map.get_pixel(x as u32, y as u32);
+            let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+            let biome = find_closest_biome(&color);
+            let id = biome.to_id() as u8;
 
-            // Try expanding radii until we find at least one pure pixel
-            for radius in 1..=max_radius {
-                let mut counts = [0u16; 16];
-                let mut total_pure = 0u16;
-
-                for dy in -radius..=radius {
-                    for dx in -radius..=radius {
-                        let cx = (src_x + dx).clamp(0, img_w - 1) as u32;
-                        let cy = (src_y + dy).clamp(0, img_h - 1) as u32;
-                        let pixel = biome_map.get_pixel(cx, cy);
-                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                        let biome_enum = find_closest_biome(&color);
-                        let id = biome_enum.to_id() as u8;
-
-                        // Only count pixels that are an exact match to a known biome
-                        let ref_color = get_biome_color(&biome_enum);
-                        let dist = color.distance_to(&ref_color);
-
-                        if dist < purity_threshold && (id as usize) < 16 && id > 2 && id != 13 {
-                            counts[id as usize] += 1;
-                            total_pure += 1;
-                        }
-                    }
-                }
-
-                // If we found pure pixels, pick the majority
-                if total_pure > 0 {
-                    let mut best_id = 5u8;
-                    let mut best_count = 0u16;
-                    for id in 0u8..16 {
-                        if counts[id as usize] > best_count {
-                            best_count = counts[id as usize];
-                            best_id = id;
-                        }
-                    }
-                    return best_id;
-                }
+            // Check purity — only accept if close to reference color
+            let ref_color = get_biome_color(&biome);
+            let dist = color.distance_to(&ref_color);
+            if dist < 5 && !is_water_biome(id) {
+                id
+            } else {
+                255u8 // mark as "impure" for dilation
             }
-
-            // Absolute fallback (should be very rare)
-            5u8 // Grassland
         })
         .collect();
 
-    // Pass 2: Dilate into any remaining water pixels
-    let mut ids = clean_ids;
+    tracing::info!("    Step 1: Source IDs computed in {:?}", t1.elapsed());
+
+    // =========================================================================
+    // Step 2: Dilate impure/water pixels at SOURCE resolution (small, fast)
+    // =========================================================================
+    let t2 = std::time::Instant::now();
+
+    let mut ids = source_ids;
     for _ in 0..16 {
         let snapshot = ids.clone();
-        for y in 0..target_height {
-            for x in 0..target_width {
-                let idx = y * target_width + x;
-                if !is_water_biome(snapshot[idx]) {
+        for y in 0..img_h {
+            for x in 0..img_w {
+                let idx = y * img_w + x;
+                if snapshot[idx] != 255 && !is_water_biome(snapshot[idx]) {
                     continue;
                 }
                 let mut found = None;
-                for dy in -1i32..=1 {
+                'search: for dy in -1i32..=1 {
                     for dx in -1i32..=1 {
                         if dx == 0 && dy == 0 {
                             continue;
                         }
-                        let nx = (x as i32 + dx).clamp(0, target_width as i32 - 1) as usize;
-                        let ny = (y as i32 + dy).clamp(0, target_height as i32 - 1) as usize;
-                        let n = snapshot[ny * target_width + nx];
-                        if !is_water_biome(n) {
+                        let nx = (x as i32 + dx).clamp(0, img_w as i32 - 1) as usize;
+                        let ny = (y as i32 + dy).clamp(0, img_h as i32 - 1) as usize;
+                        let n = snapshot[ny * img_w + nx];
+                        if n != 255 && !is_water_biome(n) {
                             found = Some(n);
-                            break;
+                            break 'search;
                         }
-                    }
-                    if found.is_some() {
-                        break;
                     }
                 }
                 if let Some(b) = found {
@@ -1794,44 +1711,73 @@ fn generate_global_biome_texture(
             }
         }
     }
+
+    // Final fallback — any remaining impure/water → Grassland
     for pixel in ids.iter_mut() {
-        if is_water_biome(*pixel) {
-            *pixel = 5;
+        if *pixel == 255 || is_water_biome(*pixel) {
+            *pixel = 5; // Grassland
         }
     }
 
-    // Pass 3: Compute blend — find nearest different biome and distance
+    tracing::info!("    Step 2: Dilation at source res in {:?}", t2.elapsed());
+
+    // =========================================================================
+    // Step 3: Compute blend at intermediate resolution (2× source) for smooth transitions
+    // =========================================================================
+    let t3 = std::time::Instant::now();
+    let total_pixels = target_width * target_height;
+
+    let blend_scale = 2usize; // 2× source resolution
+    let blend_w = img_w * blend_scale;
+    let blend_h = img_h * blend_scale;
+    let blend_total = blend_w * blend_h;
+
     let transition_radius: i32 = 16;
     let transition_width: f32 = 28.0;
 
-    let rgba: Vec<u8> = (0..total_pixels)
+    // Upscale IDs to blend resolution (nearest)
+    let blend_ids: Vec<u8> = (0..blend_total)
         .into_par_iter()
-        .flat_map(|idx| {
-            let x = (idx % target_width) as i32;
-            let y = (idx / target_width) as i32;
-            let primary = ids[idx];
+        .map(|idx| {
+            let bx = idx % blend_w;
+            let by = idx / blend_w;
+            let sx = bx / blend_scale;
+            let sy = by / blend_scale;
+            ids[sy * img_w + sx]
+        })
+        .collect();
+
+    // Compute secondary + blend at blend resolution
+    let mut blend_data = vec![(0u8, 0u8); blend_total];
+
+    blend_data
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(idx, result)| {
+            let x = (idx % blend_w) as i32;
+            let y = (idx / blend_w) as i32;
+            let primary = blend_ids[idx];
 
             let mut nearest_dist_sq = i32::MAX;
             let mut secondary = primary;
 
             for dy in -transition_radius..=transition_radius {
                 let ny = y + dy;
-                if ny < 0 || ny >= target_height as i32 {
+                if ny < 0 || ny >= blend_h as i32 {
                     continue;
                 }
                 for dx in -transition_radius..=transition_radius {
                     let nx = x + dx;
-                    if nx < 0 || nx >= target_width as i32 {
+                    if nx < 0 || nx >= blend_w as i32 {
                         continue;
                     }
-                    let dist_sq = dx * dx + dy * dy;
-                    if dist_sq >= nearest_dist_sq {
-                        continue;
-                    }
-                    let neighbor = ids[ny as usize * target_width + nx as usize];
-                    if neighbor != primary {
-                        nearest_dist_sq = dist_sq;
-                        secondary = neighbor;
+                    let nid = blend_ids[(ny as usize) * blend_w + nx as usize];
+                    if nid != primary {
+                        let d = dx * dx + dy * dy;
+                        if d < nearest_dist_sq {
+                            nearest_dist_sq = d;
+                            secondary = nid;
+                        }
                     }
                 }
             }
@@ -1840,14 +1786,69 @@ fn generate_global_biome_texture(
                 0u8
             } else {
                 let dist = (nearest_dist_sq as f32).sqrt();
-                let t = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
-                let smooth = t * t * (3.0 - 2.0 * t);
+                let smooth = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
                 (smooth * 128.0) as u8
             };
 
-            vec![primary * 17, secondary * 17, blend, 255u8]
-        })
-        .collect();
+            *result = (secondary, blend);
+        });
+
+    tracing::info!(
+        "    Step 3a: Blend at {}x{} in {:?}",
+        blend_w,
+        blend_h,
+        t3.elapsed()
+    );
+
+    // Step 4b: Upscale to target RGBA — nearest for IDs, bilinear for blend
+    let t3b = std::time::Instant::now();
+
+    let blend_to_target_x = blend_w as f32 / target_width as f32;
+    let blend_to_target_y = blend_h as f32 / target_height as f32;
+
+    let mut rgba = vec![0u8; total_pixels * 4];
+
+    rgba.par_chunks_mut(4).enumerate().for_each(|(idx, pixel)| {
+        let tx = idx % target_width;
+        let ty = idx / target_width;
+
+        // Nearest for IDs
+        let bx = ((tx as f32 + 0.5) * blend_to_target_x) as usize;
+        let by = ((ty as f32 + 0.5) * blend_to_target_y) as usize;
+        let bx = bx.min(blend_w - 1);
+        let by = by.min(blend_h - 1);
+        let b_idx = by * blend_w + bx;
+
+        let primary = blend_ids[b_idx];
+        let (secondary, _) = blend_data[b_idx];
+
+        // Bilinear for blend factor
+        let fx = (tx as f32 + 0.5) * blend_to_target_x - 0.5;
+        let fy = (ty as f32 + 0.5) * blend_to_target_y - 0.5;
+        let x0 = (fx.floor() as i32).clamp(0, blend_w as i32 - 1) as usize;
+        let y0 = (fy.floor() as i32).clamp(0, blend_h as i32 - 1) as usize;
+        let x1 = (x0 + 1).min(blend_w - 1);
+        let y1 = (y0 + 1).min(blend_h - 1);
+        let frac_x = (fx - fx.floor()).clamp(0.0, 1.0);
+        let frac_y = (fy - fy.floor()).clamp(0.0, 1.0);
+
+        let b00 = blend_data[y0 * blend_w + x0].1 as f32;
+        let b10 = blend_data[y0 * blend_w + x1].1 as f32;
+        let b01 = blend_data[y1 * blend_w + x0].1 as f32;
+        let b11 = blend_data[y1 * blend_w + x1].1 as f32;
+
+        let blend = (b00 * (1.0 - frac_x) * (1.0 - frac_y)
+            + b10 * frac_x * (1.0 - frac_y)
+            + b01 * (1.0 - frac_x) * frac_y
+            + b11 * frac_x * frac_y) as u8;
+
+        pixel[0] = primary * 17;
+        pixel[1] = secondary * 17;
+        pixel[2] = blend;
+        pixel[3] = 255;
+    });
+
+    tracing::info!("    Step 3b: Upscaled to RGBA in {:?}", t3b.elapsed());
 
     rgba
 }
