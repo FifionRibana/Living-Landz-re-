@@ -249,7 +249,8 @@ fn apply_heightmap_effects(
     }
 
     // Smooth height: average over small neighborhood to avoid altitude steps
-    let hs = 4.0 / 64.0; // 4 texels offset
+    let hm_dims_s = vec2<f32>(textureDimensions(heightmap_texture));
+    let hs = 4.0 / hm_dims_s.x;
     let height = (
         sample_height(uv)
         + sample_height(uv + vec2<f32>(hs, 0.0))
@@ -260,7 +261,6 @@ fn apply_heightmap_effects(
     let strength = heightmap_params.w;
 
     // --- 1. Hillshading ---
-    let texel = vec2<f32>(1.0 / 64.0); // heightmap is 64x64
     let hillshade = compute_hillshade(uv, world_pos);
     let shade_factor_raw = mix(1.0 - strength, 1.0 + strength * 0.3, hillshade);
 
@@ -300,7 +300,7 @@ fn apply_heightmap_effects(
 // All blending is computed server-side from distance to biome boundaries.
 // ============================================================================
 
-fn vegetation_from_uv(uv: vec2<f32>, world_pos: vec2<f32>, base_green: vec3<f32>, res: f32) -> vec3<f32> {
+fn vegetation_from_uv(uv: vec2<f32>, world_pos: vec2<f32>, base_green: vec3<f32>) -> vec3<f32> {
     // Nearest filtering: one sample gives exact texel values (no interpolation)
     let data = textureSample(biome_texture, biome_sampler, uv);
     let primary_id = u32(data.r * 15.0 + 0.5);
@@ -324,23 +324,20 @@ fn sample_vegetation_with_biome_blend(
     world_pos: vec2<f32>,
     base_green: vec3<f32>,
 ) -> vec3<f32> {
-    let res = biome_params.y;
-    let texel = 1.0 / res;
+    let biome_dims = vec2<f32>(textureDimensions(biome_texture));
 
     let data_center = textureSample(biome_texture, biome_sampler, uv);
     let blend_center = data_center.b;
 
     // Fast path: far from any boundary
     if (blend_center < 0.01) {
-        let snapped = (floor(uv * res) + 0.5) * texel;
-        let data_ids = textureSample(biome_texture, biome_sampler, snapped);
-        let primary_id = u32(data_ids.r * 15.0 + 0.5);
+        let primary_id = u32(data_center.r * 15.0 + 0.5);
         let palette = get_biome_palette(primary_id);
         return painterly_vegetation_biome(world_pos, palette, base_green);
     }
 
     // Multi-sample blur everywhere
-    let spread = texel * 12.0; // ou 6.0 à voir lorsqu'on agrandira le terrai
+    let spread = 12.0 / vec2<f32>(textureDimensions(biome_texture)).x;
 
     let n0  = fbm(world_pos * 0.03 + vec2<f32>(11.1, 22.2), 2);
     let n1  = fbm(world_pos * 0.03 + vec2<f32>(33.3, 44.4), 2);
@@ -368,15 +365,15 @@ fn sample_vegetation_with_biome_blend(
     let s6 = uv + vec2<f32>((n12 - 0.5) * 2.0, (n13 - 0.5) * 2.0) * spread;
     let s7 = uv + vec2<f32>((n14 - 0.5) * 2.0, (n15 - 0.5) * 2.0) * spread;
 
-    let col_c = vegetation_from_uv(uv, world_pos, base_green, res);
-    let col0 = vegetation_from_uv(s0, world_pos, base_green, res);
-    let col1 = vegetation_from_uv(s1, world_pos, base_green, res);
-    let col2 = vegetation_from_uv(s2, world_pos, base_green, res);
-    let col3 = vegetation_from_uv(s3, world_pos, base_green, res);
-    let col4 = vegetation_from_uv(s4, world_pos, base_green, res);
-    let col5 = vegetation_from_uv(s5, world_pos, base_green, res);
-    let col6 = vegetation_from_uv(s6, world_pos, base_green, res);
-    let col7 = vegetation_from_uv(s7, world_pos, base_green, res);
+    let col_c = vegetation_from_uv(uv, world_pos, base_green);
+    let col0 = vegetation_from_uv(s0, world_pos, base_green);
+    let col1 = vegetation_from_uv(s1, world_pos, base_green);
+    let col2 = vegetation_from_uv(s2, world_pos, base_green);
+    let col3 = vegetation_from_uv(s3, world_pos, base_green);
+    let col4 = vegetation_from_uv(s4, world_pos, base_green);
+    let col5 = vegetation_from_uv(s5, world_pos, base_green);
+    let col6 = vegetation_from_uv(s6, world_pos, base_green);
+    let col7 = vegetation_from_uv(s7, world_pos, base_green);
 
     return (col_c * 3.0 + col0 + col1 + col2 + col3 + col4 + col5 + col6 + col7) / 11.0;
 }
