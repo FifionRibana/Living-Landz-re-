@@ -191,6 +191,10 @@ pub enum ClientMessage {
     RequestOceanData {
         world_name: String,
     },
+    
+    RequestTerrainGlobalData {
+        world_name: String,
+    },
 
     ActionBuildBuilding {
         player_id: u64,
@@ -359,6 +363,10 @@ pub enum ServerMessage {
     // },
     OceanData {
         ocean_data: OceanData,
+    },
+
+    TerrainGlobalData {
+        terrain_global_data: crate::TerrainGlobalData,
     },
 
     /// Road SDF data update for a specific chunk (sent separately to avoid message size limits)

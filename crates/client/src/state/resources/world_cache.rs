@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, BuildingData, TerrainChunkData, TerrainChunkId, OceanData,
-    grid::{CellData, GridCell},
+    BiomeChunkData, BiomeChunkId, BuildingData, OceanData, TerrainChunkData, TerrainChunkId, TerrainGlobalData, grid::{CellData, GridCell}
 };
 use std::collections::{HashMap, HashSet};
 
@@ -12,6 +11,7 @@ pub struct WorldCache {
     cells: CellCache,
     buildings: BuildingCache,
     ocean: OceanCache,
+    terrain_global: TerrainGlobalCache,
 }
 
 #[derive(Default, Clone)]
@@ -273,6 +273,62 @@ impl OceanCache {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct TerrainGlobalCache {
+    pub data: Option<TerrainGlobalData>,
+    pub biome_handle: Option<Handle<Image>>,
+    pub heightmap_handle: Option<Handle<Image>>,
+    requested: bool,
+}
+
+impl TerrainGlobalCache {
+    pub fn insert(&mut self, data: TerrainGlobalData) {
+        info!("Inserting terrain global data for world: {}", data.name);
+        self.data = Some(data);
+        self.requested = false;
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.data.is_some()
+    }
+
+    pub fn get_terrain_global(&self) -> Option<&TerrainGlobalData> {
+        self.data.as_ref()
+    }
+
+    pub fn has_handles(&self) -> bool {
+        self.biome_handle.is_some() && self.heightmap_handle.is_some()
+    }
+
+    pub fn is_requested(&self) -> bool {
+        self.requested
+    }
+
+    pub fn mark_requested(&mut self) {
+        self.requested = true;
+    }
+
+    pub fn set_handles(&mut self, biome: Handle<Image>, heightmap: Handle<Image>) {
+        self.biome_handle = Some(biome);
+        self.heightmap_handle = Some(heightmap);
+    }
+
+    pub fn get_biome_handle(&self) -> Option<&Handle<Image>> {
+        self.biome_handle.as_ref()
+    }
+
+    pub fn get_heightmap_handle(&self) -> Option<&Handle<Image>> {
+        self.heightmap_handle.as_ref()
+    }
+
+    pub fn clear(&mut self) {
+        self.data = None;
+        self.biome_handle = None;
+        self.heightmap_handle = None;
+        self.requested = false;
+    }
+}
+
 impl WorldCache {
     // TERRAIN
     /// Inserts or updates a terrain chunk.
@@ -387,5 +443,42 @@ impl WorldCache {
 
     pub fn clear_ocean(&mut self) {
         self.ocean.clear();
+    }
+
+    // TERRAIN GLOBAL
+    pub fn insert_terrain_global(&mut self, data: TerrainGlobalData) {
+        self.terrain_global.insert(data);
+    }
+
+    pub fn get_terrain_global(&self) -> Option<&TerrainGlobalData> {
+        self.terrain_global.get_terrain_global()
+    }
+
+    pub fn is_terrain_global_loaded(&self) -> bool {
+        self.terrain_global.is_loaded()
+    }
+
+    pub fn has_terrain_global_handles(&self) -> bool {
+        self.terrain_global.has_handles()
+    }
+    
+    pub fn set_terrain_global_handles(&mut self, biome: Handle<Image>, heightmap: Handle<Image>) {
+        self.terrain_global.set_handles(biome, heightmap);
+    }
+
+    pub fn get_terrain_global_biome_handle(&self) -> Option<&Handle<Image>> {
+        self.terrain_global.get_biome_handle()
+    }
+
+    pub fn get_terrain_global_heightmap_handle(&self) -> Option<&Handle<Image>> {
+        self.terrain_global.get_heightmap_handle()
+    }
+
+    pub fn is_terrain_global_requested(&self) -> bool {
+        self.terrain_global.is_requested()
+    }
+
+    pub fn mark_terrain_global_requested(&mut self) {
+        self.terrain_global.mark_requested();
     }
 }
