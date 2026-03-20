@@ -16,7 +16,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{BiomeParams, ChunkInfo, RoadParams, SdfParams};
+use crate::rendering::terrain::materials::{BiomeParams, ChunkInfo, HeightmapParams, RoadParams, SdfParams};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -187,6 +187,48 @@ pub fn spawn_terrain(
                 },
             )
         };
+
+        // Create heightmap texture (real or dummy)
+        let (heightmap_texture, heightmap_params) =
+            if let Some(ref hm_data) = terrain.heightmap_data {
+                let res = hm_data.resolution as u32;
+                let hm_tex = images.add(Image::new(
+                    Extent3d {
+                        width: res,
+                        height: res,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    hm_data.values.clone(),
+                    TextureFormat::R8Unorm,
+                    default(),
+                ));
+                info!(
+                    "Creating heightmap texture {}x{} for chunk {:?}",
+                    res, res, terrain.id
+                );
+                (
+                    hm_tex,
+                    HeightmapParams {
+                        has_heightmap: 1.0,
+                        ..default()
+                    },
+                )
+            } else {
+                let dummy_hm = images.add(Image::new(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    vec![128u8],
+                    TextureFormat::R8Unorm,
+                    default(),
+                ));
+                (dummy_hm, HeightmapParams::default())
+            };
+
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
@@ -253,6 +295,8 @@ pub fn spawn_terrain(
                 },
                 biome_texture: biome_texture.clone(),
                 biome_params,
+                heightmap_texture: heightmap_texture.clone(),
+                heightmap_params,
             }))
         } else {
             info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
@@ -331,6 +375,8 @@ pub fn spawn_terrain(
                 },
                 biome_texture: biome_texture.clone(),
                 biome_params,
+                heightmap_texture: heightmap_texture.clone(),
+                heightmap_params,
             }))
         };
 

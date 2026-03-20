@@ -1,9 +1,9 @@
 // client/src/rendering/terrain/materials.rs
 
 use bevy::prelude::*;
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d};
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub struct TerrainMaterial {
@@ -49,6 +49,14 @@ pub struct TerrainMaterial {
 
     #[uniform(14)]
     pub biome_params: BiomeParams,
+
+     // Heightmap texture (R8: elevation 0-255)
+    #[texture(15)]
+    #[sampler(16)]
+    pub heightmap_texture: Handle<Image>,
+
+    #[uniform(17)]
+    pub heightmap_params: HeightmapParams,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -83,6 +91,29 @@ impl Default for BiomeParams {
             resolution: 1.0,
             _padding2: 0.0,
             _padding3: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub struct HeightmapParams {
+    /// 1.0 if heightmap is present, 0.0 otherwise
+    pub has_heightmap: f32,
+    /// Light direction angle in radians (azimuth, 0 = east, pi/2 = north)
+    pub light_azimuth: f32,
+    /// Light elevation angle (0 = horizon, pi/2 = zenith)
+    pub light_altitude: f32,
+    /// Hillshade intensity (0 = none, 1 = full)
+    pub hillshade_strength: f32,
+}
+
+impl Default for HeightmapParams {
+    fn default() -> Self {
+        Self {
+            has_heightmap: 0.0,
+            light_azimuth: 5.5,     // ~315° = northwest (classic cartography)
+            light_altitude: 0.75,    // ~43° above horizon
+            hillshade_strength: 0.6,
         }
     }
 }
@@ -137,6 +168,8 @@ impl Default for TerrainMaterial {
             chunk_info: ChunkInfo::default(),
             biome_texture: Handle::default(),
             biome_params: BiomeParams::default(),
+            heightmap_texture: Handle::default(),
+            heightmap_params: HeightmapParams::default(),
         }
     }
 }
