@@ -1,5 +1,6 @@
 [alias]
 clear = "run --release --bin server -- --clear --map=Gaulyia"
 generate = "run --release --bin server -- --generate-world --map=Gaulyia"
-server = "run --release --bin server"
+globals = "run --release --bin server -- --generate-globals --map=Gaulyia"
+server = "run --release --bin server -- --map=Gaulyia"
 client = "run --release --bin client"

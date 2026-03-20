@@ -301,42 +301,134 @@ impl BiomeMeshData {
             );
         }
 
-        
         scaled_image
             .enumerate_pixels()
             .par_bridge()
-            .fold(
-                HashMap::new,
-                |mut acc, (px, py, pixel)| {
-                    let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
-                    let vertices = &hex_layout
-                        .hex_corners(current_hex)
-                        .into_iter()
-                        .map(|p| (p.x, p.y))
-                        .collect::<Vec<(f32, f32)>>();
-                    if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
-                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                        *acc.entry(current_hex)
-                            .or_insert(HashMap::new())
-                            .entry(color)
-                            .or_insert(0) += 1;
-                    }
-                    acc
-                },
-            )
-            .reduce(
-                HashMap::new,
-                |mut acc, other| {
-                    for (hex, color_map) in other {
-                        let entry = acc.entry(hex).or_insert_with(HashMap::new);
+            .fold(HashMap::new, |mut acc, (px, py, pixel)| {
+                let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
+                let vertices = &hex_layout
+                    .hex_corners(current_hex)
+                    .into_iter()
+                    .map(|p| (p.x, p.y))
+                    .collect::<Vec<(f32, f32)>>();
+                if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
+                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                    *acc.entry(current_hex)
+                        .or_insert(HashMap::new())
+                        .entry(color)
+                        .or_insert(0) += 1;
+                }
+                acc
+            })
+            .reduce(HashMap::new, |mut acc, other| {
+                for (hex, color_map) in other {
+                    let entry = acc.entry(hex).or_insert_with(HashMap::new);
 
-                        for (color, count) in color_map {
-                            *entry.entry(color).or_insert(0) += count;
-                        }
+                    for (color, count) in color_map {
+                        *entry.entry(color).or_insert(0) += count;
                     }
-                    acc
-                },
-            )
+                }
+                acc
+            })
+            .into_iter()
+            .map(|(hex_cell, color_map)| {
+                let world_pos = hex_layout.hex_to_world_pos(hex_cell);
+                CellData {
+                    cell: GridCell {
+                        q: hex_cell.x,
+                        r: hex_cell.y,
+                    },
+                    chunk: TerrainChunkId {
+                        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x) as i32,
+                        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y) as i32,
+                    },
+                    biome: color_map
+                        .into_iter()
+                        .max_by_key(|(_, count)| *count)
+                        .map(|(color, _)| find_closest_biome(&color))
+                        .unwrap_or(BiomeTypeEnum::DeepOcean),
+                }
+            })
+            .collect()
+    }
+
+    /// Sample biome data for a single chunk only.
+    /// Only iterates pixels within the chunk's world-space bounds.
+    pub fn sample_biome_for_chunk(
+        name: &str,
+        biome_map: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        scale: &Vec2,
+        hex_layout: &HexLayout,
+        cache_directory: &str,
+        chunk_id: &TerrainChunkId,
+    ) -> Vec<CellData> {
+        // Load or generate cached upscaled biome map (same as sample_biome)
+        let load_result = file_system::load_from_disk(
+            format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
+        );
+        let mut scaled_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::default();
+        let loaded = match load_result {
+            Ok(image) => {
+                scaled_image = image;
+                true
+            }
+            _ => false,
+        };
+
+        if !loaded {
+            let t1 = std::time::Instant::now();
+            let flipped_image = image::imageops::flip_vertical(biome_map);
+            scaled_image = image::imageops::resize(
+                &flipped_image,
+                biome_map.width() * scale.x as u32,
+                biome_map.height() * scale.y as u32,
+                image::imageops::FilterType::Nearest,
+            );
+            tracing::info!(
+                "    image upscaled to {}x{} in {:?}",
+                scaled_image.width(),
+                scaled_image.height(),
+                t1.elapsed()
+            );
+            let _ = file_system::save_to_disk(
+                &scaled_image,
+                format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
+            );
+        }
+
+        // Only iterate pixels within this chunk's bounds
+        let x_min = (chunk_id.x as f32 * constants::CHUNK_SIZE.x) as u32;
+        let y_min = (chunk_id.y as f32 * constants::CHUNK_SIZE.y) as u32;
+        let x_max = ((chunk_id.x + 1) as f32 * constants::CHUNK_SIZE.x) as u32;
+        let y_max = ((chunk_id.y + 1) as f32 * constants::CHUNK_SIZE.y) as u32;
+
+        let x_max = x_max.min(scaled_image.width());
+        let y_max = y_max.min(scaled_image.height());
+
+        // Collect pixels in this chunk's area only
+        let mut hex_colors: HashMap<hexx::Hex, HashMap<BiomeColor, usize>> = HashMap::new();
+
+        for py in y_min..y_max {
+            for px in x_min..x_max {
+                let pixel = scaled_image.get_pixel(px, py);
+                let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
+                let vertices: Vec<(f32, f32)> = hex_layout
+                    .hex_corners(current_hex)
+                    .into_iter()
+                    .map(|p| (p.x, p.y))
+                    .collect();
+                if BiomeMeshData::point_in_polygon((px as f32, py as f32), &vertices) {
+                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                    *hex_colors
+                        .entry(current_hex)
+                        .or_insert_with(HashMap::new)
+                        .entry(color)
+                        .or_insert(0) += 1;
+                }
+            }
+        }
+
+        hex_colors
             .into_iter()
             .map(|(hex_cell, color_map)| {
                 let world_pos = hex_layout.hex_to_world_pos(hex_cell);
