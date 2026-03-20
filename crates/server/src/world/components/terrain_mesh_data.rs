@@ -137,7 +137,7 @@ impl TerrainMeshData {
         let sdf_resolution = 64usize;
         let global_sdf_width = n_chunk_x as usize * sdf_resolution;
         let global_sdf_height = n_chunk_y as usize * sdf_resolution;
-        let max_distance = 50.0f32;
+        let max_distance = 150.0f32;
 
         let global_sdf = generate_global_sdf(
             scaled_image_ref,
