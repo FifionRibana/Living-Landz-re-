@@ -8,13 +8,16 @@ use shared::{
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{accept_async_with_config, tungstenite::Message, tungstenite::protocol::WebSocketConfig};
+use tokio_tungstenite::{
+    accept_async_with_config, tungstenite::Message, tungstenite::protocol::WebSocketConfig,
+};
 
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::auth::password;
 use crate::database::client::DatabaseTables;
 use crate::dev::DevConfig;
 use crate::units::NameGenerator;
+use crate::world::resources::WorldGlobalState;
 use crate::{utils, world};
 use shared::GameState;
 use shared::protocol::{
@@ -226,13 +229,13 @@ pub async fn handle_connection(
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
+    world_global_state: Arc<WorldGlobalState>,
 ) {
     tracing::info!("New connection from {}", addr);
 
-    
-        let mut ws_config = WebSocketConfig::default();
-        ws_config.max_message_size = Some(64 * 1024 * 1024); // 64 MB
-        ws_config.max_frame_size = Some(64 * 1024 * 1024);
+    let mut ws_config = WebSocketConfig::default();
+    ws_config.max_message_size = Some(64 * 1024 * 1024); // 64 MB
+    ws_config.max_frame_size = Some(64 * 1024 * 1024);
 
     let ws_stream = match accept_async_with_config(stream, Some(ws_config)).await {
         Ok(ws) => ws,
@@ -263,7 +266,7 @@ pub async fn handle_connection(
                                 tracing::debug!("Received: {:?}", client_msg);
 
                                 let responses =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config, &world_global_state).await;
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
@@ -370,6 +373,7 @@ async fn handle_client_message(
     game_state: &GameState,
     grid_config: &GridConfig,
     dev_config: &DevConfig,
+    world_global_state: &WorldGlobalState,
 ) -> Vec<ServerMessage> {
     match msg {
         ClientMessage::Login { username } => {
@@ -774,13 +778,13 @@ async fn handle_client_message(
             let mut responses = Vec::new();
             let terrain_name_ref = &terrain_name;
             for terrain_chunk_id in terrain_chunk_ids.iter() {
-                let cell_data = match db_tables.cells.load_chunk_cells(terrain_chunk_id).await {
+                let mut cell_data = match db_tables.cells.load_chunk_cells(terrain_chunk_id).await {
                     Ok(cells_data) => cells_data,
                     _ => {
                         vec![]
                     }
                 };
-                let building_data = match db_tables
+                let mut building_data = match db_tables
                     .buildings
                     .load_chunk_buildings(terrain_chunk_id)
                     .await
@@ -841,22 +845,27 @@ async fn handle_client_message(
                         },
                         biome_chunk_data,
                     ),
-                    Ok((None, None)) => {
-                        tracing::error!(
-                            "DB error for chunk ({},{}) in terrain {}",
+                    Ok((None, _)) => {
+                        // Chunk not in DB — generate on demand
+                        tracing::info!(
+                            "Chunk ({},{}) not in DB, generating on demand",
                             terrain_chunk_id.x,
-                            terrain_chunk_id.y,
-                            terrain_name_ref
+                            terrain_chunk_id.y
                         );
+                        let (generated_terrain, generated_cells, generated_buildings) =
+                            crate::world::systems::generate_chunk_data(
+                                terrain_chunk_id,
+                                &world_global_state,
+                                &db_tables,
+                                &game_state,
+                            )
+                            .await;
 
-                        (
-                            TerrainChunkData {
-                                name: terrain_name.clone(),
-                                id: *terrain_chunk_id,
-                                ..TerrainChunkData::default()
-                            },
-                            vec![],
-                        )
+                        // Override cell_data and building_data with freshly generated ones
+                        cell_data = generated_cells;
+                        building_data = generated_buildings;
+
+                        (generated_terrain, vec![])
                     }
                     Err(e) => {
                         tracing::error!(

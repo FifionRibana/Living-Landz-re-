@@ -47,3 +47,20 @@ impl Default for TerrainGlobalData {
         }
     }
 }
+
+/// Server-side cached global SDF data.
+/// Stored in DB to avoid recomputation at server startup.
+/// NOT sent to clients.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct SdfGlobalData {
+    pub name: String,
+    pub sdf_values: Vec<u8>,
+    pub sdf_resolution: u32,
+    pub sdf_width: u32,
+    pub sdf_height: u32,
+    pub n_chunk_x: i32,
+    pub n_chunk_y: i32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub generated_at: u64,
+}
