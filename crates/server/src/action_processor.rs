@@ -1985,6 +1985,7 @@ impl ActionProcessor {
             ServerMessage::LordCreateError { .. } => "LordCreateError",
             ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
             ServerMessage::OceanData { .. } => "OceanData",
+            ServerMessage::TerrainGlobalData { .. } => "TerrainGlobalData",
             ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
                 tracing::info!(
                     "Sending RoadChunkSdfUpdate to player {} for chunk ({},{})",
