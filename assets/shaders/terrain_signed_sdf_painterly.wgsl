@@ -249,7 +249,8 @@ fn apply_heightmap_effects(
     }
 
     // Smooth height: average over small neighborhood to avoid altitude steps
-    let hs = 4.0 / 64.0; // 4 texels offset
+    let hm_dims_s = vec2<f32>(textureDimensions(heightmap_texture));
+    let hs = 4.0 / hm_dims_s.x;
     let height = (
         sample_height(uv)
         + sample_height(uv + vec2<f32>(hs, 0.0))
@@ -260,7 +261,6 @@ fn apply_heightmap_effects(
     let strength = heightmap_params.w;
 
     // --- 1. Hillshading ---
-    let texel = vec2<f32>(1.0 / 64.0); // heightmap is 64x64
     let hillshade = compute_hillshade(uv, world_pos);
     let shade_factor_raw = mix(1.0 - strength, 1.0 + strength * 0.3, hillshade);
 
