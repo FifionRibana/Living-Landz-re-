@@ -201,17 +201,29 @@ impl TerrainMeshData {
             // Generate global heightmap
             tracing::info!("Generating global heightmap");
             let t_hm = std::time::Instant::now();
+            // Fixed resolution independent of SDF — source aspect ratio preserved
+            let hm_base_resolution = 2048usize;
+            let source_aspect = if let Some(hm_img) = heightmap_image {
+                hm_img.height() as f32 / hm_img.width() as f32
+            } else {
+                0.5
+            };
+            let hm_width = hm_base_resolution;
+            let hm_height = (hm_base_resolution as f32 * source_aspect).round() as usize;
+
             let global_heightmap = if let Some(hm_img) = heightmap_image {
                 let heightmap_luma = hm_img.to_luma8();
-                generate_global_heightmap(&heightmap_luma, global_sdf_width, global_sdf_height)
+                generate_global_heightmap(
+                    &heightmap_luma,
+                    hm_width,
+                    hm_height,
+                )
             } else {
-                vec![128u8; global_sdf_width * global_sdf_height]
+                vec![128u8; hm_width * hm_height]
             };
             tracing::info!(
                 "    Global heightmap {}x{} generated in {:?}",
-                global_sdf_width,
-                global_sdf_height,
-                t_hm.elapsed()
+                hm_width, hm_height, t_hm.elapsed()
             );
 
             let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
@@ -222,8 +234,8 @@ impl TerrainMeshData {
                 biome_width: global_biome_width as u32,
                 biome_height: global_biome_height as u32,
                 biome_values: global_biome,
-                heightmap_width: global_sdf_width as u32,
-                heightmap_height: global_sdf_height as u32,
+                heightmap_width: hm_width as u32,
+                heightmap_height: hm_height as u32,
                 heightmap_values: global_heightmap,
                 world_width,
                 world_height,
