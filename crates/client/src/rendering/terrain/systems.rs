@@ -277,8 +277,8 @@ pub fn spawn_terrain(
                 grass_color: LinearRgba::new(0.30, 0.38, 0.20, 1.0),
                 // grass_color: LinearRgba::new(0.66, 0.69, 0.47, 1.0),//LinearRgba::new(0.36, 0.52, 0.28, 1.0),
                 sdf_params: SdfParams {
-                    beach_start: -0.15,
-                    beach_end: 0.6,
+                    beach_start: -0.05,
+                    beach_end: 0.2,
                     has_coast: 1.0, // Terrain has coast SDF
                     _padding: 0.0,
                 },
