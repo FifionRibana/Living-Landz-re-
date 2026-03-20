@@ -208,19 +208,17 @@ pub async fn generate_chunk_data(
     );
     let chunk_world_max = chunk_world_min + constants::CHUNK_SIZE;
 
-    let all_cells = BiomeMeshData::sample_biome(
-        map_name,
-        &global_maps.biome_map.to_rgba8(),
-        &global.scale,
-        &global_grid_config.layout,
-        "assets/maps/",
-    );
+    let maps = global.maps.as_ref().unwrap();
+    let grid_config = global.grid_config.as_ref().unwrap();
 
-    // Filter cells to only those in this chunk
-    let chunk_cells: Vec<shared::grid::CellData> = all_cells
-        .into_iter()
-        .filter(|cell| cell.chunk.x == chunk_id.x && cell.chunk.y == chunk_id.y)
-        .collect();
+    let chunk_cells = BiomeMeshData::sample_biome_for_chunk(
+        map_name,
+        &maps.biome_map.to_rgba8(),
+        &global.scale,
+        &grid_config.layout,
+        "assets/maps/",
+        chunk_id,
+    );
 
     // Save cells
     if !chunk_cells.is_empty() {
