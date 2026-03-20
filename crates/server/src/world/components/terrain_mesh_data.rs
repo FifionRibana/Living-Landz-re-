@@ -7,8 +7,8 @@ use i_triangle::float::{triangulatable::Triangulatable, triangulation::Triangula
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
-use shared::{BiomeColor, BiomeTextureData, find_closest_biome, get_biome_color};
-use shared::{HeightmapChunkData, RoadChunkSdfData, TerrainChunkSdfData, constants};
+use shared::{BiomeColor, find_closest_biome, get_biome_color};
+use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
 
 use crate::utils::{algorithm, file_system};
