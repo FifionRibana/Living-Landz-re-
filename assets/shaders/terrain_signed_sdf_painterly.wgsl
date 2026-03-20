@@ -191,7 +191,9 @@ fn sample_height(uv: vec2<f32>) -> f32 {
 /// Compute hillshade with wide sampling + noise perturbation to avoid contour lines.
 /// Samples height at large offsets and adds FBM noise to break texel grid artifacts.
 fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
-    let step = vec2<f32>(8.0 / 64.0);
+    let hm_dims = vec2<f32>(textureDimensions(heightmap_texture));
+    let hm_texel = 1.0 / hm_dims;
+    let step = hm_texel * 8.0;
 
     let noise_offset = vec2<f32>(
         fbm(world_pos * 0.01 + vec2<f32>(55.5, 88.8), 2) - 0.5,
@@ -199,8 +201,8 @@ fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
     ) * step * 0.8;
 
     let uv_n = uv + noise_offset;
-    let uv_min = vec2<f32>(0.5 / 64.0);
-    let uv_max = vec2<f32>(1.0 - 0.5 / 64.0);
+    let uv_min = hm_texel * 0.5;
+    let uv_max = 1.0 - hm_texel * 0.5;
 
     let h_l = sample_height(clamp(uv_n + vec2<f32>(-step.x, 0.0), uv_min, uv_max));
     let h_r = sample_height(clamp(uv_n + vec2<f32>( step.x, 0.0), uv_min, uv_max));
@@ -263,15 +265,13 @@ fn apply_heightmap_effects(
     let shade_factor_raw = mix(1.0 - strength, 1.0 + strength * 0.3, hillshade);
 
     // Fade hillshade to neutral near chunk edges to avoid discontinuities
-    let edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-    let edge_fade = smoothstep(0.0, 10.0 / 64.0, edge_dist); // fade over ~10 texels
-    let shade_factor = mix(1.0, shade_factor_raw, edge_fade);
+    let shade_factor = shade_factor_raw;
 
     var result = color * shade_factor;
 
     // --- 2. Altitude-based color modulation ---
     // High altitude: shift toward lighter, cooler tones (rocky/alpine)
-    let altitude_factor = smoothstep(0.4, 0.85, height) * edge_fade;
+    let altitude_factor = smoothstep(0.4, 0.85, height);
     let highland_tint = vec3<f32>(0.05, 0.03, 0.0); // slight warm desaturation
     result = mix(result, result + highland_tint, altitude_factor * 0.3);
     // Slightly desaturate at high altitude (less vegetation = less color)
@@ -280,7 +280,7 @@ fn apply_heightmap_effects(
     result = mix(result, vec3<f32>(luminance), altitude_factor * altitude_saturation_factor);
 
     // Low altitude: slightly more saturated, darker (dense vegetation in valleys)
-    let valley_factor = smoothstep(0.4, 0.15, height) * edge_fade;
+    let valley_factor = smoothstep(0.4, 0.15, height);
     let valley_shade = 0.85;
     result *= mix(1.0, valley_shade, valley_factor); // darken valleys slightly
 
@@ -301,19 +301,16 @@ fn apply_heightmap_effects(
 // ============================================================================
 
 fn vegetation_from_uv(uv: vec2<f32>, world_pos: vec2<f32>, base_green: vec3<f32>, res: f32) -> vec3<f32> {
-    let texel = 1.0 / res;
-    let snapped = (floor(uv * res) + 0.5) * texel;
-    let data_ids = textureSample(biome_texture, biome_sampler, snapped);
-    let primary_id = u32(data_ids.r * 15.0 + 0.5);
-    let secondary_id = u32(data_ids.g * 15.0 + 0.5);
-
-    let data_blend = textureSample(biome_texture, biome_sampler, uv);
-    let blend = data_blend.b;
+    // Nearest filtering: one sample gives exact texel values (no interpolation)
+    let data = textureSample(biome_texture, biome_sampler, uv);
+    let primary_id = u32(data.r * 15.0 + 0.5);
+    let secondary_id = u32(data.g * 15.0 + 0.5);
+    let blend = data.b;
 
     let palette_a = get_biome_palette(primary_id);
 
     if (blend < 0.01) {
-        return painterly_vegetation_biome(world_pos, palette_a, base_green);
+        let primary_id = u32(data.r * 15.0 + 0.5);
     }
 
     let palette_b = get_biome_palette(secondary_id);
@@ -692,12 +689,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let chunk_offset = vec2<f32>(chunk_info.x, chunk_info.y);
     let chunk_size = vec2<f32>(chunk_info.z, chunk_info.w);
     let world_pos = chunk_offset + uv_corrected * chunk_size;
+
+    // Global UVs for biome and heightmap (world-space, 0-1 over entire map)
+    let world_total = vec2<f32>(biome_params.z, biome_params.w);
+    let global_uv = world_pos / world_total;
     
     // ---- Sample biome and compute vegetation ----
     var vegetation: vec3<f32>;
     
     if (has_biome > 0.5) {
-        vegetation = sample_vegetation_with_biome_blend(uv_corrected, world_pos, grass_color.rgb);
+        vegetation = sample_vegetation_with_biome_blend(global_uv, world_pos, grass_color.rgb);
     } else {
         // Fallback: legacy single-palette vegetation
         vegetation = painterly_vegetation(world_pos, grass_color.rgb);
@@ -718,7 +719,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             );
         }
 
-        color = apply_heightmap_effects(color, uv_corrected, world_pos);
+        color = apply_heightmap_effects(color, global_uv, world_pos);
         
         return vec4<f32>(color, vertex_alpha);
     }
@@ -752,7 +753,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         );
     }
 
-    final_color = apply_heightmap_effects(final_color, uv_corrected, world_pos);
+    final_color = apply_heightmap_effects(final_color, global_uv, world_pos);
 
     return vec4<f32>(final_color, vertex_alpha);
 }

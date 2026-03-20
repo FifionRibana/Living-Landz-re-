@@ -40,6 +40,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     let cell_db = &db_tables.cells;
     let terrain_db = &db_tables.terrains;
     let ocean_db = &db_tables.ocean_data;
+    let terrain_global_db = &db_tables.terrain_global_data;
     let building_db = &db_tables.buildings;
 
     tracing::info!("=== WORLD GENERATION PARAMETERS ===");
@@ -84,16 +85,32 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     );
 
     tracing::info!("=== GENERATING TERRAIN ===");
-    let (terrain_mesh_data, chunk_masks, scaled_binary_map) = TerrainMeshData::from_image(
-        map_name,
-        &maps.binary_map,
-        Some(&maps.heightmap),
-        Some(&maps.biome_map),
-        &scale,
-        &format!("assets/maps/{}_binarymap.bin", map_name),
-    );
+    let (terrain_mesh_data, chunk_masks, scaled_binary_map, terrain_global_data) =
+        TerrainMeshData::from_image(
+            map_name,
+            &maps.binary_map,
+            Some(&maps.heightmap),
+            Some(&maps.biome_map),
+            &scale,
+            &format!("assets/maps/{}_binarymap.bin", map_name),
+        );
 
     tracing::info!("✓ Terrain generated");
+
+    if let Some(ref global_data) = terrain_global_data {
+        terrain_global_db
+            .save_terrain_global_data(global_data.clone())
+            .await
+            .expect("Failed to save terrain global data");
+        tracing::info!(
+            "✓ Terrain global data saved (biome {}x{}, heightmap {}x{})",
+            global_data.biome_width,
+            global_data.biome_height,
+            global_data.heightmap_width,
+            global_data.heightmap_height
+        );
+    }
+
     tracing::info!(
         "Scaled binary map output: {}x{}",
         scaled_binary_map.width(),

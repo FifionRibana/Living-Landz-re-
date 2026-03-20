@@ -7,8 +7,8 @@ use i_triangle::float::{triangulatable::Triangulatable, triangulation::Triangula
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
-use shared::{BiomeColor, BiomeTextureData, find_closest_biome, get_biome_color};
-use shared::{HeightmapChunkData, RoadChunkSdfData, TerrainChunkSdfData, constants};
+use shared::{BiomeColor, find_closest_biome, get_biome_color};
+use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
 
 use crate::utils::{algorithm, file_system};
@@ -20,9 +20,7 @@ pub struct TerrainChunkMeshData {
     pub height: u32,
     pub mesh_data: MeshData,
     pub sdf_data: Vec<TerrainChunkSdfData>,
-    pub heightmap_data: Option<HeightmapChunkData>,
     pub road_sdf_data: Option<RoadChunkSdfData>,
-    pub biome_texture_data: Option<BiomeTextureData>,
     pub outlines: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,
 }
@@ -38,9 +36,7 @@ impl TerrainChunkMeshData {
                 uvs: self.mesh_data.uvs.clone(),
             },
             sdf_data: self.sdf_data.clone(),
-            heightmap_data: self.heightmap_data.clone(),
             road_sdf_data: self.road_sdf_data.clone(),
-            biome_texture_data: self.biome_texture_data.clone(),
             outline: self.outlines.clone(),
             generated_at: self.generated_at,
         }
@@ -71,6 +67,7 @@ impl TerrainMeshData {
         Self,
         HashMap<TerrainChunkId, ImageBuffer<image::Luma<u8>, Vec<u8>>>,
         ImageBuffer<image::Luma<u8>, Vec<u8>>,
+        Option<shared::TerrainGlobalData>,
     ) {
         let start = std::time::Instant::now();
         let load_result = file_system::load_from_disk(cache_path);
@@ -158,8 +155,6 @@ impl TerrainMeshData {
         tracing::info!("Splitting SDF into chunks");
         let t3 = std::time::Instant::now();
 
-        // let mut chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = HashMap::new();
-
         let chunk_sdf_values = split_sdf_into_chunks(
             &global_sdf,
             global_sdf_width,
@@ -182,123 +177,64 @@ impl TerrainMeshData {
 
         tracing::info!("    SDF chunks created in {:?}", t3.elapsed());
 
-        // Générer la heightmap globale et la découper en chunks (optionnel)
-        let chunk_heightmap_data: HashMap<TerrainChunkId, Option<HeightmapChunkData>> =
-            if let Some(heightmap_img) = heightmap_image {
-                tracing::info!("Generating global heightmap");
-                let t_heightmap = std::time::Instant::now();
+        // Generate global biome + heightmap textures (not split into chunks)
+        let terrain_global_data = if let Some(biome_img) = biome_map {
+            tracing::info!("Generating global biome texture");
+            let t_biome = std::time::Instant::now();
 
-                let heightmap_luma = heightmap_img.to_luma8();
-                let global_heightmap =
-                    generate_global_heightmap(&heightmap_luma, global_sdf_width, global_sdf_height);
+            let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
+            let biome_resolution = 256usize;
+            let global_biome_width = n_chunk_x as usize * biome_resolution;
+            let global_biome_height = n_chunk_y as usize * biome_resolution;
 
-                tracing::info!(
-                    "    Global heightmap {}x{} generated in {:?}",
-                    global_sdf_width,
-                    global_sdf_height,
-                    t_heightmap.elapsed()
-                );
+            let global_biome =
+                generate_global_biome_texture(&biome_rgba, global_biome_width, global_biome_height);
 
-                tracing::info!("Splitting heightmap into chunks");
-                let t_heightmap_split = std::time::Instant::now();
+            tracing::info!(
+                "    Global biome texture {}x{} ({} bytes) generated in {:?}",
+                global_biome_width,
+                global_biome_height,
+                global_biome.len(),
+                t_biome.elapsed()
+            );
 
-                let chunk_heightmap_values = split_sdf_into_chunks(
-                    &global_heightmap,
-                    global_sdf_width,
-                    global_sdf_height,
-                    sdf_resolution,
-                    n_chunk_x,
-                    n_chunk_y,
-                );
-
-                let result: HashMap<TerrainChunkId, Option<HeightmapChunkData>> =
-                    chunk_heightmap_values
-                        .into_iter()
-                        .map(|(id, values)| {
-                            let data =
-                                HeightmapChunkData::from_values(sdf_resolution as u8, values);
-                            (id, Some(data))
-                        })
-                        .collect();
-
-                tracing::info!(
-                    "    Heightmap chunks created in {:?}",
-                    t_heightmap_split.elapsed()
-                );
-
-                result
+            // Generate global heightmap
+            tracing::info!("Generating global heightmap");
+            let t_hm = std::time::Instant::now();
+            let global_heightmap = if let Some(hm_img) = heightmap_image {
+                let heightmap_luma = hm_img.to_luma8();
+                generate_global_heightmap(&heightmap_luma, global_sdf_width, global_sdf_height)
             } else {
-                // Pas de heightmap : None pour tous les chunks
-                (0..n_chunk_y)
-                    .flat_map(|cy| {
-                        (0..n_chunk_x).map(move |cx| (TerrainChunkId { x: cx, y: cy }, None))
-                    })
-                    .collect()
+                vec![128u8; global_sdf_width * global_sdf_height]
             };
+            tracing::info!(
+                "    Global heightmap {}x{} generated in {:?}",
+                global_sdf_width,
+                global_sdf_height,
+                t_hm.elapsed()
+            );
 
-        let chunk_heightmap_data_ref = &chunk_heightmap_data;
+            let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+            let world_height = n_chunk_y as f32 * constants::CHUNK_SIZE.y;
 
-        // Générer la biome texture et la découper en chunks (optionnel)
-        // Générer la biome texture et la découper en chunks (optionnel)
-        let chunk_biome_texture_data: HashMap<TerrainChunkId, Option<BiomeTextureData>> =
-            if let Some(biome_img) = biome_map {
-                tracing::info!("Generating global biome texture");
-                let t_biome = std::time::Instant::now();
-
-                let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
-                let biome_resolution = 256usize;
-                let global_biome_width = n_chunk_x as usize * biome_resolution;
-                let global_biome_height = n_chunk_y as usize * biome_resolution;
-
-                let global_biome = generate_global_biome_texture(
-                    &biome_rgba,
-                    global_biome_width,
-                    global_biome_height,
-                );
-
-                tracing::info!(
-                    "    Global biome texture {}x{} generated in {:?}",
-                    global_sdf_width,
-                    global_sdf_height,
-                    t_biome.elapsed()
-                );
-
-                tracing::info!("Splitting biome texture into chunks");
-                let t_biome_split = std::time::Instant::now();
-
-                let chunk_biome_values = split_biome_into_chunks(
-                    &global_biome,
-                    global_biome_width,
-                    global_biome_height,
-                    biome_resolution,
-                    n_chunk_x,
-                    n_chunk_y,
-                );
-
-                let result: HashMap<TerrainChunkId, Option<BiomeTextureData>> = chunk_biome_values
-                    .into_iter()
-                    .map(|(id, values)| {
-                        let data = BiomeTextureData::from_values(biome_resolution as u16, values);
-                        (id, Some(data))
-                    })
-                    .collect();
-
-                tracing::info!(
-                    "    Biome texture chunks created in {:?}",
-                    t_biome_split.elapsed()
-                );
-
-                result
-            } else {
-                // Pas de biome map : None pour tous les chunks
-                (0..n_chunk_y)
-                    .flat_map(|cy| {
-                        (0..n_chunk_x).map(move |cx| (TerrainChunkId { x: cx, y: cy }, None))
-                    })
-                    .collect()
-            };
-
-        let chunk_biome_texture_data_ref = &chunk_biome_texture_data;
+            Some(shared::TerrainGlobalData {
+                name: name.to_string(),
+                biome_width: global_biome_width as u32,
+                biome_height: global_biome_height as u32,
+                biome_values: global_biome,
+                heightmap_width: global_sdf_width as u32,
+                heightmap_height: global_sdf_height as u32,
+                heightmap_values: global_heightmap,
+                world_width,
+                world_height,
+                generated_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            })
+        } else {
+            None
+        };
 
         tracing::info!("Detecting chunks outlines");
         let t4 = std::time::Instant::now();
@@ -379,15 +315,7 @@ impl TerrainMeshData {
                                 mesh_data: meshes.clone(),
                                 outlines: chunk_contours_ref.get(&id).cloned().unwrap_or_default(),
                                 sdf_data: chunk_sdf_data_ref.get(&id).cloned().unwrap_or_default(),
-                                heightmap_data: chunk_heightmap_data_ref
-                                    .get(&id)
-                                    .cloned()
-                                    .unwrap_or(None),
                                 road_sdf_data: None, // Les routes seront ajoutées dynamiquement
-                                biome_texture_data: chunk_biome_texture_data_ref
-                                    .get(&id)
-                                    .cloned()
-                                    .unwrap_or(None),
                                 generated_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
@@ -403,6 +331,7 @@ impl TerrainMeshData {
             },
             chunks,
             scaled_image_output,
+            terrain_global_data,
         )
     }
 
@@ -1691,55 +1620,6 @@ fn generate_global_biome_texture(
         .collect();
 
     rgba
-}
-
-/// Splits a global biome RGBA texture into per-chunk textures.
-/// Uses the same overlap as split_sdf_into_chunks for seamless chunk borders.
-fn split_biome_into_chunks(
-    global_biome_rgba: &[u8],
-    global_width: usize,
-    global_height: usize,
-    chunk_resolution: usize,
-    n_chunk_x: i32,
-    n_chunk_y: i32,
-) -> HashMap<TerrainChunkId, Vec<u8>> {
-    let mut result = HashMap::new();
-    let overlap = 0.5f32;
-
-    for cy in 0..n_chunk_y {
-        for cx in 0..n_chunk_x {
-            let chunk_id = TerrainChunkId { x: cx, y: cy };
-            let mut values = Vec::with_capacity(chunk_resolution * chunk_resolution * 4);
-
-            let base_x = cx as f32 * chunk_resolution as f32;
-            let base_y = cy as f32 * chunk_resolution as f32;
-
-            for sy in 0..chunk_resolution {
-                for sx in 0..chunk_resolution {
-                    let t_x = sx as f32 / (chunk_resolution - 1) as f32;
-                    let t_y = sy as f32 / (chunk_resolution - 1) as f32;
-
-                    let global_x =
-                        (base_x - overlap + t_x * (chunk_resolution as f32 - 1.0 + 2.0 * overlap))
-                            .round()
-                            .clamp(0.0, (global_width - 1) as f32) as usize;
-                    let global_y = (base_y - overlap
-                        + t_y * (chunk_resolution as f32 - 1.0 + 2.0 * overlap))
-                        .round()
-                        .clamp(0.0, (global_height - 1) as f32)
-                        as usize;
-
-                    let src_idx = (global_y * global_width + global_x) * 4;
-                    values.push(global_biome_rgba[src_idx]);
-                    values.push(global_biome_rgba[src_idx + 1]);
-                    values.push(global_biome_rgba[src_idx + 2]);
-                    values.push(global_biome_rgba[src_idx + 3]);
-                }
-            }
-            result.insert(chunk_id, values);
-        }
-    }
-    result
 }
 
 /// Découpe la SDF globale en chunks avec overlap correct

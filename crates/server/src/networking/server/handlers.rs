@@ -8,7 +8,7 @@ use shared::{
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::{accept_async_with_config, tungstenite::Message, tungstenite::protocol::WebSocketConfig};
 
 use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::auth::password;
@@ -229,7 +229,12 @@ pub async fn handle_connection(
 ) {
     tracing::info!("New connection from {}", addr);
 
-    let ws_stream = match accept_async(stream).await {
+    
+        let mut ws_config = WebSocketConfig::default();
+        ws_config.max_message_size = Some(64 * 1024 * 1024); // 64 MB
+        ws_config.max_frame_size = Some(64 * 1024 * 1024);
+
+    let ws_stream = match accept_async_with_config(stream, Some(ws_config)).await {
         Ok(ws) => ws,
         Err(e) => {
             tracing::error!("WebSocket handshake error: {}", e);
@@ -298,6 +303,7 @@ pub async fn handle_connection(
                     ServerMessage::LordCreateError { .. } => "LordCreateError",
                     ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
                     ServerMessage::OceanData { .. } => "OceanData",
+                    ServerMessage::TerrainGlobalData { .. } => "TerrainGlobalData",
                     ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
                         tracing::info!("Sending RoadChunkSdfUpdate to session {} for chunk ({},{})", session_id, chunk_id.x, chunk_id.y);
                         "RoadChunkSdfUpdate"
@@ -2037,6 +2043,36 @@ async fn handle_client_message(
                 }
                 Err(e) => {
                     tracing::error!("Failed to load ocean data: {}", e);
+                    vec![]
+                }
+            }
+        }
+
+        ClientMessage::RequestTerrainGlobalData { world_name } => {
+            tracing::info!("Received RequestTerrainGlobalData for {}", world_name);
+            match db_tables
+                .terrain_global_data
+                .load_terrain_global_data(&world_name)
+                .await
+            {
+                Ok(Some(data)) => {
+                    tracing::info!(
+                        "Sending terrain global data: biome {}x{}, heightmap {}x{}",
+                        data.biome_width,
+                        data.biome_height,
+                        data.heightmap_width,
+                        data.heightmap_height
+                    );
+                    vec![ServerMessage::TerrainGlobalData {
+                        terrain_global_data: data,
+                    }]
+                }
+                Ok(None) => {
+                    tracing::warn!("No terrain global data found for {}", world_name);
+                    vec![]
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load terrain global data: {}", e);
                     vec![]
                 }
             }

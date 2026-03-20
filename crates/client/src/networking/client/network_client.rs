@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tungstenite::Message;
+use tungstenite::{Message, protocol::WebSocketConfig};
 
 #[derive(Resource)]
 pub struct NetworkClient {
@@ -38,7 +38,12 @@ impl NetworkClient {
             let max_retries = 10;
 
             loop {
-                match Self::establish_connection(&server_url_str, &rx, &incoming_clone, &connected_clone) {
+                match Self::establish_connection(
+                    &server_url_str,
+                    &rx,
+                    &incoming_clone,
+                    &connected_clone,
+                ) {
                     Ok(_) => {
                         retry_count = 0;
                     }
@@ -97,9 +102,12 @@ impl NetworkClient {
             .map_err(|e| format!("TCP connection failed: {}", e))?;
 
         info!("TCP connected, upgrading to WebSocket...");
-
-        let (mut socket, _) = tungstenite::client(server_url, tcp_stream)
-            .map_err(|e| format!("Connection failed: {}", e))?;
+        let mut ws_config = WebSocketConfig::default();
+        ws_config.max_message_size = Some(64 * 1024 * 1024); // 64 MB
+        ws_config.max_frame_size = Some(64 * 1024 * 1024);
+        let (mut socket, _) =
+            tungstenite::client::client_with_config(server_url, tcp_stream, Some(ws_config))
+                .map_err(|e| format!("Connection failed: {}", e))?;
 
         // Set non-blocking BEFORE WebSocket upgrade
         socket
