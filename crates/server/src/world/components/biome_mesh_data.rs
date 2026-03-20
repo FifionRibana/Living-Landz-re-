@@ -301,42 +301,35 @@ impl BiomeMeshData {
             );
         }
 
-        
         scaled_image
             .enumerate_pixels()
             .par_bridge()
-            .fold(
-                HashMap::new,
-                |mut acc, (px, py, pixel)| {
-                    let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
-                    let vertices = &hex_layout
-                        .hex_corners(current_hex)
-                        .into_iter()
-                        .map(|p| (p.x, p.y))
-                        .collect::<Vec<(f32, f32)>>();
-                    if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
-                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                        *acc.entry(current_hex)
-                            .or_insert(HashMap::new())
-                            .entry(color)
-                            .or_insert(0) += 1;
-                    }
-                    acc
-                },
-            )
-            .reduce(
-                HashMap::new,
-                |mut acc, other| {
-                    for (hex, color_map) in other {
-                        let entry = acc.entry(hex).or_insert_with(HashMap::new);
+            .fold(HashMap::new, |mut acc, (px, py, pixel)| {
+                let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
+                let vertices = &hex_layout
+                    .hex_corners(current_hex)
+                    .into_iter()
+                    .map(|p| (p.x, p.y))
+                    .collect::<Vec<(f32, f32)>>();
+                if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
+                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                    *acc.entry(current_hex)
+                        .or_insert(HashMap::new())
+                        .entry(color)
+                        .or_insert(0) += 1;
+                }
+                acc
+            })
+            .reduce(HashMap::new, |mut acc, other| {
+                for (hex, color_map) in other {
+                    let entry = acc.entry(hex).or_insert_with(HashMap::new);
 
-                        for (color, count) in color_map {
-                            *entry.entry(color).or_insert(0) += count;
-                        }
+                    for (color, count) in color_map {
+                        *entry.entry(color).or_insert(0) += count;
                     }
-                    acc
-                },
-            )
+                }
+                acc
+            })
             .into_iter()
             .map(|(hex_cell, color_map)| {
                 let world_pos = hex_layout.hex_to_world_pos(hex_cell);
@@ -358,6 +351,7 @@ impl BiomeMeshData {
             })
             .collect()
     }
+            
 
     #[inline]
     fn point_in_polygon(point: (f32, f32), vertices: &[(f32, f32)]) -> bool {

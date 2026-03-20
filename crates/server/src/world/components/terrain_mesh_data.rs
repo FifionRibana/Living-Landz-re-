@@ -8,8 +8,8 @@ use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use shared::{BiomeColor, find_closest_biome, get_biome_color};
-use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
+use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 
 use crate::utils::{algorithm, file_system};
 use crate::world::resources::SdfConfig;
@@ -213,17 +213,15 @@ impl TerrainMeshData {
 
             let global_heightmap = if let Some(hm_img) = heightmap_image {
                 let heightmap_luma = hm_img.to_luma8();
-                generate_global_heightmap(
-                    &heightmap_luma,
-                    hm_width,
-                    hm_height,
-                )
+                generate_global_heightmap(&heightmap_luma, hm_width, hm_height)
             } else {
                 vec![128u8; hm_width * hm_height]
             };
             tracing::info!(
                 "    Global heightmap {}x{} generated in {:?}",
-                hm_width, hm_height, t_hm.elapsed()
+                hm_width,
+                hm_height,
+                t_hm.elapsed()
             );
 
             let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
@@ -345,6 +343,226 @@ impl TerrainMeshData {
             scaled_image_output,
             terrain_global_data,
         )
+    }
+
+    /// Generate global data only (SDF, biome, heightmap). No per-chunk meshes.
+    /// Returns the WorldGlobalState (held in memory) and the TerrainGlobalData (sent to client).
+    pub fn generate_globals(
+        name: &str,
+        image: &DynamicImage,
+        heightmap_image: Option<&DynamicImage>,
+        biome_map: Option<&DynamicImage>,
+        scale: &Vec2,
+        cache_path: &str,
+    ) -> (
+        crate::world::resources::WorldGlobalState,
+        Option<shared::TerrainGlobalData>,
+        shared::SdfGlobalData,
+    ) {
+        let start = std::time::Instant::now();
+
+        // Upscale binary map (cached to disk)
+        let load_result = file_system::load_from_disk(cache_path);
+        let mut scaled_image: ImageBuffer<image::Luma<u8>, Vec<u8>> = ImageBuffer::default();
+        let loaded = match load_result {
+            Ok(img) => {
+                scaled_image = img;
+                true
+            }
+            _ => false,
+        };
+
+        if !loaded {
+            tracing::info!("Upscaling image by: {}x{}", scale.x, scale.y);
+            let t1 = std::time::Instant::now();
+            let flipped_image = image::imageops::flip_vertical(&image.to_luma8());
+            scaled_image = TerrainMeshData::resize_image(&flipped_image, scale, 178);
+            tracing::info!(
+                "    image upscaled to {}x{} in {:?}",
+                scaled_image.width(),
+                scaled_image.height(),
+                t1.elapsed()
+            );
+            let _ = file_system::save_to_disk(&scaled_image, cache_path);
+        }
+
+        let scaled_width = scaled_image.width();
+        let scaled_height = scaled_image.height();
+        let n_chunk_x = (scaled_width as f32 / constants::CHUNK_SIZE.x).ceil() as i32;
+        let n_chunk_y = (scaled_height as f32 / constants::CHUNK_SIZE.y).ceil() as i32;
+
+        // Generate global SDF
+        tracing::info!("Generating global SDF");
+        let t_sdf = std::time::Instant::now();
+        let sdf_resolution = 64usize;
+        let global_sdf_width = n_chunk_x as usize * sdf_resolution;
+        let global_sdf_height = n_chunk_y as usize * sdf_resolution;
+        let max_distance = 150.0f32;
+
+        let global_sdf = generate_global_sdf(
+            &scaled_image,
+            global_sdf_width,
+            global_sdf_height,
+            n_chunk_x as f32 * constants::CHUNK_SIZE.x,
+            n_chunk_y as f32 * constants::CHUNK_SIZE.y,
+            max_distance,
+        );
+        tracing::info!(
+            "    Global SDF {}x{} generated in {:?}",
+            global_sdf_width,
+            global_sdf_height,
+            t_sdf.elapsed()
+        );
+
+        // Generate global biome + heightmap textures
+        let terrain_global_data = if let Some(biome_img) = biome_map {
+            tracing::info!("Generating global biome texture");
+            let t_biome = std::time::Instant::now();
+
+            let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
+            let biome_resolution = 256usize;
+            let global_biome_width = n_chunk_x as usize * biome_resolution;
+            let global_biome_height = n_chunk_y as usize * biome_resolution;
+
+            let global_biome =
+                generate_global_biome_texture(&biome_rgba, global_biome_width, global_biome_height);
+
+            tracing::info!(
+                "    Global biome texture {}x{} generated in {:?}",
+                global_biome_width,
+                global_biome_height,
+                t_biome.elapsed()
+            );
+
+            tracing::info!("Generating global heightmap");
+            let t_hm = std::time::Instant::now();
+            let hm_base_resolution = 2048usize;
+            let source_aspect = if let Some(hm_img) = heightmap_image {
+                hm_img.height() as f32 / hm_img.width() as f32
+            } else {
+                0.5
+            };
+            let hm_width = hm_base_resolution;
+            let hm_height = (hm_base_resolution as f32 * source_aspect).round() as usize;
+
+            let global_heightmap = if let Some(hm_img) = heightmap_image {
+                let heightmap_luma = hm_img.to_luma8();
+                generate_global_heightmap(&heightmap_luma, hm_width, hm_height)
+            } else {
+                vec![128u8; hm_width * hm_height]
+            };
+            tracing::info!(
+                "    Global heightmap {}x{} generated in {:?}",
+                hm_width,
+                hm_height,
+                t_hm.elapsed()
+            );
+
+            let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+            let world_height = n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+            Some(shared::TerrainGlobalData {
+                name: name.to_string(),
+                biome_width: global_biome_width as u32,
+                biome_height: global_biome_height as u32,
+                biome_values: global_biome,
+                heightmap_width: hm_width as u32,
+                heightmap_height: hm_height as u32,
+                heightmap_values: global_heightmap,
+                world_width,
+                world_height,
+                generated_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            })
+        } else {
+            None
+        };
+
+        tracing::info!("Globals generated in {:?}", start.elapsed());
+
+        let global_state = crate::world::resources::WorldGlobalState {
+            map_name: name.to_string(),
+            maps: None,
+            scaled_binary_map: scaled_image,
+            global_sdf: global_sdf.clone(),
+            sdf_resolution,
+            global_sdf_width,
+            global_sdf_height,
+            n_chunk_x,
+            n_chunk_y,
+            scale: *scale,
+            grid_config: None,
+        };
+
+        let sdf_global_data = shared::SdfGlobalData {
+            name: name.to_string(),
+            sdf_values: global_sdf,
+            sdf_resolution: sdf_resolution as u32,
+            sdf_width: global_sdf_width as u32,
+            sdf_height: global_sdf_height as u32,
+            n_chunk_x,
+            n_chunk_y,
+            scale_x: scale.x,
+            scale_y: scale.y,
+            generated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        (global_state, terrain_global_data, sdf_global_data)
+    }
+
+    /// Generate a single chunk's terrain data from pre-computed globals.
+    pub fn generate_single_chunk(
+        chunk_id: TerrainChunkId,
+        global: &crate::world::resources::WorldGlobalState,
+    ) -> Option<TerrainChunkMeshData> {
+        // Extract SDF for this chunk
+        let sdf_data = global.extract_chunk_sdf(&chunk_id);
+
+        // Check if chunk has any land
+        let has_land = sdf_data
+            .first()
+            .map(|s| s.values.iter().any(|&v| v > 128))
+            .unwrap_or(false);
+
+        if !has_land {
+            return None;
+        }
+
+        // Crop binary mask and detect contours
+        let chunk_mask = global.crop_chunk_binary_mask(&chunk_id);
+        let mut contours = TerrainMeshData::detect_image_contour(&chunk_mask);
+
+        if contours.is_empty() && chunk_mask.get_pixel(10, 10)[0] > 0 {
+            let width = chunk_mask.width() as f64;
+            let height = chunk_mask.height() as f64;
+            contours = vec![vec![
+                [0.0, 0.0],
+                [0.0, height],
+                [width, height],
+                [width, 0.0],
+            ]];
+        }
+
+        // Generate mesh
+        let mesh = generate_full_chunk_mesh(constants::CHUNK_SIZE);
+
+        Some(TerrainChunkMeshData {
+            width: constants::CHUNK_SIZE.x as u32,
+            height: constants::CHUNK_SIZE.y as u32,
+            mesh_data: mesh,
+            outlines: contours,
+            sdf_data,
+            road_sdf_data: None,
+            generated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
     }
 
     pub fn resize_image<P>(

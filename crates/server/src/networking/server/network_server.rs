@@ -8,6 +8,7 @@ use crate::action_processor::ActionProcessor;
 use crate::database::client::DatabaseTables;
 use crate::dev::DevConfig;
 use crate::units::NameGenerator;
+use crate::world::resources::WorldGlobalState;
 
 use super::super::Sessions;
 use super::handlers;
@@ -31,6 +32,7 @@ impl NetworkServer {
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
         dev_config: Arc<DevConfig>,
+        world_global_state: Arc<WorldGlobalState>,
     ) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
@@ -48,6 +50,7 @@ impl NetworkServer {
             let game_state_clone = game_state.clone();
             let grid_config_clone = grid_config.clone();
             let dev_config_clone = dev_config.clone();
+            let world_global_state_clone = world_global_state.clone();
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
@@ -61,6 +64,7 @@ impl NetworkServer {
                     game_state_clone,
                     grid_config_clone,
                     dev_config_clone,
+                    world_global_state_clone,
                 )
                 .await;
             });
@@ -76,6 +80,7 @@ pub fn initialize_server(
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
+    world_global_state: Arc<WorldGlobalState>,
 ) {
     tracing::info!("Starting network server...");
 
@@ -94,6 +99,7 @@ pub fn initialize_server(
     let game_state_clone = game_state.clone();
     let grid_config_clone = grid_config.clone();
     let dev_config_clone = dev_config.clone();
+    let world_global_state_clone = world_global_state.clone();
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
@@ -106,6 +112,7 @@ pub fn initialize_server(
                 game_state_clone,
                 grid_config_clone,
                 dev_config_clone,
+                world_global_state_clone,
             )
             .await;
     });
