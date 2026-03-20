@@ -80,8 +80,10 @@ pub struct BiomeParams {
     /// 1.0 if biome texture is present, 0.0 otherwise
     pub has_biome: f32,
     pub resolution: f32,
-    pub _padding2: f32,
-    pub _padding3: f32,
+    /// Total world width in pixels (for global UV computation)
+    pub world_width: f32,
+    /// Total world height in pixels (for global UV computation)
+    pub world_height: f32,
 }
 
 impl Default for BiomeParams {
@@ -89,8 +91,8 @@ impl Default for BiomeParams {
         Self {
             has_biome: 0.0,
             resolution: 1.0,
-            _padding2: 0.0,
-            _padding3: 0.0,
+            world_width: 1.0,
+            world_height: 1.0,
         }
     }
 }

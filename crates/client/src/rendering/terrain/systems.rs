@@ -16,7 +16,9 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::materials::{BiomeParams, ChunkInfo, HeightmapParams, RoadParams, SdfParams};
+use crate::rendering::terrain::materials::{
+    BiomeParams, ChunkInfo, HeightmapParams, RoadParams, SdfParams,
+};
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
@@ -35,6 +37,71 @@ pub fn initialize_terrain(
     if !connection.is_ready() {
         return;
     }
+}
+
+pub fn request_terrain_global_data(
+    mut cache: ResMut<WorldCache>,
+    network_client_opt: Option<ResMut<NetworkClient>>,
+) {
+    let Some(mut network_client) = network_client_opt else {
+        return;
+    };
+
+    if !cache.is_terrain_global_loaded() && !cache.is_terrain_global_requested() {
+        info!("Requesting terrain global data from server");
+        network_client.send_message(shared::protocol::ClientMessage::RequestTerrainGlobalData {
+            world_name: "Gaulyia".to_string(),
+        });
+        cache.mark_terrain_global_requested();
+    }
+}
+
+pub fn create_terrain_global_textures(
+    mut cache: ResMut<WorldCache>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    // Only create handles once, when data arrives
+    if !cache.is_terrain_global_loaded() || cache.has_terrain_global_handles() {
+        return;
+    }
+
+    let data = cache.get_terrain_global().unwrap();
+
+    info!(
+        "Creating global biome texture {}x{} and heightmap {}x{}",
+        data.biome_width, data.biome_height, data.heightmap_width, data.heightmap_height
+    );
+
+    let mut biome_image = Image::new(
+        Extent3d {
+            width: data.biome_width,
+            height: data.biome_height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data.biome_values.clone(),
+        TextureFormat::Rgba8Unorm,
+        default(),
+    );
+    biome_image.sampler = bevy::image::ImageSampler::nearest();
+
+    let heightmap_image = Image::new(
+        Extent3d {
+            width: data.heightmap_width,
+            height: data.heightmap_height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data.heightmap_values.clone(),
+        TextureFormat::R8Unorm,
+        default(),
+    );
+
+    let biome_handle = images.add(biome_image);
+    let heightmap_handle = images.add(heightmap_image);
+
+    cache.set_terrain_global_handles(biome_handle, heightmap_handle);
+    info!("✓ Global terrain textures created");
 }
 
 pub fn spawn_terrain(
@@ -135,38 +202,22 @@ pub fn spawn_terrain(
 
         let mesh_handle = meshes.add(mesh);
 
-        // Create biome texture (real or dummy)
-        let (biome_texture, biome_params) = if let Some(ref biome_data) = terrain.biome_texture_data
-        {
-            let res = biome_data.resolution as u32;
-            let mut biome_image = Image::new(
-                Extent3d {
-                    width: res,
-                    height: res,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                biome_data.values.clone(),
-                TextureFormat::Rgba8Unorm,
-                default(),
-            );
-            // biome_image.sampler = bevy::image::ImageSampler::nearest();
-            let biome_tex = images.add(biome_image);
-            info!(
-                "Creating biome texture {}x{} for chunk {:?}",
-                res, res, terrain.id
-            );
+        // Get global biome + heightmap handles from cache (or create dummies)
+        let (biome_texture, biome_params) = if let (Some(bh), Some(global)) = (
+            world_cache.get_terrain_global_biome_handle(),
+            world_cache.get_terrain_global(),
+        ) {
             (
-                biome_tex,
+                bh.clone(),
                 BiomeParams {
                     has_biome: 1.0,
-                    resolution: res as f32,
-                    ..default()
+                    resolution: global.biome_width as f32,
+                    world_width: global.world_width,
+                    world_height: global.world_height,
                 },
             )
         } else {
-            // Dummy 1x1 biome texture (Grassland=5 as fallback)
-            let mut dummy_image = Image::new(
+            let dummy = images.add(Image::new(
                 Extent3d {
                     width: 1,
                     height: 1,
@@ -176,46 +227,21 @@ pub fn spawn_terrain(
                 vec![5 * 17, 5 * 17, 0, 255],
                 TextureFormat::Rgba8Unorm,
                 default(),
-            );
-            // dummy_image.sampler = bevy::image::ImageSampler::nearest();
-            let dummy_biome = images.add(dummy_image);
-            (
-                dummy_biome,
-                BiomeParams {
-                    has_biome: 0.0,
-                    ..default()
-                },
-            )
+            ));
+            (dummy, BiomeParams::default())
         };
 
-        // Create heightmap texture (real or dummy)
         let (heightmap_texture, heightmap_params) =
-            if let Some(ref hm_data) = terrain.heightmap_data {
-                let res = hm_data.resolution as u32;
-                let hm_tex = images.add(Image::new(
-                    Extent3d {
-                        width: res,
-                        height: res,
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    hm_data.values.clone(),
-                    TextureFormat::R8Unorm,
-                    default(),
-                ));
-                info!(
-                    "Creating heightmap texture {}x{} for chunk {:?}",
-                    res, res, terrain.id
-                );
+            if let Some(hh) = world_cache.get_terrain_global_heightmap_handle() {
                 (
-                    hm_tex,
+                    hh.clone(),
                     HeightmapParams {
                         has_heightmap: 1.0,
                         ..default()
                     },
                 )
             } else {
-                let dummy_hm = images.add(Image::new(
+                let dummy = images.add(Image::new(
                     Extent3d {
                         width: 1,
                         height: 1,
@@ -226,7 +252,7 @@ pub fn spawn_terrain(
                     TextureFormat::R8Unorm,
                     default(),
                 ));
-                (dummy_hm, HeightmapParams::default())
+                (dummy, HeightmapParams::default())
             };
 
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
@@ -547,10 +573,10 @@ pub fn spawn_building(
             .layout
             .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
 
-        info!(
-            "BUILDING A CATEGORY: {:?} on cell {:?}",
-            building_base.category, building_base.cell
-        );
+        // info!(
+        //     "BUILDING A CATEGORY: {:?} on cell {:?}",
+        //     building_base.category, building_base.cell
+        // );
 
         match (&building_base.category, &building.specific_data) {
             (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(tree_data)) => {

@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 
 use crate::{
-    BiomeTextureData, HeightmapChunkData, RoadChunkSdfData, TerrainChunkId, TerrainChunkSdfData,
+    RoadChunkSdfData, TerrainChunkId, TerrainChunkSdfData,
     types::MeshData,
 };
 
@@ -12,12 +12,8 @@ pub struct TerrainChunkData {
     // biomes: Vec<BiomeTriangulation>,
     pub mesh_data: MeshData,
     pub sdf_data: Vec<TerrainChunkSdfData>,
-    /// Heightmap chunk data (optional, for ocean rendering)
-    pub heightmap_data: Option<HeightmapChunkData>,
     /// Road SDF data (optional, for road rendering)
     pub road_sdf_data: Option<RoadChunkSdfData>,
-    pub biome_texture_data: Option<BiomeTextureData>,
-    // pub mesh_data: HashMap<String, MeshData>,
     /// Contours du continent (outline noir)
     pub outline: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,

@@ -27,8 +27,12 @@ pub fn handle_world_events(
                 unit_data,
             } => {
                 let Some(ref mut cache) = cache else { continue };
-                let Some(ref mut units_cache) = units_cache else { continue };
-                let Some(ref mut units_data_cache) = units_data_cache else { continue };
+                let Some(ref mut units_cache) = units_cache else {
+                    continue;
+                };
+                let Some(ref mut units_data_cache) = units_data_cache else {
+                    continue;
+                };
 
                 info!(
                     "✓ Received terrain: {} with {} units",
@@ -85,6 +89,20 @@ pub fn handle_world_events(
                 let Some(ref mut cache) = cache else { continue };
                 info!("✓ Received ocean data for world: {}", ocean_data.name);
                 cache.insert_ocean(ocean_data.clone());
+            }
+
+            ServerMessage::TerrainGlobalData {
+                terrain_global_data,
+            } => {
+                let Some(ref mut cache) = cache else { continue };
+                info!(
+                    "✓ Received terrain global data: biome {}x{}, heightmap {}x{}",
+                    terrain_global_data.biome_width,
+                    terrain_global_data.biome_height,
+                    terrain_global_data.heightmap_width,
+                    terrain_global_data.heightmap_height,
+                );
+                cache.insert_terrain_global(terrain_global_data.clone());
             }
 
             ServerMessage::RoadChunkSdfUpdate {
