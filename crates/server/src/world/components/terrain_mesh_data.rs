@@ -64,45 +64,27 @@ impl TerrainMeshData {
         heightmap_image: Option<&DynamicImage>,
         biome_map: Option<&DynamicImage>,
         scale: &Vec2,
-        cache_path: &str,
     ) -> (
         crate::world::resources::WorldGlobalState,
         Option<shared::TerrainGlobalData>,
-        ImageBuffer<image::Luma<u8>, Vec<u8>>, // scaled binary for ocean
     ) {
         let start = std::time::Instant::now();
 
-        // Upscale binary map (cached to disk)
-        let load_result = file_system::load_from_disk(cache_path);
-        let mut scaled_image: ImageBuffer<image::Luma<u8>, Vec<u8>> = ImageBuffer::default();
-        let loaded = match load_result {
-            Ok(img) => {
-                scaled_image = img;
-                true
-            }
-            _ => false,
-        };
+        // Compute chunk dimensions from source + scale (NO global upscale)
+        let source_w = image.width() as f32;
+        let source_h = image.height() as f32;
+        let scaled_width = source_w * scale.x;
+        let scaled_height = source_h * scale.y;
+        let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+        let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
 
-        if !loaded {
-            tracing::info!("Upscaling image by: {}x{}", scale.x, scale.y);
-            let t1 = std::time::Instant::now();
-            let flipped_image = image::imageops::flip_vertical(&image.to_luma8());
-            scaled_image = TerrainMeshData::resize_image(&flipped_image, scale, 178);
-            tracing::info!(
-                "    image upscaled to {}x{} in {:?}",
-                scaled_image.width(),
-                scaled_image.height(),
-                t1.elapsed()
-            );
-            let _ = file_system::save_to_disk(&scaled_image, cache_path);
-        }
+        tracing::info!(
+            "    Source {}x{}, scale {}x → {}x{} world ({} chunks)",
+            image.width(), image.height(), scale.x,
+            scaled_width, scaled_height, n_chunk_x * n_chunk_y
+        );
 
-        let scaled_width = scaled_image.width();
-        let scaled_height = scaled_image.height();
-        let n_chunk_x = (scaled_width as f32 / constants::CHUNK_SIZE.x).ceil() as i32;
-        let n_chunk_y = (scaled_height as f32 / constants::CHUNK_SIZE.y).ceil() as i32;
-
-        // Prepare flipped source binary (for per-chunk SDF, not the upscaled one)
+        // Prepare flipped source binary (for per-chunk SDF)
         let source_binary_flipped = image::imageops::flip_vertical(&image.to_luma8());
 
         // Generate global biome + heightmap textures
@@ -185,10 +167,10 @@ impl TerrainMeshData {
             sdf_resolution: 64,
             max_distance: 150.0,
             grid_config: None,
-            cached_biome_rgba: None,  // Set after construction
+            source_biome_flipped_rgba: None,
         };
 
-        (global_state, terrain_global_data, scaled_image)
+        (global_state, terrain_global_data)
     }
 
     /// Generate a single chunk's terrain data from pre-computed globals.
@@ -491,9 +473,21 @@ pub fn generate_ocean_data(
     );
     tracing::info!("World dimensions: {}x{}", world_width, world_height);
 
-    let sdf_resolution = 64usize;
-    let global_width = n_chunk_x as usize * sdf_resolution;
-    let global_height = n_chunk_y as usize * sdf_resolution;
+  // Cap ocean SDF resolution to avoid huge textures at large scales
+    let max_ocean_sdf_dim = 4096usize;
+    let raw_width = n_chunk_x as usize * 64;
+    let raw_height = n_chunk_y as usize * 64;
+
+    let (global_width, global_height) = if raw_width > max_ocean_sdf_dim || raw_height > max_ocean_sdf_dim {
+        let ratio = raw_height as f32 / raw_width as f32;
+        if raw_width >= raw_height {
+            (max_ocean_sdf_dim, (max_ocean_sdf_dim as f32 * ratio).round() as usize)
+        } else {
+            ((max_ocean_sdf_dim as f32 / ratio).round() as usize, max_ocean_sdf_dim)
+        }
+    } else {
+        (raw_width, raw_height)
+    };
     let max_distance = 50.0f32;
 
     tracing::info!("Target SDF resolution: {}x{}", global_width, global_height);
@@ -522,7 +516,6 @@ pub fn generate_ocean_data(
         );
         tracing::error!("Parameters seem wrong:");
         tracing::error!("  n_chunk_x = {}, n_chunk_y = {}", n_chunk_x, n_chunk_y);
-        tracing::error!("  sdf_resolution = {}", sdf_resolution);
         tracing::error!(
             "  global_width = {}, global_height = {}",
             global_width,
@@ -576,6 +569,8 @@ pub fn generate_ocean_data(
         max_distance,
         global_sdf,
         global_heightmap,
+        world_width,
+        world_height,
     );
     tracing::info!("✓ OceanData created successfully");
     tracing::info!("=== OCEAN DATA GENERATION END ===");

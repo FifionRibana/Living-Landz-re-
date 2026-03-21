@@ -4,14 +4,7 @@ use hexx::*;
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use rayon::prelude::*;
 use shared::{
-    BiomeChunkData,
-    BiomeColor,
-    MeshData as SharedMeshData,
-    TerrainChunkId,
-    constants,
-    // get_biome_from_color,
-    grid::{CellData, GridCell},
-    types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome},
+    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, TerrainChunkId, constants, get_biome_color, grid::{CellData, GridCell}, types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome}
 };
 use std::collections::HashMap;
 
@@ -352,103 +345,103 @@ impl BiomeMeshData {
             .collect()
     }
 
-    /// Sample biome data for a single chunk only.
-    /// Only iterates pixels within the chunk's world-space bounds.
+    /// Sample biome data for a single chunk from the source biome image.
+    /// Enumerates hexes in the chunk, samples center + 6 corners at source resolution.
     pub fn sample_biome_for_chunk(
-        name: &str,
-        biome_map: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        source_biome_flipped: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         scale: &Vec2,
         hex_layout: &HexLayout,
-        cache_directory: &str,
         chunk_id: &TerrainChunkId,
     ) -> Vec<CellData> {
-        // Load or generate cached upscaled biome map (same as sample_biome)
-        let load_result = file_system::load_from_disk(
-            format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
-        );
-        let mut scaled_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::default();
-        let loaded = match load_result {
-            Ok(image) => {
-                scaled_image = image;
-                true
-            }
-            _ => false,
-        };
+        let img_w = source_biome_flipped.width();
+        let img_h = source_biome_flipped.height();
 
-        if !loaded {
-            let t1 = std::time::Instant::now();
-            let flipped_image = image::imageops::flip_vertical(biome_map);
-            scaled_image = image::imageops::resize(
-                &flipped_image,
-                biome_map.width() * scale.x as u32,
-                biome_map.height() * scale.y as u32,
-                image::imageops::FilterType::Nearest,
-            );
-            tracing::info!(
-                "    image upscaled to {}x{} in {:?}",
-                scaled_image.width(),
-                scaled_image.height(),
-                t1.elapsed()
-            );
-            let _ = file_system::save_to_disk(
-                &scaled_image,
-                format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
-            );
+        let x_min = chunk_id.x as f32 * constants::CHUNK_SIZE.x;
+        let y_min = chunk_id.y as f32 * constants::CHUNK_SIZE.y;
+        let x_max = (chunk_id.x + 1) as f32 * constants::CHUNK_SIZE.x;
+        let y_max = (chunk_id.y + 1) as f32 * constants::CHUNK_SIZE.y;
+
+        let margin = 30.0;
+        let corner_min = hex_layout.world_pos_to_hex(Vec2::new(x_min - margin, y_min - margin));
+        let corner_max = hex_layout.world_pos_to_hex(Vec2::new(x_max + margin, y_max + margin));
+
+        let q_min = corner_min.x.min(corner_max.x);
+        let q_max = corner_min.x.max(corner_max.x);
+        let r_min = corner_min.y.min(corner_max.y);
+        let r_max = corner_min.y.max(corner_max.y);
+
+        let purity_threshold = 5;
+
+        let mut cells = Vec::new();
+
+        for r in r_min..=r_max {
+            for q in q_min..=q_max {
+                let hex = hexx::Hex::new(q, r);
+                let world_pos = hex_layout.hex_to_world_pos(hex);
+
+                if world_pos.x < x_min || world_pos.x >= x_max
+                    || world_pos.y < y_min || world_pos.y >= y_max
+                {
+                    continue;
+                }
+
+                // Sample a grid of source pixels covering the hex footprint
+                // Hex is ~48px world wide. In source space that's 48/scale pixels.
+                let src_cx = world_pos.x / scale.x;
+                let src_cy = world_pos.y / scale.y;
+                let hex_radius_src = 24.0 / scale.x; // half hex width in source pixels
+
+                // Sample a grid of source pixels within the hex radius
+                let sample_radius = (hex_radius_src.ceil() as i32).max(2);
+                let src_x0 = (src_cx as i32 - sample_radius).max(0);
+                let src_y0 = (src_cy as i32 - sample_radius).max(0);
+                let src_x1 = (src_cx as i32 + sample_radius).min(img_w as i32 - 1);
+                let src_y1 = (src_cy as i32 + sample_radius).min(img_h as i32 - 1);
+
+                let mut counts = [0u16; 16];
+                let mut total_valid = 0u16;
+
+                for sy in src_y0..=src_y1 {
+                    for sx in src_x0..=src_x1 {
+                        let pixel = source_biome_flipped.get_pixel(sx as u32, sy as u32);
+                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                        let biome = find_closest_biome(&color);
+                        let id = biome.to_id();
+
+                        // Purity check: only count pixels close to a known biome color
+                        let ref_color = get_biome_color(&biome);
+                        let dist = color.distance_to(&ref_color);
+
+                        if dist < purity_threshold && (id as usize) < 16 && id > 2 && id != 13 {
+                            counts[id as usize] += 1;
+                            total_valid += 1;
+                        }
+                    }
+                }
+
+                if total_valid == 0 {
+                    continue;
+                }
+
+                let best_id = counts
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, c)| *c)
+                    .map(|(id, _)| id)
+                    .unwrap_or(5);
+
+                let biome = BiomeTypeEnum::from_id(best_id as i16)
+                    .unwrap_or(BiomeTypeEnum::Grassland);
+
+                cells.push(CellData {
+                    cell: GridCell { q, r },
+                    chunk: *chunk_id,
+                    biome,
+                });
+            }
         }
 
-        // Only iterate pixels within this chunk's bounds
-        let x_min = (chunk_id.x as f32 * constants::CHUNK_SIZE.x) as u32;
-        let y_min = (chunk_id.y as f32 * constants::CHUNK_SIZE.y) as u32;
-        let x_max = ((chunk_id.x + 1) as f32 * constants::CHUNK_SIZE.x) as u32;
-        let y_max = ((chunk_id.y + 1) as f32 * constants::CHUNK_SIZE.y) as u32;
-
-        let x_max = x_max.min(scaled_image.width());
-        let y_max = y_max.min(scaled_image.height());
-
-        // Collect pixels in this chunk's area only
-        let mut hex_colors: HashMap<hexx::Hex, HashMap<BiomeColor, usize>> = HashMap::new();
-
-        for py in y_min..y_max {
-            for px in x_min..x_max {
-                let pixel = scaled_image.get_pixel(px, py);
-                let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
-                let vertices: Vec<(f32, f32)> = hex_layout
-                    .hex_corners(current_hex)
-                    .into_iter()
-                    .map(|p| (p.x, p.y))
-                    .collect();
-                if BiomeMeshData::point_in_polygon((px as f32, py as f32), &vertices) {
-                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                    *hex_colors
-                        .entry(current_hex)
-                        .or_insert_with(HashMap::new)
-                        .entry(color)
-                        .or_insert(0) += 1;
-                }
-            }
-        }
-
-        hex_colors
-            .into_iter()
-            .map(|(hex_cell, color_map)| {
-                let world_pos = hex_layout.hex_to_world_pos(hex_cell);
-                CellData {
-                    cell: GridCell {
-                        q: hex_cell.x,
-                        r: hex_cell.y,
-                    },
-                    chunk: TerrainChunkId {
-                        x: world_pos.x.div_euclid(constants::CHUNK_SIZE.x) as i32,
-                        y: world_pos.y.div_euclid(constants::CHUNK_SIZE.y) as i32,
-                    },
-                    biome: color_map
-                        .into_iter()
-                        .max_by_key(|(_, count)| *count)
-                        .map(|(color, _)| find_closest_biome(&color))
-                        .unwrap_or(BiomeTypeEnum::DeepOcean),
-                }
-            })
-            .collect()
+        cells
     }
 
     #[inline]

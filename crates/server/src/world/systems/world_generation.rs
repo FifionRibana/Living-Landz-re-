@@ -39,41 +39,26 @@ pub async fn generate_world_globals(
 
     let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
     let grid_config = setup_grid_config();
-    let scale = Vec2::splat(5.);
-    let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
+    let scale = Vec2::splat(50.);
 
-    let (mut global_state, terrain_global_data, scaled_binary_map) =
-        TerrainMeshData::generate_globals(
-            map_name,
-            &maps.binary_map,
-            Some(&maps.heightmap),
-            Some(&maps.biome_map),
-            &scale,
-            &cache_path,
-        );
+    let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
+        map_name,
+        &maps.binary_map,
+        Some(&maps.heightmap),
+        Some(&maps.biome_map),
+        &scale,
+    );
 
-    // Cache upscaled biome RGBA for fast per-chunk cell sampling
-    let biome_cache_path = format!("assets/maps/{}_biomemap.bin", map_name);
-    global_state.cached_biome_rgba =
-        match crate::utils::file_system::load_from_disk(&biome_cache_path) {
-            Ok(img) => {
-                tracing::info!(
-                    "✓ Cached biome RGBA loaded ({}x{})",
-                    img.width(),
-                    img.height()
-                );
-                Some(img)
-            }
-            Err(_) => {
-                tracing::warn!("Biome RGBA cache not found, will generate on first use");
-                None
-            }
-        };
-
+    // Cache source biome RGBA for per-chunk cell sampling
+    let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
+    tracing::info!(
+        "✓ Source biome RGBA prepared ({}x{})",
+        source_biome_flipped.width(),
+        source_biome_flipped.height()
+    );
+    global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
-
-    let global_maps = global_state.maps.as_ref().unwrap();
 
     // Save terrain global data (biome + heightmap textures for client)
     if let Some(ref global_data) = terrain_global_data {
@@ -91,23 +76,70 @@ pub async fn generate_world_globals(
         );
     }
 
-    // Generate ocean data
+    // Generate ocean data from source at capped resolution
     tracing::info!("=== PREPARING OCEAN DATA ===");
-    let scaled_heightmap = image::imageops::resize(
+    let global_maps = global_state.maps.as_ref().unwrap();
+
+    let ocean_max_dim = 4096u32;
+    let src_w = global_maps.binary_map.width();
+    let src_h = global_maps.binary_map.height();
+    let ocean_scale = if (src_w as f32 * global_state.scale.x) as u32 > ocean_max_dim {
+        ocean_max_dim as f32 / src_w.max(src_h) as f32
+    } else {
+        global_state.scale.x
+    };
+
+    tracing::info!(
+        "Ocean source: {}x{}, scale: {:.1} (capped from {:.1})",
+        src_w,
+        src_h,
+        ocean_scale,
+        global_state.scale.x
+    );
+
+    let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map.to_luma8());
+    let mut ocean_binary = image::imageops::resize(
+        &ocean_binary_flipped,
+        (src_w as f32 * ocean_scale) as u32,
+        (src_h as f32 * ocean_scale) as u32,
+        image::imageops::FilterType::Lanczos3,
+    );
+    // Threshold like resize_image does
+    ocean_binary.iter_mut().for_each(|p| {
+        *p = if *p > 178 { 255 } else { 0 };
+    });
+
+    let ocean_heightmap = image::imageops::resize(
         &global_maps.heightmap.to_luma8(),
-        scaled_binary_map.width(),
-        scaled_binary_map.height(),
+        ocean_binary.width(),
+        ocean_binary.height(),
         image::imageops::FilterType::Lanczos3,
     );
 
-    let ocean_data = generate_ocean_data(
+    let ocean_binary_w = ocean_binary.width();
+    let ocean_binary_h = ocean_binary.height();
+
+    // Pass ocean image dimensions as "world" for correct SDF search_radius.
+    // The actual mesh size is computed from n_chunk_x * 64 in OceanData,
+    // so the client mesh covers the real world regardless.
+    let mut ocean_data = generate_ocean_data(
         map_name.to_string(),
-        &image::DynamicImage::ImageLuma8(scaled_binary_map),
-        &image::DynamicImage::ImageLuma8(scaled_heightmap),
+        &image::DynamicImage::ImageLuma8(ocean_binary.clone()),
+        &image::DynamicImage::ImageLuma8(ocean_heightmap),
         global_state.n_chunk_x,
         global_state.n_chunk_y,
-        global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x,
-        global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y,
+        ocean_binary_w as f32,
+        ocean_binary_h as f32,
+    );
+
+    // Override world dimensions with real world size (not capped ocean image size)
+    ocean_data.world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    ocean_data.world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+    tracing::info!(
+        "🌊 Saving ocean : (texture {}x{}, world_width={}, world_height={})",
+        ocean_data.width, ocean_data.height,
+        ocean_data.world_width, ocean_data.world_height
     );
 
     db_tables
@@ -126,7 +158,6 @@ pub async fn load_or_generate_world_globals(
     map_name: &str,
     db_tables: &DatabaseTables,
 ) -> WorldGlobalState {
-    // Check if terrain global data exists in DB (biome/heightmap/ocean)
     let has_globals = db_tables
         .terrain_global_data
         .load_terrain_global_data(map_name)
@@ -141,17 +172,17 @@ pub async fn load_or_generate_world_globals(
 
         let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
         let grid_config = setup_grid_config();
-        let scale = Vec2::splat(5.);
+        let scale = Vec2::splat(50.);
 
-        // Compute chunk dimensions from source image + scale
         let scaled_width = maps.binary_map.width() as f32 * scale.x;
         let scaled_height = maps.binary_map.height() as f32 * scale.y;
         let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
         let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
 
         let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map.to_luma8());
+        let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
 
-        let mut global_state = WorldGlobalState {
+        let global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
             source_binary_flipped,
@@ -161,29 +192,11 @@ pub async fn load_or_generate_world_globals(
             sdf_resolution: 64,
             max_distance: 150.0,
             grid_config: Some(grid_config),
-            cached_biome_rgba: None, // Set after construction
+            source_biome_flipped_rgba: Some(source_biome_flipped),
         };
 
-        // Cache upscaled biome RGBA for fast per-chunk cell sampling
-        let biome_cache_path = format!("assets/maps/{}_biomemap.bin", map_name);
-        global_state.cached_biome_rgba =
-            match crate::utils::file_system::load_from_disk(&biome_cache_path) {
-                Ok(img) => {
-                    tracing::info!(
-                        "✓ Cached biome RGBA loaded ({}x{})",
-                        img.width(),
-                        img.height()
-                    );
-                    Some(img)
-                }
-                Err(_) => {
-                    tracing::warn!("Biome RGBA cache not found, will generate on first use");
-                    None
-                }
-            };
-
         tracing::info!(
-            "✓ World globals loaded in {:?} ({}x{} chunks, SDF computed per-chunk)",
+            "✓ World globals loaded in {:?} ({}x{} chunks)",
             t.elapsed(),
             n_chunk_x,
             n_chunk_y
@@ -230,14 +243,18 @@ pub async fn generate_chunk_data(
     let maps = global.maps.as_ref().unwrap();
     let grid_config = global.grid_config.as_ref().unwrap();
 
-    let chunk_cells = BiomeMeshData::sample_biome_for_chunk(
-        map_name,
-        &maps.biome_map.to_rgba8(),
-        &global.scale,
-        &grid_config.layout,
-        "assets/maps/",
-        chunk_id,
-    );
+    // 2. Sample hex cells for this chunk
+    let t2 = std::time::Instant::now();
+    let chunk_cells = if let Some(ref source_biome) = global.source_biome_flipped_rgba {
+        BiomeMeshData::sample_biome_for_chunk(
+            source_biome,
+            &global.scale,
+            &grid_config.layout,
+            chunk_id,
+        )
+    } else {
+        vec![]
+    };
     let t2_elapsed = t2.elapsed();
 
     // 3. Generate trees
@@ -273,9 +290,15 @@ pub async fn generate_chunk_data(
 
     tracing::info!(
         "✓ Chunk ({},{}) generated in {:?} [terrain: {:?}, cells: {:?} ({}), trees: {:?} ({}), db: {:?}]",
-        chunk_id.x, chunk_id.y, t_total.elapsed(),
-        t1_elapsed, t2_elapsed, chunk_cells.len(),
-        t3_elapsed, building_data.len(), t4_elapsed
+        chunk_id.x,
+        chunk_id.y,
+        t_total.elapsed(),
+        t1_elapsed,
+        t2_elapsed,
+        chunk_cells.len(),
+        t3_elapsed,
+        building_data.len(),
+        t4_elapsed
     );
 
     (terrain_data, chunk_cells, building_data)
@@ -339,6 +362,10 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         &global_grid_config.layout,
         "assets/maps/",
     );
+
+    // NOTE: BiomeMeshData::from_image and global sample_biome are legacy
+    // and still require upscaled images. Skip at large scales.
+    tracing::info!("Skipping legacy biome mesh and Voronoi generation (use on-demand)");
 
     let cells_with_biomes: Vec<(shared::grid::GridCell, shared::BiomeTypeEnum)> = all_cells
         .iter()

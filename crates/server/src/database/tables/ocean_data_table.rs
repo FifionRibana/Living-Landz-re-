@@ -34,7 +34,9 @@ impl OceanDataTable {
                 max_distance = $4,
                 sdf_data = $5,
                 heightmap_data = $6,
-                generated_at = $7
+                world_width = $7,
+                world_height = $8,
+                generated_at = $9
             "#,
         )
         .bind(&ocean_data.name)
@@ -43,6 +45,8 @@ impl OceanDataTable {
         .bind(ocean_data.max_distance)
         .bind(&ocean_data.sdf_values)
         .bind(&ocean_data.heightmap_values)
+        .bind(ocean_data.world_width)
+        .bind(ocean_data.world_height)
         .bind(ocean_data.generated_at as i64)
         .execute(&self.pool)
         .await?;
@@ -53,7 +57,7 @@ impl OceanDataTable {
     /// Charge les données globales de l'océan
     pub async fn load_ocean_data(&self, name: &str) -> Result<Option<OceanData>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT width, height, max_distance, sdf_data, heightmap_data, generated_at
+            "SELECT width, height, max_distance, sdf_data, heightmap_data, world_width, world_height, generated_at
              FROM terrain.ocean_data
              WHERE name = $1"
         )
@@ -69,6 +73,8 @@ impl OceanDataTable {
                 max_distance: r.get("max_distance"),
                 sdf_values: r.get("sdf_data"),
                 heightmap_values: r.get("heightmap_data"),
+                world_width: r.get("world_width"),
+                world_height: r.get("world_height"),
                 generated_at: r.get::<i64, _>("generated_at") as u64,
             }
         }))
