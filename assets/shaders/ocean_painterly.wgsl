@@ -74,14 +74,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // === SDF ===
     let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv).r;
-    let sdf_signed = (sdf_raw - 0.5) * 2.0;
+
+    // Scale correction: normalize SDF so same world-space distance
+    // gives the same sdf_signed value regardless of world scale.
+    // Reference: 1024 texels / 9600 world pixels (x5 scale).
+    let sdf_dims = vec2<f32>(textureDimensions(sdf_texture));
+    let ref_density = 1024.0 / 9600.0;
+    let cur_density = sdf_dims.x / params.world_width;
+    let sdf_scale = cur_density / ref_density;
+    let sdf_signed = (sdf_raw - 0.5) * 2.0 / sdf_scale;
 
     if sdf_signed > 0.1 {
         discard;
     }
 
     let sdf_depth_raw = saturate(-sdf_signed);
-    // Étirer la zone côtière
     let sdf_depth = pow(sdf_depth_raw, 1.5);
 
     // === Heightmap ===
@@ -176,7 +183,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // VAGUES DE SURFACE
     // =====================================================================
 
-    let noise_uv = uv * 50.0;
+    let noise_uv = uv * 0.0052;
     let time_looped = time * params.wave_speed;
 
     let wave1 = fbm(noise_uv * 0.5 + vec2<f32>(time_looped * 0.008, time_looped * 0.006), 4);
@@ -216,7 +223,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let caustic_zone = 1.0 - smoothstep(0.0, 0.35, sdf_depth);
     if caustic_zone > 0.01 {
         let caustic_time = time * 0.4;
-        let c_uv = world_pos * 0.12;
+        let c_uv = world_pos * 0.06;
 
         // Couche 1 : dérive lente vers le sud-est
         let c1_raw = fbm(c_uv + vec2<f32>(caustic_time * 0.12, -caustic_time * 0.08), 4);
@@ -230,7 +237,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let caustics = (c1 + c2) * 0.5;
 
         // Intensité : forte très près de la côte, s'estompe avec la profondeur
-        let caustic_intensity = caustic_zone * 0.24;
+        let caustic_intensity = caustic_zone * 0.12;
 
         // Teinte : dorée en très peu profond (fond sableux), bleutée un peu plus loin
         let caustic_tint = mix(

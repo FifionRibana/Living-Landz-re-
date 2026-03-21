@@ -24,6 +24,10 @@ pub struct OceanData {
     /// Format: Vec<u8> de taille width * height (normalisé 0-255)
     pub heightmap_values: Vec<u8>,
 
+    /// Actual world dimensions in pixels (for mesh sizing)
+    pub world_width: f32,
+    pub world_height: f32,
+
     /// Timestamp de génération
     pub generated_at: u64,
 }
@@ -36,6 +40,8 @@ impl OceanData {
         max_distance: f32,
         sdf_values: Vec<u8>,
         heightmap_values: Vec<u8>,
+        world_width: f32,
+        world_height: f32
     ) -> Self {
         assert_eq!(sdf_values.len(), width * height, "SDF size mismatch");
         assert_eq!(heightmap_values.len(), width * height, "Heightmap size mismatch");
@@ -47,6 +53,8 @@ impl OceanData {
             max_distance,
             sdf_values,
             heightmap_values,
+            world_width,
+            world_height,
             generated_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

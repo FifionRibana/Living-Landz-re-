@@ -34,9 +34,9 @@ pub struct WorldGlobalState {
     /// Grid config for hex cell operations
     pub grid_config: Option<GridConfig>,
 
-    /// Cached upscaled biome map RGBA (loaded from disk cache once)
-    /// Used by sample_biome_for_chunk to avoid reloading each time
-    pub cached_biome_rgba: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    /// Source biome map, flipped vertically (NOT upscaled, ~7MB RGBA)
+    /// Used by sample_biome_for_chunk to sample at source resolution
+    pub source_biome_flipped_rgba: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
 }
 
 impl WorldGlobalState {
