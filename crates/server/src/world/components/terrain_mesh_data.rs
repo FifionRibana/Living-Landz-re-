@@ -12,7 +12,7 @@ use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChu
 use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 
 use crate::utils::{algorithm, file_system};
-use crate::world::resources::SdfConfig;
+use crate::world::resources::{SdfConfig, WorldGlobalState};
 
 #[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
@@ -466,7 +466,7 @@ impl TerrainMeshData {
 
         tracing::info!("Globals generated in {:?}", start.elapsed());
 
-        let global_state = crate::world::resources::WorldGlobalState {
+        let global_state = WorldGlobalState {
             map_name: name.to_string(),
             maps: None,
             source_binary_flipped,
@@ -476,6 +476,7 @@ impl TerrainMeshData {
             sdf_resolution: 64,
             max_distance: 150.0,
             grid_config: None,
+            cached_biome_rgba: None,  // Set after construction
         };
 
         (global_state, terrain_global_data, scaled_image)
