@@ -20,6 +20,6 @@ pub use ocean_data::OceanData;
 pub use terrain_chunk_data::TerrainChunkData;
 pub use terrain_chunk_id::TerrainChunkId;
 pub use terrain_chunk_sdf_data::TerrainChunkSdfData;
-pub use terrain_global_data::{SdfGlobalData, TerrainGlobalData};
+pub use terrain_global_data::TerrainGlobalData;
 pub use territory_border_chunk_sdf_data::TerritoryBorderChunkSdfData;
 pub use territory_chunk_data::TerritoryChunkData;
