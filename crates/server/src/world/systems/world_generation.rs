@@ -52,6 +52,24 @@ pub async fn generate_world_globals(
             &cache_path,
         );
 
+    // Cache upscaled biome RGBA for fast per-chunk cell sampling
+    let biome_cache_path = format!("assets/maps/{}_biomemap.bin", map_name);
+    global_state.cached_biome_rgba =
+        match crate::utils::file_system::load_from_disk(&biome_cache_path) {
+            Ok(img) => {
+                tracing::info!(
+                    "✓ Cached biome RGBA loaded ({}x{})",
+                    img.width(),
+                    img.height()
+                );
+                Some(img)
+            }
+            Err(_) => {
+                tracing::warn!("Biome RGBA cache not found, will generate on first use");
+                None
+            }
+        };
+
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
 
@@ -133,7 +151,7 @@ pub async fn load_or_generate_world_globals(
 
         let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map.to_luma8());
 
-        let global_state = WorldGlobalState {
+        let mut global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
             source_binary_flipped,
@@ -143,7 +161,26 @@ pub async fn load_or_generate_world_globals(
             sdf_resolution: 64,
             max_distance: 150.0,
             grid_config: Some(grid_config),
+            cached_biome_rgba: None, // Set after construction
         };
+
+        // Cache upscaled biome RGBA for fast per-chunk cell sampling
+        let biome_cache_path = format!("assets/maps/{}_biomemap.bin", map_name);
+        global_state.cached_biome_rgba =
+            match crate::utils::file_system::load_from_disk(&biome_cache_path) {
+                Ok(img) => {
+                    tracing::info!(
+                        "✓ Cached biome RGBA loaded ({}x{})",
+                        img.width(),
+                        img.height()
+                    );
+                    Some(img)
+                }
+                Err(_) => {
+                    tracing::warn!("Biome RGBA cache not found, will generate on first use");
+                    None
+                }
+            };
 
         tracing::info!(
             "✓ World globals loaded in {:?} ({}x{} chunks, SDF computed per-chunk)",
@@ -170,13 +207,12 @@ pub async fn generate_chunk_data(
     Vec<shared::grid::CellData>,
     Vec<BuildingData>,
 ) {
-    let t = std::time::Instant::now();
+    let t_total = std::time::Instant::now();
     let map_name = &global.map_name;
+    let grid_config = global.grid_config.as_ref().unwrap();
 
-    let global_maps = global.maps.as_ref().unwrap();
-    let global_grid_config = global.grid_config.as_ref().unwrap();
-
-    // 1. Generate terrain mesh
+    // 1. Generate terrain mesh + SDF
+    let t1 = std::time::Instant::now();
     let terrain_chunk = TerrainMeshData::generate_single_chunk(*chunk_id, global);
 
     let terrain_data = match terrain_chunk {
@@ -187,21 +223,10 @@ pub async fn generate_chunk_data(
             ..Default::default()
         },
     };
-
-    // Save terrain
-    db_tables
-        .terrains
-        .save_terrain(terrain_data.clone())
-        .await
-        .expect("Failed to save terrain chunk");
+    let t1_elapsed = t1.elapsed();
 
     // 2. Sample hex cells for this chunk
-    let chunk_world_min = Vec2::new(
-        chunk_id.x as f32 * constants::CHUNK_SIZE.x,
-        chunk_id.y as f32 * constants::CHUNK_SIZE.y,
-    );
-    let chunk_world_max = chunk_world_min + constants::CHUNK_SIZE;
-
+    let t2 = std::time::Instant::now();
     let maps = global.maps.as_ref().unwrap();
     let grid_config = global.grid_config.as_ref().unwrap();
 
@@ -213,8 +238,22 @@ pub async fn generate_chunk_data(
         "assets/maps/",
         chunk_id,
     );
+    let t2_elapsed = t2.elapsed();
 
-    // Save cells
+    // 3. Generate trees
+    let t3 = std::time::Instant::now();
+    let trees = NaturalBuildingGenerator::generate(&chunk_cells, game_state);
+    let building_data: Vec<BuildingData> = trees.buildings.values().cloned().collect();
+    let t3_elapsed = t3.elapsed();
+
+    // 4. Save to DB
+    let t4 = std::time::Instant::now();
+    db_tables
+        .terrains
+        .save_terrain(terrain_data.clone())
+        .await
+        .expect("Failed to save terrain chunk");
+
     if !chunk_cells.is_empty() {
         db_tables
             .cells
@@ -223,10 +262,6 @@ pub async fn generate_chunk_data(
             .expect("Failed to save cells");
     }
 
-    // 3. Generate trees for this chunk's cells
-    let trees = NaturalBuildingGenerator::generate(&chunk_cells, game_state);
-    let building_data: Vec<BuildingData> = trees.buildings.values().cloned().collect();
-
     if !building_data.is_empty() {
         db_tables
             .buildings
@@ -234,14 +269,13 @@ pub async fn generate_chunk_data(
             .await
             .expect("Failed to save buildings");
     }
+    let t4_elapsed = t4.elapsed();
 
     tracing::info!(
-        "✓ Chunk ({},{}) generated on demand in {:?} ({} cells, {} buildings)",
-        chunk_id.x,
-        chunk_id.y,
-        t.elapsed(),
-        chunk_cells.len(),
-        building_data.len()
+        "✓ Chunk ({},{}) generated in {:?} [terrain: {:?}, cells: {:?} ({}), trees: {:?} ({}), db: {:?}]",
+        chunk_id.x, chunk_id.y, t_total.elapsed(),
+        t1_elapsed, t2_elapsed, chunk_cells.len(),
+        t3_elapsed, building_data.len(), t4_elapsed
     );
 
     (terrain_data, chunk_cells, building_data)

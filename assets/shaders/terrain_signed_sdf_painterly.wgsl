@@ -337,7 +337,7 @@ fn sample_vegetation_with_biome_blend(
     }
 
     // Multi-sample blur everywhere
-    let spread = 12.0 / vec2<f32>(textureDimensions(biome_texture)).x;
+    let spread = 20.0 / vec2<f32>(textureDimensions(biome_texture)).x;
 
     let n0  = fbm(world_pos * 0.03 + vec2<f32>(11.1, 22.2), 2);
     let n1  = fbm(world_pos * 0.03 + vec2<f32>(33.3, 44.4), 2);
