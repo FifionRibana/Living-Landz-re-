@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use image::{ImageBuffer, Luma};
+use image::{ImageBuffer, Luma, Rgba};
 use shared::grid::GridConfig;
 use shared::{TerrainChunkId, TerrainChunkSdfData, constants};
 
@@ -33,6 +33,10 @@ pub struct WorldGlobalState {
 
     /// Grid config for hex cell operations
     pub grid_config: Option<GridConfig>,
+
+    /// Cached upscaled biome map RGBA (loaded from disk cache once)
+    /// Used by sample_biome_for_chunk to avoid reloading each time
+    pub cached_biome_rgba: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
 }
 
 impl WorldGlobalState {
