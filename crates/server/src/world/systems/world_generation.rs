@@ -248,6 +248,7 @@ pub async fn generate_chunk_data(
     let chunk_cells = if let Some(ref source_biome) = global.source_biome_flipped_rgba {
         BiomeMeshData::sample_biome_for_chunk(
             source_biome,
+            &global.source_binary_flipped,
             &global.scale,
             &grid_config.layout,
             chunk_id,
