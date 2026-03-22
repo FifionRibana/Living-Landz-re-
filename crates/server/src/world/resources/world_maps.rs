@@ -11,6 +11,7 @@ pub struct WorldMaps {
     pub heightmap: DynamicImage,
     pub biome_map: DynamicImage,
     pub binary_map: DynamicImage,
+    pub lake_map: DynamicImage,
     pub config: WorldConfig,
 }
 
@@ -21,6 +22,7 @@ impl WorldMaps {
         let heightmap = image::open(format!("assets/maps/{}_heightmap.png", map_name))?;
         let biome_map = image::open(format!("assets/maps/{}_biomemap.png", map_name))?;
         let binary_map = image::open(format!("assets/maps/{}_binarymap.png", map_name))?;
+        let lake_map = image::open(format!("assets/maps/{}_lakemap.png", map_name))?;
 
         let width = heightmap.width();
         let height = heightmap.height();
@@ -49,6 +51,7 @@ impl WorldMaps {
             heightmap,
             biome_map,
             binary_map,
+            lake_map,
             config,
         })
     }

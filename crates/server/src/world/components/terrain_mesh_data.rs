@@ -61,6 +61,7 @@ impl TerrainMeshData {
     pub fn generate_globals(
         name: &str,
         image: &DynamicImage,
+        lake_image: &DynamicImage,
         heightmap_image: Option<&DynamicImage>,
         biome_map: Option<&DynamicImage>,
         scale: &Vec2,
@@ -86,6 +87,7 @@ impl TerrainMeshData {
 
         // Prepare flipped source binary (for per-chunk SDF)
         let source_binary_flipped = image::imageops::flip_vertical(&image.to_luma8());
+        let source_lake_flipped = image::imageops::flip_vertical(&lake_image.to_luma8());
 
         // Generate global biome + heightmap textures
         let terrain_global_data = if let Some(biome_img) = biome_map {
@@ -161,6 +163,7 @@ impl TerrainMeshData {
             map_name: name.to_string(),
             maps: None,
             source_binary_flipped,
+            source_lake_flipped,
             n_chunk_x,
             n_chunk_y,
             scale: *scale,
