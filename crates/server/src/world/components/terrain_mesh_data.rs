@@ -474,7 +474,7 @@ pub fn generate_ocean_data(
     tracing::info!("World dimensions: {}x{}", world_width, world_height);
 
   // Cap ocean SDF resolution to avoid huge textures at large scales
-    let max_ocean_sdf_dim = 4096usize;
+    let max_ocean_sdf_dim = 2048usize;
     let raw_width = n_chunk_x as usize * 64;
     let raw_height = n_chunk_y as usize * 64;
 
