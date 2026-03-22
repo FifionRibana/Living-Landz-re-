@@ -75,3 +75,30 @@ impl BiomeTypeEnum {
         .into_iter()
     }
 }
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Encode, Decode)]
+pub enum ShoreType {
+    #[default]
+    None = 0,
+    /// Maritime coastline (land next to ocean)
+    Shoreline = 1,
+    /// Lake bank (land next to lake)
+    Lakebank = 2,
+    /// River bank (land next to river) — future use
+    Riverbank = 3,
+}
+
+impl ShoreType {
+    pub fn to_id(self) -> i16 {
+        self as i16
+    }
+
+    pub fn from_id(id: i16) -> Self {
+        match id {
+            1 => Self::Shoreline,
+            2 => Self::Lakebank,
+            3 => Self::Riverbank,
+            _ => Self::None,
+        }
+    }
+}
