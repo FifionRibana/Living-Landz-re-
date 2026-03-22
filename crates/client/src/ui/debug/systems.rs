@@ -10,7 +10,7 @@ use bevy::diagnostic::{
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use shared::BiomeTypeEnum;
+use shared::{BiomeTypeEnum, ShoreType};
 
 use super::components::*;
 
@@ -309,13 +309,13 @@ pub fn update_debug_ui(
                 r: hovered_cell.y,
             };
             if let Some(world_cache) = &world_cache {
-                let biome = match world_cache.get_cell(grid_cell) {
-                    Some(cell_data) => cell_data.biome,
-                    _ => BiomeTypeEnum::Undefined,
+                let (biome, shore_type) = match world_cache.get_cell(grid_cell) {
+                    Some(cell_data) => (cell_data.biome, cell_data.shore_type),
+                    _ => (BiomeTypeEnum::Undefined, ShoreType::None)
                 };
                 **text = format!(
-                    "Cell: (q: {}, r: {})\nBiome: {:?}",
-                    hovered_cell.x, hovered_cell.y, biome
+                    "Cell: (q: {}, r: {})\nBiome: {:?}\nShore: {:?}",
+                    hovered_cell.x, hovered_cell.y, biome, shore_type
                 );
             }
         }
