@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, BuildingData, OceanData, TerrainChunkData, TerrainChunkId, TerrainGlobalData, grid::{CellData, GridCell}
+    BiomeChunkData, BiomeChunkId, BuildingData, LakeData, OceanData, TerrainChunkData, TerrainChunkId, TerrainGlobalData, grid::{CellData, GridCell}
 };
 use std::collections::{HashMap, HashSet};
 
@@ -11,6 +11,7 @@ pub struct WorldCache {
     cells: CellCache,
     buildings: BuildingCache,
     ocean: OceanCache,
+    lake: LakeCache,
     terrain_global: TerrainGlobalCache,
 }
 
@@ -274,6 +275,62 @@ impl OceanCache {
 }
 
 #[derive(Default, Clone)]
+pub struct LakeCache {
+    loaded: Option<LakeData>,
+    pub mask_handle: Option<Handle<Image>>,
+    pub sdf_handle: Option<Handle<Image>>,
+    requested: bool,
+}
+
+impl LakeCache {
+    pub fn insert_lake(&mut self, lake_data: LakeData) {
+        info!("Inserting lake data for world: {}", lake_data.name);
+        self.loaded = Some(lake_data);
+    }
+
+    pub fn get_lake(&self) -> Option<&LakeData> {
+        self.loaded.as_ref()
+    }
+
+    pub fn set_mask_handle(&mut self, handle: Handle<Image>) {
+        self.mask_handle = Some(handle);
+    }
+
+    pub fn get_mask_handle(&self) -> Option<&Handle<Image>> {
+        self.mask_handle.as_ref()
+    }
+
+    pub fn has_mask_handle(&self) -> bool {
+        self.mask_handle.is_some()
+    }
+
+    pub fn set_sdf_handle(&mut self, handle: Handle<Image>) {
+        self.sdf_handle = Some(handle);
+    }
+
+    pub fn get_sdf_handle(&self) -> Option<&Handle<Image>> {
+        self.sdf_handle.as_ref()
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.loaded.is_some()
+    }
+
+    pub fn is_requested(&self) -> bool {
+        self.requested
+    }
+
+    pub fn mark_requested(&mut self) {
+        self.requested = true;
+    }
+
+    pub fn clear(&mut self) {
+        self.loaded = None;
+        self.requested = false;
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct TerrainGlobalCache {
     pub data: Option<TerrainGlobalData>,
     pub biome_handle: Option<Handle<Image>>,
@@ -443,6 +500,51 @@ impl WorldCache {
 
     pub fn clear_ocean(&mut self) {
         self.ocean.clear();
+    }
+
+    // LAKE
+    pub fn insert_lake(&mut self, lake_data: LakeData) {
+        self.lake.insert_lake(lake_data);
+    }
+
+    pub fn get_lake(&self) -> Option<&LakeData> {
+        self.lake.get_lake()
+    }
+
+    pub fn get_lake_mask_handle(&self) -> Option<&Handle<Image>> {
+        self.lake.get_mask_handle()
+    }
+
+    pub fn has_lake_mask_handle(&self) -> bool {
+        self.lake.has_mask_handle()
+    }
+
+    pub fn set_lake_mask_handle(&mut self, handle: Handle<Image>) {
+        self.lake.set_mask_handle(handle);
+    }
+
+    pub fn get_lake_sdf_handle(&self) -> Option<&Handle<Image>> {
+        self.lake.get_sdf_handle()
+    }
+
+    pub fn set_lake_sdf_handle(&mut self, handle: Handle<Image>) {
+        self.lake.set_sdf_handle(handle);
+    }
+
+    pub fn is_lake_loaded(&self) -> bool {
+        self.lake.is_loaded()
+    }
+
+    pub fn is_lake_requested(&self) -> bool {
+        self.lake.is_requested()
+    }
+
+    pub fn mark_lake_requested(&mut self) {
+        self.lake.mark_requested();
+    }
+
+    pub fn clear_lake(&mut self) {
+        self.lake.clear();
     }
 
     // TERRAIN GLOBAL

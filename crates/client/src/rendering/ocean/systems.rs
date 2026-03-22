@@ -8,7 +8,6 @@ use bevy::{
 use crate::networking::client::NetworkClient;
 use crate::rendering::ocean::materials::{OceanMaterial, OceanParams};
 use crate::state::resources::WorldCache;
-use shared::constants;
 
 #[derive(Component)]
 pub struct OceanEntity;
@@ -68,13 +67,15 @@ pub fn request_ocean_data(
     };
 
     // Request ocean data only once
-    if !cache.is_ocean_loaded() && !cache.is_ocean_requested() {
-        info!("Requesting ocean data from server");
-        network_client.send_message(shared::protocol::ClientMessage::RequestOceanData {
-            world_name: "Gaulyia".to_string(),
-        });
-        cache.mark_ocean_requested();
+    if cache.is_ocean_loaded() || cache.is_ocean_requested() {
+        return;
     }
+
+    info!("Requesting ocean data from server");
+    network_client.send_message(shared::protocol::ClientMessage::RequestOceanData {
+        world_name: "Gaulyia".to_string(),
+    });
+    cache.mark_ocean_requested();
 }
 
 pub fn spawn_ocean(
@@ -102,9 +103,12 @@ pub fn spawn_ocean(
     // Dans spawn_ocean, après let world_width / world_height :
     info!(
         "🌊 Spawning ocean mesh: {}x{} (texture {}x{}, world_width={}, world_height={})",
-        world_width, world_height,
-        ocean_data.width, ocean_data.height,
-        ocean_data.world_width, ocean_data.world_height
+        world_width,
+        world_height,
+        ocean_data.width,
+        ocean_data.height,
+        ocean_data.world_width,
+        ocean_data.world_height
     );
 
     let mesh = create_ocean_mesh(world_width, world_height);
