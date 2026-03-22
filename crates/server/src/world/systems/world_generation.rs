@@ -44,6 +44,7 @@ pub async fn generate_world_globals(
     let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
         map_name,
         &maps.binary_map,
+        &maps.lake_map,
         Some(&maps.heightmap),
         Some(&maps.biome_map),
         &scale,
@@ -56,6 +57,14 @@ pub async fn generate_world_globals(
         source_biome_flipped.width(),
         source_biome_flipped.height()
     );
+
+    let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map.to_rgba8());
+    tracing::info!(
+        "✓ Source lake map prepared ({}x{})",
+        source_lake_flipped.width(),
+        source_lake_flipped.height()
+    );
+
     global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
@@ -180,12 +189,14 @@ pub async fn load_or_generate_world_globals(
         let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
 
         let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map.to_luma8());
+        let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map.to_luma8());
         let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
 
         let global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
             source_binary_flipped,
+            source_lake_flipped,
             n_chunk_x,
             n_chunk_y,
             scale,
@@ -249,6 +260,7 @@ pub async fn generate_chunk_data(
         BiomeMeshData::sample_biome_for_chunk(
             source_biome,
             &global.source_binary_flipped,
+            &global.source_lake_flipped,
             &global.scale,
             &grid_config.layout,
             chunk_id,

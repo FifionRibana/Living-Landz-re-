@@ -349,6 +349,7 @@ impl BiomeMeshData {
     pub fn sample_biome_for_chunk(
         source_biome_flipped: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         source_binary: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        source_lake: &ImageBuffer<Luma<u8>, Vec<u8>>,
         scale: &Vec2,
         hex_layout: &HexLayout,
         chunk_id: &TerrainChunkId,
@@ -371,14 +372,14 @@ impl BiomeMeshData {
         let mut hex_land: HashMap<hexx::Hex, HashMap<u32, usize>> = HashMap::new();
         let mut hex_ocean: HashMap<hexx::Hex, usize> = HashMap::new();
         let mut hex_lake: HashMap<hexx::Hex, usize> = HashMap::new();
-        let mut hex_near_coast: HashSet<hexx::Hex> = HashSet::new(); // hexes influenced by coast
+        let mut hex_near_coast: HashSet<hexx::Hex> = HashSet::new();
 
         for sy in src_y_min..=src_y_max {
             for sx in src_x_min..=src_x_max {
-                let bin_val = source_binary.get_pixel(sx, sy)[0];
-                let is_land = bin_val > 200;
-                let is_lake = bin_val >= 100 && bin_val <= 160;
-                let is_ocean = !is_land && !is_lake; // includes anti-aliased edges
+                // Clean classification from dedicated maps
+                let is_land = source_binary.get_pixel(sx, sy)[0] > 128;
+                let is_lake = source_lake.get_pixel(sx, sy)[0] > 128;
+                let is_ocean = !is_land;
 
                 // Neighbor analysis
                 let mut has_ocean_neighbor = false;
@@ -390,17 +391,18 @@ impl BiomeMeshData {
                         let nx = sx as i32 + dx;
                         let ny = sy as i32 + dy;
                         if nx >= 0 && nx < img_w as i32 && ny >= 0 && ny < img_h as i32 {
-                            let nv = source_binary.get_pixel(nx as u32, ny as u32)[0];
-                            if nv > 200 { has_land_neighbor = true; }
-                            else if nv >= 100 && nv <= 160 { has_lake_neighbor = true; }
-                            else { has_ocean_neighbor = true; }
+                            let n_land = source_binary.get_pixel(nx as u32, ny as u32)[0] > 128;
+                            let n_lake = source_lake.get_pixel(nx as u32, ny as u32)[0] > 128;
+                            if !n_land { has_ocean_neighbor = true; }
+                            else if n_lake { has_lake_neighbor = true; }
+                            else { has_land_neighbor = true; }
                         }
                     }
                 }
 
-                let is_ocean_coast = is_land && has_ocean_neighbor;
-                let is_lake_bank = is_land && has_lake_neighbor && !has_ocean_neighbor;
-                let is_ocean_nearshore = is_ocean && has_land_neighbor; // water side of coast
+                let is_ocean_coast = is_land && !is_lake && has_ocean_neighbor;
+                let is_lake_bank = is_land && !is_lake && has_lake_neighbor && !has_ocean_neighbor;
+                let is_ocean_nearshore = is_ocean && has_land_neighbor;
 
                 let pixel = source_biome_flipped.get_pixel(sx, sy);
                 let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
@@ -426,7 +428,6 @@ impl BiomeMeshData {
                         let hex = hex_layout.world_pos_to_hex(Vec2::new(wx, wy));
 
                         if is_ocean_coast {
-                            // Land pixel next to ocean → shore votes
                             *hex_ocean.entry(hex).or_insert(0) += 1;
                             hex_near_coast.insert(hex);
                             if (id as usize) < 16 && id > 2 && id != 13 {
@@ -434,14 +435,12 @@ impl BiomeMeshData {
                                     .entry(id as u32).or_insert(0) += 1;
                             }
                         } else if is_lake_bank {
-                            // Land pixel next to lake → lake bank votes
                             *hex_lake.entry(hex).or_insert(0) += 1;
                             if (id as usize) < 16 && id > 2 && id != 13 {
                                 *hex_land.entry(hex).or_insert_with(HashMap::new)
                                     .entry(id as u32).or_insert(0) += 1;
                             }
                         } else if is_ocean_nearshore {
-                            // Ocean pixel next to land → nearshore water
                             *hex_ocean.entry(hex).or_insert(0) += 1;
                             hex_near_coast.insert(hex);
                         } else if is_lake {
@@ -450,7 +449,6 @@ impl BiomeMeshData {
                             *hex_land.entry(hex).or_insert_with(HashMap::new)
                                 .entry(id as u32).or_insert(0) += 1;
                         } else {
-                            // Deep ocean
                             *hex_ocean.entry(hex).or_insert(0) += 1;
                         }
                     }
@@ -478,7 +476,6 @@ impl BiomeMeshData {
 
                 // Determine biome
                 let biome = if land_total > 0 {
-                    // Has land votes → pick best land biome
                     let id_map = hex_land.get(&hex_cell).unwrap();
                     let best_id = id_map.iter()
                         .max_by_key(|(_, count)| *count)
@@ -489,15 +486,15 @@ impl BiomeMeshData {
                 } else if lake_total > 0 {
                     BiomeTypeEnum::Lake
                 } else if is_near_coast {
-                    BiomeTypeEnum::Ocean  // shallow ocean near coast
+                    BiomeTypeEnum::Ocean
                 } else {
-                    BiomeTypeEnum::DeepOcean  // far from coast
+                    BiomeTypeEnum::DeepOcean
                 };
 
                 // Determine shore type (independent of biome)
-                let shore_type = if ocean_ratio > 0.25 {
+                let shore_type = if ocean_ratio > 0.25 && biome != BiomeTypeEnum::DeepOcean {
                     shared::ShoreType::Shoreline
-                } else if lake_ratio > 0.25 {
+                } else if lake_ratio > 0.25 && biome != BiomeTypeEnum::Lake {
                     shared::ShoreType::Lakebank
                 } else {
                     shared::ShoreType::None
