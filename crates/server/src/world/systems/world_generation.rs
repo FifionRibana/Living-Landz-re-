@@ -4,6 +4,7 @@ use crate::world;
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
+use crate::world::components::generate_global_sdf;
 use crate::world::components::generate_ocean_data;
 use crate::world::resources::{WorldGlobalState, WorldMaps};
 use bevy::prelude::*;
@@ -58,12 +59,13 @@ pub async fn generate_world_globals(
         source_biome_flipped.height()
     );
 
-    let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map.to_rgba8());
+    let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
     tracing::info!(
         "✓ Source lake map prepared ({}x{})",
         source_lake_flipped.width(),
         source_lake_flipped.height()
     );
+    global_state.source_lake_flipped = source_lake_flipped;
 
     global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
     global_state.maps = Some(maps);
@@ -106,7 +108,7 @@ pub async fn generate_world_globals(
         global_state.scale.x
     );
 
-    let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map.to_luma8());
+    let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map);
     let mut ocean_binary = image::imageops::resize(
         &ocean_binary_flipped,
         (src_w as f32 * ocean_scale) as u32,
@@ -119,7 +121,7 @@ pub async fn generate_world_globals(
     });
 
     let ocean_heightmap = image::imageops::resize(
-        &global_maps.heightmap.to_luma8(),
+        &global_maps.heightmap,
         ocean_binary.width(),
         ocean_binary.height(),
         image::imageops::FilterType::Lanczos3,
@@ -133,8 +135,8 @@ pub async fn generate_world_globals(
     // so the client mesh covers the real world regardless.
     let mut ocean_data = generate_ocean_data(
         map_name.to_string(),
-        &image::DynamicImage::ImageLuma8(ocean_binary.clone()),
-        &image::DynamicImage::ImageLuma8(ocean_heightmap),
+        &ocean_binary,
+        &ocean_heightmap,
         global_state.n_chunk_x,
         global_state.n_chunk_y,
         ocean_binary_w as f32,
@@ -147,8 +149,10 @@ pub async fn generate_world_globals(
 
     tracing::info!(
         "🌊 Saving ocean : (texture {}x{}, world_width={}, world_height={})",
-        ocean_data.width, ocean_data.height,
-        ocean_data.world_width, ocean_data.world_height
+        ocean_data.width,
+        ocean_data.height,
+        ocean_data.world_width,
+        ocean_data.world_height
     );
 
     db_tables
@@ -156,6 +160,120 @@ pub async fn generate_world_globals(
         .save_ocean_data(ocean_data)
         .await
         .expect("Failed to save ocean data");
+
+    // Generate lake data from lakemap (mask + SDF)
+    tracing::info!("=== PREPARING LAKE DATA ===");
+    let lake_src = &global_state.maps.as_ref().unwrap().lake_map;
+    let lake_w = lake_src.width();
+    let lake_h = lake_src.height();
+
+    let lake_max_dim = 2048u32;
+    let (lake_target_w, lake_target_h) = if lake_w > lake_max_dim || lake_h > lake_max_dim {
+        let ratio = lake_h as f32 / lake_w as f32;
+        if lake_w >= lake_h {
+            (lake_max_dim, (lake_max_dim as f32 * ratio).round() as u32)
+        } else {
+            ((lake_max_dim as f32 / ratio).round() as u32, lake_max_dim)
+        }
+    } else {
+        (lake_w, lake_h)
+    };
+
+    // Resize and flip mask
+    // Upscale lake source for smoother SDF (same approach as ocean)
+    let lake_upscale_dim = 4096u32;
+    let lake_ratio = lake_h as f32 / lake_w as f32;
+    let (lake_upscale_w, lake_upscale_h) = if lake_w >= lake_h {
+        (
+            lake_upscale_dim,
+            (lake_upscale_dim as f32 * lake_ratio).round() as u32,
+        )
+    } else {
+        (
+            (lake_upscale_dim as f32 / lake_ratio).round() as u32,
+            lake_upscale_dim,
+        )
+    };
+
+    let lake_upscaled = image::imageops::resize(
+        lake_src,
+        lake_upscale_w,
+        lake_upscale_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let lake_flipped = image::imageops::flip_vertical(&lake_upscaled);
+
+    // Generate lake SDF: invert the mask (land=white, lake=black) to match
+    // generate_global_sdf convention (white=land, black=water)
+    let mut lake_inverted = lake_flipped.clone();
+    lake_inverted.iter_mut().for_each(|p| {
+        *p = if *p > 178 { 0 } else { 255 };
+    });
+
+    // Mask at original target resolution for client
+    let lake_mask_resized = image::imageops::resize(
+        lake_src,
+        lake_target_w,
+        lake_target_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let lake_mask_flipped = image::imageops::flip_vertical(&lake_mask_resized);
+
+    // SDF at same resolution as mask
+    let lake_sdf_w = lake_target_w as usize;
+    let lake_sdf_h = lake_target_h as usize;
+    let lake_world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    let lake_world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+    let lake_max_distance = 150.0f32; // banks are narrow
+
+    tracing::info!(
+        "Generating lake SDF {}x{} (max_distance: {})",
+        lake_sdf_w,
+        lake_sdf_h,
+        lake_max_distance
+    );
+
+    let lake_sdf = generate_global_sdf(
+        &lake_inverted,
+        lake_sdf_w,
+        lake_sdf_h,
+        lake_world_width,
+        lake_world_height,
+        lake_max_distance,
+    );
+
+    tracing::info!("✓ Lake SDF generated: {} bytes", lake_sdf.len());
+
+    let lake_data = shared::LakeData {
+        name: map_name.to_string(),
+        width: lake_target_w as usize,
+        height: lake_target_h as usize,
+        mask_values: lake_mask_flipped.into_raw(),
+        sdf_width: lake_sdf_w,
+        sdf_height: lake_sdf_h,
+        sdf_values: lake_sdf,
+        world_width: lake_world_width,
+        world_height: lake_world_height,
+        generated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    };
+
+    tracing::info!(
+        "✓ Lake data: mask {}x{}, SDF {}x{} ({:.2} KB total)",
+        lake_target_w,
+        lake_target_h,
+        lake_sdf_w,
+        lake_sdf_h,
+        (lake_data.mask_values.len() + lake_data.sdf_values.len()) as f64 / 1024.0
+    );
+
+    db_tables
+        .lake_data
+        .save_lake_data(lake_data)
+        .await
+        .expect("Failed to save lake data");
 
     tracing::info!("✓ World globals generated in {:?}", start.elapsed());
     global_state
@@ -188,8 +306,8 @@ pub async fn load_or_generate_world_globals(
         let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
         let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
 
-        let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map.to_luma8());
-        let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map.to_luma8());
+        let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map);
+        let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
         let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
 
         let global_state = WorldGlobalState {

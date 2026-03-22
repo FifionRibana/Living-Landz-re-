@@ -1,6 +1,7 @@
 mod actions_table;
 mod buildings_table;
 mod cells_table;
+mod lake_data_table;
 mod ocean_data_table;
 mod organizations_table;
 mod resources_table;
@@ -15,6 +16,7 @@ mod voronoi_zones_table;
 pub use actions_table::*;
 pub use buildings_table::*;
 pub use cells_table::*;
+pub use lake_data_table::*;
 pub use ocean_data_table::*;
 pub use organizations_table::*;
 pub use resources_table::*;

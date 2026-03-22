@@ -17,7 +17,7 @@ use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
 use crate::rendering::terrain::materials::{
-    BiomeParams, ChunkInfo, HeightmapParams, RoadParams, SdfParams,
+    BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams
 };
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
@@ -255,6 +255,30 @@ pub fn spawn_terrain(
                 (dummy, HeightmapParams::default())
             };
 
+        let (lake_sdf_texture, lake_params) =
+            if let Some(lh) = world_cache.get_lake_sdf_handle() {
+                (
+                    lh.clone(),
+                    LakeParams {
+                        has_lake: 1.0,
+                        ..default()
+                    },
+                )
+            } else {
+                let dummy = images.add(Image::new(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    vec![255u8], // all land = no lake
+                    TextureFormat::R8Unorm,
+                    default(),
+                ));
+                (dummy, LakeParams::default())
+            };
+
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
@@ -323,6 +347,8 @@ pub fn spawn_terrain(
                 biome_params,
                 heightmap_texture: heightmap_texture.clone(),
                 heightmap_params,
+                lake_sdf_texture: lake_sdf_texture.clone(),
+                lake_params,
             }))
         } else {
             info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
@@ -403,6 +429,8 @@ pub fn spawn_terrain(
                 biome_params,
                 heightmap_texture: heightmap_texture.clone(),
                 heightmap_params,
+                lake_sdf_texture: lake_sdf_texture.clone(),
+                lake_params,
             }))
         };
 
