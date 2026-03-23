@@ -184,12 +184,31 @@ impl TerrainMeshData {
         let (sdf_data, chunk_mask) = global.generate_chunk_sdf_and_mask(&chunk_id);
 
         // Check if chunk has any land
+        // Check if chunk has any land or is near coast
         let has_land = sdf_data
             .first()
             .map(|s| s.values.iter().any(|&v| v > 128))
             .unwrap_or(false);
 
-        if !has_land {
+        // Check if any neighboring chunk has land (using global binary map)
+        let near_coast = if !has_land {
+            let neighbors = [
+                (-1, -1), (0, -1), (1, -1),
+                (-1,  0),          (1,  0),
+                (-1,  1), (0,  1), (1,  1),
+            ];
+            neighbors.iter().any(|(dx, dy)| {
+                let neighbor_id = shared::TerrainChunkId {
+                    x: chunk_id.x + dx,
+                    y: chunk_id.y + dy,
+                };
+                global.chunk_has_land(&neighbor_id)
+            })
+        } else {
+            false
+        };
+
+        if !has_land && !near_coast {
             return None;
         }
 

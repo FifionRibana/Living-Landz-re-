@@ -40,7 +40,7 @@ pub async fn generate_world_globals(
 
     let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
     let grid_config = setup_grid_config();
-    let scale = Vec2::splat(50.);
+    let scale = Vec2::splat(100.);
 
     let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
         map_name,
@@ -224,7 +224,7 @@ pub async fn generate_world_globals(
     let lake_sdf_h = lake_target_h as usize;
     let lake_world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
     let lake_world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
-    let lake_max_distance = 150.0f32; // banks are narrow
+    let lake_max_distance = 150.0f32 * 100.0 / 50.0; // banks are narrow
 
     tracing::info!(
         "Generating lake SDF {}x{} (max_distance: {})",
@@ -299,7 +299,7 @@ pub async fn load_or_generate_world_globals(
 
         let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
         let grid_config = setup_grid_config();
-        let scale = Vec2::splat(50.);
+        let scale = Vec2::splat(100.);
 
         let scaled_width = maps.binary_map.width() as f32 * scale.x;
         let scaled_height = maps.binary_map.height() as f32 * scale.y;
