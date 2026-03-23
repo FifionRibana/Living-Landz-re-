@@ -20,6 +20,9 @@ pub struct WorldGlobalState {
     /// Used for per-chunk local upscale + SDF computation
     pub source_binary_flipped: ImageBuffer<Luma<u8>, Vec<u8>>,
 
+    /// Source lake mask, flipped vertically (NOT upscaled, ~2MB)
+    pub source_lake_flipped: ImageBuffer<Luma<u8>, Vec<u8>>,
+
     /// Chunk grid dimensions
     pub n_chunk_x: i32,
     pub n_chunk_y: i32,

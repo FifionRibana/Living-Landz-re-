@@ -60,8 +60,9 @@ impl TerrainMeshData {
     /// Returns the WorldGlobalState (held in memory) and the TerrainGlobalData (sent to client).
     pub fn generate_globals(
         name: &str,
-        image: &DynamicImage,
-        heightmap_image: Option<&DynamicImage>,
+        binary_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        lake_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        heightmap_image: Option<&ImageBuffer<Luma<u8>, Vec<u8>>>,
         biome_map: Option<&DynamicImage>,
         scale: &Vec2,
     ) -> (
@@ -71,8 +72,8 @@ impl TerrainMeshData {
         let start = std::time::Instant::now();
 
         // Compute chunk dimensions from source + scale (NO global upscale)
-        let source_w = image.width() as f32;
-        let source_h = image.height() as f32;
+        let source_w = binary_image.width() as f32;
+        let source_h = binary_image.height() as f32;
         let scaled_width = source_w * scale.x;
         let scaled_height = source_h * scale.y;
         let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
@@ -80,12 +81,13 @@ impl TerrainMeshData {
 
         tracing::info!(
             "    Source {}x{}, scale {}x → {}x{} world ({} chunks)",
-            image.width(), image.height(), scale.x,
+            binary_image.width(), binary_image.height(), scale.x,
             scaled_width, scaled_height, n_chunk_x * n_chunk_y
         );
 
         // Prepare flipped source binary (for per-chunk SDF)
-        let source_binary_flipped = image::imageops::flip_vertical(&image.to_luma8());
+        let source_binary_flipped = image::imageops::flip_vertical(binary_image);
+        let source_lake_flipped = image::imageops::flip_vertical(lake_image);
 
         // Generate global biome + heightmap textures
         let terrain_global_data = if let Some(biome_img) = biome_map {
@@ -121,8 +123,7 @@ impl TerrainMeshData {
             let hm_height = (hm_base_resolution as f32 * source_aspect).round() as usize;
 
             let global_heightmap = if let Some(hm_img) = heightmap_image {
-                let heightmap_luma = hm_img.to_luma8();
-                generate_global_heightmap(&heightmap_luma, hm_width, hm_height)
+                generate_global_heightmap(&hm_img, hm_width, hm_height)
             } else {
                 vec![128u8; hm_width * hm_height]
             };
@@ -161,6 +162,7 @@ impl TerrainMeshData {
             map_name: name.to_string(),
             maps: None,
             source_binary_flipped,
+            source_lake_flipped,
             n_chunk_x,
             n_chunk_y,
             scale: *scale,
@@ -339,7 +341,7 @@ pub fn generate_full_chunk_mesh(chunk_size: Vec2) -> MeshData {
     }
 }
 
-fn generate_global_sdf(
+pub fn generate_global_sdf(
     image: &ImageBuffer<Luma<u8>, Vec<u8>>,
     sdf_width: usize,
     sdf_height: usize,
@@ -446,8 +448,8 @@ fn generate_global_sdf(
 /// À utiliser pour le rendu de l'océan autour du continent
 pub fn generate_ocean_data(
     name: String,
-    binary_map: &DynamicImage,
-    heightmap_image: &DynamicImage,
+    binary_map: &ImageBuffer<Luma<u8>, Vec<u8>>,
+    heightmap_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
     n_chunk_x: i32,
     n_chunk_y: i32,
     world_width: f32,
@@ -525,17 +527,15 @@ pub fn generate_ocean_data(
     }
 
     // 1. Générer le SDF global
-    tracing::info!("Converting binary_map to luma8...");
-    let binary_luma = binary_map.to_luma8();
     tracing::info!(
         "✓ Binary luma ready: {}x{}",
-        binary_luma.width(),
-        binary_luma.height()
+        binary_map.width(),
+        binary_map.height()
     );
 
     tracing::info!("Generating global SDF...");
     let global_sdf = generate_global_sdf(
-        &binary_luma,
+        &binary_map,
         global_width,
         global_height,
         world_width,
@@ -545,16 +545,14 @@ pub fn generate_ocean_data(
     tracing::info!("✓ Global SDF generated: {} bytes", global_sdf.len());
 
     // 2. Générer la heightmap globale
-    tracing::info!("Converting heightmap to luma8...");
-    let heightmap_luma = heightmap_image.to_luma8();
     tracing::info!(
         "✓ Heightmap luma ready: {}x{}",
-        heightmap_luma.width(),
-        heightmap_luma.height()
+        heightmap_image.width(),
+        heightmap_image.height()
     );
 
     tracing::info!("Generating global heightmap...");
-    let global_heightmap = generate_global_heightmap(&heightmap_luma, global_width, global_height);
+    let global_heightmap = generate_global_heightmap(&heightmap_image, global_width, global_height);
     tracing::info!(
         "✓ Global heightmap generated: {} bytes",
         global_heightmap.len()
