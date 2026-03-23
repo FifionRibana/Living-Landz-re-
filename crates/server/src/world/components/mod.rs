@@ -9,5 +9,5 @@ pub use biome_mesh_data::BiomeMeshData;
 pub use biome_triangulation::BiomeTriangulation;
 pub use mesh_data::MeshData;
 pub use natural_building_generator::NaturalBuildingGenerator;
-pub use terrain_mesh_data::{TerrainMeshData, generate_ocean_data};
+pub use terrain_mesh_data::{TerrainMeshData, generate_global_sdf, generate_ocean_data};
 pub use territory::*;

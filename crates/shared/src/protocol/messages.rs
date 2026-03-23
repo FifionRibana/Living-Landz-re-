@@ -1,11 +1,7 @@
 use bincode::{Decode, Encode};
 // use crate::types::*;
 use crate::{
-    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, EquipmentSlotEnum,
-    ItemTypeEnum, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum,
-    ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData,
-    grid::{CellData, GridCell},
-    types::TerrainChunkData,
+    BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, EquipmentSlotEnum, ItemTypeEnum, LakeData, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
 };
 
 /// Simplified Player data for network protocol (without timestamps)
@@ -191,6 +187,9 @@ pub enum ClientMessage {
     RequestOceanData {
         world_name: String,
     },
+    RequestLakeData {
+        world_name: String,
+    },
     
     RequestTerrainGlobalData {
         world_name: String,
@@ -363,6 +362,9 @@ pub enum ServerMessage {
     // },
     OceanData {
         ocean_data: OceanData,
+    },
+    LakeData {
+        lake_data: LakeData,
     },
 
     TerrainGlobalData {

@@ -306,6 +306,7 @@ pub async fn handle_connection(
                     ServerMessage::LordCreateError { .. } => "LordCreateError",
                     ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
                     ServerMessage::OceanData { .. } => "OceanData",
+                    ServerMessage::LakeData { .. } => "LakeData",
                     ServerMessage::TerrainGlobalData { .. } => "TerrainGlobalData",
                     ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
                         tracing::info!("Sending RoadChunkSdfUpdate to session {} for chunk ({},{})", session_id, chunk_id.x, chunk_id.y);
@@ -2052,6 +2053,29 @@ async fn handle_client_message(
                 }
                 Err(e) => {
                     tracing::error!("Failed to load ocean data: {}", e);
+                    vec![]
+                }
+            }
+        }
+
+        ClientMessage::RequestLakeData { world_name } => {
+            tracing::info!("Client requested lake data for {}", world_name);
+
+            match db_tables.lake_data.load_lake_data(&world_name).await {
+                Ok(Some(lake_data)) => {
+                    tracing::info!(
+                        "✓ Sending lake data: {}x{} ({:.2} KB)",
+                        lake_data.width, lake_data.height,
+                        lake_data.mask_values.len() as f64 / 1024.0
+                    );
+                    vec![ServerMessage::LakeData { lake_data }]
+                }
+                Ok(None) => {
+                    tracing::warn!("No lake data found for {}", world_name);
+                    vec![]
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load lake data: {}", e);
                     vec![]
                 }
             }
