@@ -8,7 +8,6 @@ use bevy::{
 use crate::networking::client::NetworkClient;
 use crate::rendering::ocean::materials::{OceanMaterial, OceanParams};
 use crate::state::resources::WorldCache;
-use shared::constants;
 
 #[derive(Component)]
 pub struct OceanEntity;
@@ -68,13 +67,15 @@ pub fn request_ocean_data(
     };
 
     // Request ocean data only once
-    if !cache.is_ocean_loaded() && !cache.is_ocean_requested() {
-        info!("Requesting ocean data from server");
-        network_client.send_message(shared::protocol::ClientMessage::RequestOceanData {
-            world_name: "Gaulyia".to_string(),
-        });
-        cache.mark_ocean_requested();
+    if cache.is_ocean_loaded() || cache.is_ocean_requested() {
+        return;
     }
+
+    info!("Requesting ocean data from server");
+    network_client.send_message(shared::protocol::ClientMessage::RequestOceanData {
+        world_name: "Gaulyia".to_string(),
+    });
+    cache.mark_ocean_requested();
 }
 
 pub fn spawn_ocean(
@@ -96,13 +97,24 @@ pub fn spawn_ocean(
     };
 
     // Calculate world dimensions
-    let world_width = ocean_data.width as f32 * (constants::CHUNK_SIZE.x / 64.0);
-    let world_height = ocean_data.height as f32 * (constants::CHUNK_SIZE.y / 64.0);
+    let world_width = ocean_data.world_width;
+    let world_height = ocean_data.world_height;
+
+    // Dans spawn_ocean, après let world_width / world_height :
+    info!(
+        "🌊 Spawning ocean mesh: {}x{} (texture {}x{}, world_width={}, world_height={})",
+        world_width,
+        world_height,
+        ocean_data.width,
+        ocean_data.height,
+        ocean_data.world_width,
+        ocean_data.world_height
+    );
 
     let mesh = create_ocean_mesh(world_width, world_height);
 
     // Create SDF texture from ocean data
-    let sdf_image = Image::new(
+    let mut sdf_image = Image::new(
         Extent3d {
             width: ocean_data.width as u32,
             height: ocean_data.height as u32,
@@ -113,9 +125,10 @@ pub fn spawn_ocean(
         TextureFormat::R8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
+    sdf_image.sampler = bevy::image::ImageSampler::linear();
 
     // Create heightmap texture from ocean data
-    let heightmap_image = Image::new(
+    let mut heightmap_image = Image::new(
         Extent3d {
             width: ocean_data.width as u32,
             height: ocean_data.height as u32,
@@ -126,6 +139,7 @@ pub fn spawn_ocean(
         TextureFormat::R8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
+    heightmap_image.sampler = bevy::image::ImageSampler::linear();
 
     let sdf_texture = images.add(sdf_image);
     let heightmap = images.add(heightmap_image);

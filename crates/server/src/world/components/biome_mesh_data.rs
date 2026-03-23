@@ -4,16 +4,9 @@ use hexx::*;
 use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use rayon::prelude::*;
 use shared::{
-    BiomeChunkData,
-    BiomeColor,
-    MeshData as SharedMeshData,
-    TerrainChunkId,
-    constants,
-    // get_biome_from_color,
-    grid::{CellData, GridCell},
-    types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome},
+    BiomeChunkData, BiomeColor, MeshData as SharedMeshData, ShoreType, TerrainChunkId, constants, get_biome_color, grid::{CellData, GridCell}, types::{BiomeChunkId, BiomeTypeEnum, find_closest_biome}
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::mesh_data::MeshData;
 use super::terrain_mesh_data::TerrainMeshData;
@@ -301,42 +294,35 @@ impl BiomeMeshData {
             );
         }
 
-        
         scaled_image
             .enumerate_pixels()
             .par_bridge()
-            .fold(
-                HashMap::new,
-                |mut acc, (px, py, pixel)| {
-                    let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
-                    let vertices = &hex_layout
-                        .hex_corners(current_hex)
-                        .into_iter()
-                        .map(|p| (p.x, p.y))
-                        .collect::<Vec<(f32, f32)>>();
-                    if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
-                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                        *acc.entry(current_hex)
-                            .or_insert(HashMap::new())
-                            .entry(color)
-                            .or_insert(0) += 1;
-                    }
-                    acc
-                },
-            )
-            .reduce(
-                HashMap::new,
-                |mut acc, other| {
-                    for (hex, color_map) in other {
-                        let entry = acc.entry(hex).or_insert_with(HashMap::new);
+            .fold(HashMap::new, |mut acc, (px, py, pixel)| {
+                let current_hex = hex_layout.world_pos_to_hex(Vec2::new(px as f32, py as f32));
+                let vertices = &hex_layout
+                    .hex_corners(current_hex)
+                    .into_iter()
+                    .map(|p| (p.x, p.y))
+                    .collect::<Vec<(f32, f32)>>();
+                if BiomeMeshData::point_in_polygon((px as f32, py as f32), vertices) {
+                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                    *acc.entry(current_hex)
+                        .or_insert(HashMap::new())
+                        .entry(color)
+                        .or_insert(0) += 1;
+                }
+                acc
+            })
+            .reduce(HashMap::new, |mut acc, other| {
+                for (hex, color_map) in other {
+                    let entry = acc.entry(hex).or_insert_with(HashMap::new);
 
-                        for (color, count) in color_map {
-                            *entry.entry(color).or_insert(0) += count;
-                        }
+                    for (color, count) in color_map {
+                        *entry.entry(color).or_insert(0) += count;
                     }
-                    acc
-                },
-            )
+                }
+                acc
+            })
             .into_iter()
             .map(|(hex_cell, color_map)| {
                 let world_pos = hex_layout.hex_to_world_pos(hex_cell);
@@ -354,6 +340,171 @@ impl BiomeMeshData {
                         .max_by_key(|(_, count)| *count)
                         .map(|(color, _)| find_closest_biome(&color))
                         .unwrap_or(BiomeTypeEnum::DeepOcean),
+                        shore_type: ShoreType::None,
+                }
+            })
+            .collect()
+    }
+
+    pub fn sample_biome_for_chunk(
+        source_biome_flipped: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        source_binary: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        source_lake: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        scale: &Vec2,
+        hex_layout: &HexLayout,
+        chunk_id: &TerrainChunkId,
+    ) -> Vec<CellData> {
+        let img_w = source_biome_flipped.width();
+        let img_h = source_biome_flipped.height();
+
+        let x_min = chunk_id.x as f32 * constants::CHUNK_SIZE.x;
+        let y_min = chunk_id.y as f32 * constants::CHUNK_SIZE.y;
+        let x_max = (chunk_id.x + 1) as f32 * constants::CHUNK_SIZE.x;
+        let y_max = (chunk_id.y + 1) as f32 * constants::CHUNK_SIZE.y;
+
+        // Map chunk bounds to source pixel coordinates (with 1px margin)
+        let src_x_min = ((x_min / scale.x).floor() as i32 - 1).max(0) as u32;
+        let src_y_min = ((y_min / scale.y).floor() as i32 - 1).max(0) as u32;
+        let src_x_max = ((x_max / scale.x).ceil() as u32 + 1).min(img_w - 1);
+        let src_y_max = ((y_max / scale.y).ceil() as u32 + 1).min(img_h - 1);
+
+        // Per-hex vote maps
+        let mut hex_land: HashMap<hexx::Hex, HashMap<u32, usize>> = HashMap::new();
+        let mut hex_ocean: HashMap<hexx::Hex, usize> = HashMap::new();
+        let mut hex_lake: HashMap<hexx::Hex, usize> = HashMap::new();
+        let mut hex_near_coast: HashSet<hexx::Hex> = HashSet::new();
+
+        for sy in src_y_min..=src_y_max {
+            for sx in src_x_min..=src_x_max {
+                // Clean classification from dedicated maps
+                let is_land = source_binary.get_pixel(sx, sy)[0] > 128;
+                let is_lake = source_lake.get_pixel(sx, sy)[0] > 128;
+                let is_ocean = !is_land;
+
+                // Neighbor analysis
+                let mut has_ocean_neighbor = false;
+                let mut has_lake_neighbor = false;
+                let mut has_land_neighbor = false;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        if dx == 0 && dy == 0 { continue; }
+                        let nx = sx as i32 + dx;
+                        let ny = sy as i32 + dy;
+                        if nx >= 0 && nx < img_w as i32 && ny >= 0 && ny < img_h as i32 {
+                            let n_land = source_binary.get_pixel(nx as u32, ny as u32)[0] > 128;
+                            let n_lake = source_lake.get_pixel(nx as u32, ny as u32)[0] > 128;
+                            if !n_land { has_ocean_neighbor = true; }
+                            else if n_lake { has_lake_neighbor = true; }
+                            else { has_land_neighbor = true; }
+                        }
+                    }
+                }
+
+                let is_ocean_coast = is_land && !is_lake && has_ocean_neighbor;
+                let is_lake_bank = is_land && !is_lake && has_lake_neighbor && !has_ocean_neighbor;
+                let is_ocean_nearshore = is_ocean && has_land_neighbor;
+
+                let pixel = source_biome_flipped.get_pixel(sx, sy);
+                let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                let biome = find_closest_biome(&color);
+                let id = biome.to_id();
+
+                // Sub-pixel sampling
+                let world_x_start = sx as f32 * scale.x;
+                let world_y_start = sy as f32 * scale.y;
+                let steps = (scale.x / 20.0).ceil().max(1.0) as i32;
+                let step_x = scale.x / steps as f32;
+                let step_y = scale.y / steps as f32;
+
+                for iy in 0..steps {
+                    for ix in 0..steps {
+                        let wx = world_x_start + (ix as f32 + 0.5) * step_x;
+                        let wy = world_y_start + (iy as f32 + 0.5) * step_y;
+
+                        if wx < x_min || wx >= x_max || wy < y_min || wy >= y_max {
+                            continue;
+                        }
+
+                        let hex = hex_layout.world_pos_to_hex(Vec2::new(wx, wy));
+
+                        if is_ocean_coast {
+                            *hex_ocean.entry(hex).or_insert(0) += 1;
+                            hex_near_coast.insert(hex);
+                            if (id as usize) < 16 && id > 2 && id != 13 {
+                                *hex_land.entry(hex).or_insert_with(HashMap::new)
+                                    .entry(id as u32).or_insert(0) += 1;
+                            }
+                        } else if is_lake_bank {
+                            *hex_lake.entry(hex).or_insert(0) += 1;
+                            if (id as usize) < 16 && id > 2 && id != 13 {
+                                *hex_land.entry(hex).or_insert_with(HashMap::new)
+                                    .entry(id as u32).or_insert(0) += 1;
+                            }
+                        } else if is_ocean_nearshore {
+                            *hex_ocean.entry(hex).or_insert(0) += 1;
+                            hex_near_coast.insert(hex);
+                        } else if is_lake {
+                            *hex_lake.entry(hex).or_insert(0) += 1;
+                        } else if is_land && (id as usize) < 16 && id > 2 && id != 13 {
+                            *hex_land.entry(hex).or_insert_with(HashMap::new)
+                                .entry(id as u32).or_insert(0) += 1;
+                        } else {
+                            *hex_ocean.entry(hex).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collect all hexes
+        let mut all_hexes: HashSet<hexx::Hex> = HashSet::new();
+        all_hexes.extend(hex_land.keys());
+        all_hexes.extend(hex_ocean.keys());
+        all_hexes.extend(hex_lake.keys());
+
+        all_hexes
+            .into_iter()
+            .map(|hex_cell| {
+                let land_total: usize = hex_land.get(&hex_cell)
+                    .map(|m| m.values().sum()).unwrap_or(0);
+                let ocean_total = hex_ocean.get(&hex_cell).copied().unwrap_or(0);
+                let lake_total = hex_lake.get(&hex_cell).copied().unwrap_or(0);
+                let total = land_total + ocean_total + lake_total;
+                let ocean_ratio = ocean_total as f32 / total.max(1) as f32;
+                let lake_ratio = lake_total as f32 / total.max(1) as f32;
+                let is_near_coast = hex_near_coast.contains(&hex_cell);
+
+                // Determine biome
+                let biome = if land_total > 0 {
+                    let id_map = hex_land.get(&hex_cell).unwrap();
+                    let best_id = id_map.iter()
+                        .max_by_key(|(_, count)| *count)
+                        .map(|(id, _)| *id)
+                        .unwrap_or(5);
+                    BiomeTypeEnum::from_id(best_id as i16)
+                        .unwrap_or(BiomeTypeEnum::Grassland)
+                } else if lake_total > 0 {
+                    BiomeTypeEnum::Lake
+                } else if is_near_coast {
+                    BiomeTypeEnum::Ocean
+                } else {
+                    BiomeTypeEnum::DeepOcean
+                };
+
+                // Determine shore type (independent of biome)
+                let shore_type = if ocean_ratio > 0.25 && biome != BiomeTypeEnum::DeepOcean {
+                    shared::ShoreType::Shoreline
+                } else if lake_ratio > 0.25 && biome != BiomeTypeEnum::Lake {
+                    shared::ShoreType::Lakebank
+                } else {
+                    shared::ShoreType::None
+                };
+
+                CellData {
+                    cell: GridCell { q: hex_cell.x, r: hex_cell.y },
+                    chunk: *chunk_id,
+                    biome,
+                    shore_type,
                 }
             })
             .collect()

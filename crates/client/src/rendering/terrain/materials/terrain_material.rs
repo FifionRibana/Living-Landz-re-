@@ -50,13 +50,21 @@ pub struct TerrainMaterial {
     #[uniform(14)]
     pub biome_params: BiomeParams,
 
-     // Heightmap texture (R8: elevation 0-255)
+    // Heightmap texture (R8: elevation 0-255)
     #[texture(15)]
     #[sampler(16)]
     pub heightmap_texture: Handle<Image>,
 
     #[uniform(17)]
     pub heightmap_params: HeightmapParams,
+
+    // Lake SDF texture (R8: 0=deep lake, 128=shore, 255=deep land)
+    #[texture(18)]
+    #[sampler(19, sampler_type = "filtering")]
+    pub lake_sdf_texture: Handle<Image>,
+
+    #[uniform(20)]
+    pub lake_params: LakeParams,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -113,11 +121,19 @@ impl Default for HeightmapParams {
     fn default() -> Self {
         Self {
             has_heightmap: 0.0,
-            light_azimuth: 5.5,     // ~315° = northwest (classic cartography)
-            light_altitude: 0.75,    // ~43° above horizon
+            light_azimuth: 5.5,   // ~315° = northwest (classic cartography)
+            light_altitude: 0.75, // ~43° above horizon
             hillshade_strength: 0.6,
         }
     }
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct LakeParams {
+    pub has_lake: f32,
+    pub _padding1: f32,
+    pub _padding2: f32,
+    pub _padding3: f32,
 }
 
 /// Informations de positionnement du chunk dans le monde
@@ -172,6 +188,8 @@ impl Default for TerrainMaterial {
             biome_params: BiomeParams::default(),
             heightmap_texture: Handle::default(),
             heightmap_params: HeightmapParams::default(),
+            lake_sdf_texture: Handle::default(),
+            lake_params: LakeParams::default(),
         }
     }
 }

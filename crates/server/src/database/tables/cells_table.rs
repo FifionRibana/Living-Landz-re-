@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 
 use shared::{
-    BiomeTypeEnum, TerrainChunkId,
-    grid::{CellData, GridCell},
+    BiomeTypeEnum, ShoreType, TerrainChunkId, grid::{CellData, GridCell}
 };
 use sqlx::{PgPool, Row};
 
@@ -25,7 +24,7 @@ impl CellsTable {
         let mut tx = self.pool.begin().await?;
         for chunk in chunks {
             let mut query_builder = sqlx::QueryBuilder::new(
-                "INSERT INTO terrain.cells (q, r, chunk_x, chunk_y, biome_id)",
+                "INSERT INTO terrain.cells (q, r, chunk_x, chunk_y, biome_id, shore_type)",
             );
 
             query_builder.push_values(chunk.iter(), |mut b, cell_data| {
@@ -33,11 +32,12 @@ impl CellsTable {
                     .push_bind(cell_data.cell.r)
                     .push_bind(cell_data.chunk.x)
                     .push_bind(cell_data.chunk.y)
-                    .push_bind(cell_data.biome.to_id());
+                    .push_bind(cell_data.biome.to_id())
+                    .push_bind(cell_data.shore_type.to_id());
             });
 
             query_builder.push(
-                "ON CONFLICT (q, r) DO UPDATE SET chunk_x = EXCLUDED.chunk_x, chunk_y = EXCLUDED.chunk_y, biome_id = EXCLUDED.biome_id"
+                "ON CONFLICT (q, r) DO UPDATE SET chunk_x = EXCLUDED.chunk_x, chunk_y = EXCLUDED.chunk_y, biome_id = EXCLUDED.biome_id, shore_type = EXCLUDED.shore_type"
             );
 
             query_builder.build().execute(&mut *tx).await?;
@@ -52,7 +52,7 @@ impl CellsTable {
         chunk_id: &TerrainChunkId,
     ) -> Result<Vec<CellData>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT q, r, biome_id FROM terrain.cells WHERE chunk_x = $1 AND chunk_y = $2",
+            "SELECT q, r, biome_id, shore_type FROM terrain.cells WHERE chunk_x = $1 AND chunk_y = $2",
         )
         .bind(chunk_id.x)
         .bind(chunk_id.y)
@@ -69,6 +69,7 @@ impl CellsTable {
                     r: r.get("r"),
                 },
                 chunk: *chunk_id,
+                shore_type: ShoreType::from_id(r.get("shore_type")),
             })
             .collect::<Vec<_>>();
 

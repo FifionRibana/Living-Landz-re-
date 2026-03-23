@@ -91,6 +91,12 @@ pub fn handle_world_events(
                 cache.insert_ocean(ocean_data.clone());
             }
 
+            ServerMessage::LakeData { lake_data } => {
+                let Some(ref mut cache) = cache else { continue };
+                info!("✓ Received lake data for world: {}", lake_data.name);
+                cache.insert_lake(lake_data.clone());
+            }
+
             ServerMessage::TerrainGlobalData {
                 terrain_global_data,
             } => {

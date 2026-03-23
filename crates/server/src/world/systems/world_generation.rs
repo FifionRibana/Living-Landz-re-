@@ -4,12 +4,14 @@ use crate::world;
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
+use crate::world::components::generate_global_sdf;
 use crate::world::components::generate_ocean_data;
-use crate::world::resources::WorldMaps;
+use crate::world::resources::{WorldGlobalState, WorldMaps};
 use bevy::prelude::*;
 use hexx::HexOrientation;
 use shared::BuildingData;
 use shared::GameState;
+use shared::TerrainChunkId;
 use shared::constants;
 use shared::grid::GridConfig;
 use sqlx::Row;
@@ -18,7 +20,7 @@ pub fn setup_grid_config() -> GridConfig {
     let radius = constants::HEX_SIZE;
     let orientation = HexOrientation::Flat;
     let ratio = Vec2::new(constants::HEX_RATIO.x, constants::HEX_RATIO.y);
-    let chunk_size = 3u8; //constants::CHUNK_SIZE.x as u8;
+    let chunk_size = 3u8;
     let grid_config = GridConfig::new(radius, orientation, ratio, chunk_size);
     info!(
         "✓ HexConfig configuré (rayon: {}, orientation: {:?}, ratio: {:?})",
@@ -27,78 +29,52 @@ pub fn setup_grid_config() -> GridConfig {
     grid_config
 }
 
-pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_state: &GameState) {
-    tracing::info!("Starting world generation...");
+/// Generate global data only (SDF, biome, heightmap, ocean).
+/// Returns WorldGlobalState to keep in memory for on-demand chunk generation.
+pub async fn generate_world_globals(
+    map_name: &str,
+    db_tables: &DatabaseTables,
+) -> WorldGlobalState {
+    tracing::info!("=== GENERATING WORLD GLOBALS : {} ===", map_name);
     let start = std::time::Instant::now();
-    tracing::info!("Using map: {}", map_name);
 
-    // Load maps
     let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
+    let grid_config = setup_grid_config();
+    let scale = Vec2::splat(100.);
 
-    tracing::info!("Map loaded");
-
-    let cell_db = &db_tables.cells;
-    let terrain_db = &db_tables.terrains;
-    let ocean_db = &db_tables.ocean_data;
-    let terrain_global_db = &db_tables.terrain_global_data;
-    let building_db = &db_tables.buildings;
-
-    tracing::info!("=== WORLD GENERATION PARAMETERS ===");
-    tracing::info!(
-        "Original map dimensions: {}x{}",
-        maps.binary_map.width(),
-        maps.binary_map.height()
-    );
-    tracing::info!(
-        "Original heightmap dimensions: {}x{}",
-        maps.heightmap.width(),
-        maps.heightmap.height()
-    );
-    tracing::info!(
-        "Map config chunks: {}x{}",
-        maps.config.chunks_x,
-        maps.config.chunks_y
+    let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
+        map_name,
+        &maps.binary_map,
+        &maps.lake_map,
+        Some(&maps.heightmap),
+        Some(&maps.biome_map),
+        &scale,
     );
 
-    // Scale factor used for terrain upscaling
-    let scale = Vec2::splat(5.);
-    tracing::info!("Scale factor: {}", scale.x);
-
-    // Calculate dimensions AFTER scaling (same as terrain)
-    let scaled_width = maps.binary_map.width() as f32 * scale.x;
-    let scaled_height = maps.binary_map.height() as f32 * scale.y;
-    let scaled_chunks_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
-    let scaled_chunks_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
-
+    // Cache source biome RGBA for per-chunk cell sampling
+    let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
     tracing::info!(
-        "Scaled dimensions: {}x{} -> {} chunks ({}x{})",
-        scaled_width,
-        scaled_height,
-        scaled_chunks_x * scaled_chunks_y,
-        scaled_chunks_x,
-        scaled_chunks_y
-    );
-    tracing::info!(
-        "Chunk size: {}x{}",
-        constants::CHUNK_SIZE.x,
-        constants::CHUNK_SIZE.y
+        "✓ Source biome RGBA prepared ({}x{})",
+        source_biome_flipped.width(),
+        source_biome_flipped.height()
     );
 
-    tracing::info!("=== GENERATING TERRAIN ===");
-    let (terrain_mesh_data, chunk_masks, scaled_binary_map, terrain_global_data) =
-        TerrainMeshData::from_image(
-            map_name,
-            &maps.binary_map,
-            Some(&maps.heightmap),
-            Some(&maps.biome_map),
-            &scale,
-            &format!("assets/maps/{}_binarymap.bin", map_name),
-        );
+    let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
+    tracing::info!(
+        "✓ Source lake map prepared ({}x{})",
+        source_lake_flipped.width(),
+        source_lake_flipped.height()
+    );
+    global_state.source_lake_flipped = source_lake_flipped;
 
-    tracing::info!("✓ Terrain generated");
+    global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
+    global_state.maps = Some(maps);
+    global_state.grid_config = Some(grid_config);
 
+    // Save terrain global data (biome + heightmap textures for client)
     if let Some(ref global_data) = terrain_global_data {
-        terrain_global_db
+        db_tables
+            .terrain_global_data
             .save_terrain_global_data(global_data.clone())
             .await
             .expect("Failed to save terrain global data");
@@ -111,107 +87,422 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         );
     }
 
+    // Generate ocean data from source at capped resolution
+    tracing::info!("=== PREPARING OCEAN DATA ===");
+    let global_maps = global_state.maps.as_ref().unwrap();
+
+    let ocean_max_dim = 4096u32;
+    let src_w = global_maps.binary_map.width();
+    let src_h = global_maps.binary_map.height();
+    let ocean_scale = if (src_w as f32 * global_state.scale.x) as u32 > ocean_max_dim {
+        ocean_max_dim as f32 / src_w.max(src_h) as f32
+    } else {
+        global_state.scale.x
+    };
+
     tracing::info!(
-        "Scaled binary map output: {}x{}",
-        scaled_binary_map.width(),
-        scaled_binary_map.height()
+        "Ocean source: {}x{}, scale: {:.1} (capped from {:.1})",
+        src_w,
+        src_h,
+        ocean_scale,
+        global_state.scale.x
     );
 
-    // Now generate ocean data with SCALED images and correct chunk counts
-    tracing::info!("=== PREPARING OCEAN DATA ===");
-    tracing::info!("Resizing heightmap to match scaled binary map...");
-    let scaled_heightmap = image::imageops::resize(
-        &maps.heightmap.to_luma8(),
-        scaled_binary_map.width(),
-        scaled_binary_map.height(),
+    let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map);
+    let mut ocean_binary = image::imageops::resize(
+        &ocean_binary_flipped,
+        (src_w as f32 * ocean_scale) as u32,
+        (src_h as f32 * ocean_scale) as u32,
         image::imageops::FilterType::Lanczos3,
     );
-    tracing::info!(
-        "✓ Heightmap resized to: {}x{}",
-        scaled_heightmap.width(),
-        scaled_heightmap.height()
+    // Threshold like resize_image does
+    ocean_binary.iter_mut().for_each(|p| {
+        *p = if *p > 178 { 255 } else { 0 };
+    });
+
+    let ocean_heightmap = image::imageops::resize(
+        &global_maps.heightmap,
+        ocean_binary.width(),
+        ocean_binary.height(),
+        image::imageops::FilterType::Lanczos3,
     );
 
-    tracing::info!("Calling generate_ocean_data with:");
-    tracing::info!(
-        "  - binary_map: {}x{}",
-        scaled_binary_map.width(),
-        scaled_binary_map.height()
-    );
-    tracing::info!(
-        "  - heightmap: {}x{}",
-        scaled_heightmap.width(),
-        scaled_heightmap.height()
-    );
-    tracing::info!("  - chunks: {}x{}", scaled_chunks_x, scaled_chunks_y);
-    tracing::info!(
-        "  - world_size: {}x{}",
-        scaled_chunks_x as f32 * constants::CHUNK_SIZE.x,
-        scaled_chunks_y as f32 * constants::CHUNK_SIZE.y
-    );
+    let ocean_binary_w = ocean_binary.width();
+    let ocean_binary_h = ocean_binary.height();
 
-    let ocean_data = generate_ocean_data(
+    // Pass ocean image dimensions as "world" for correct SDF search_radius.
+    // The actual mesh size is computed from n_chunk_x * 64 in OceanData,
+    // so the client mesh covers the real world regardless.
+    let mut ocean_data = generate_ocean_data(
         map_name.to_string(),
-        &image::DynamicImage::ImageLuma8(scaled_binary_map.clone()),
-        &image::DynamicImage::ImageLuma8(scaled_heightmap),
-        scaled_chunks_x,
-        scaled_chunks_y,
-        scaled_chunks_x as f32 * constants::CHUNK_SIZE.x,
-        scaled_chunks_y as f32 * constants::CHUNK_SIZE.y,
+        &ocean_binary,
+        &ocean_heightmap,
+        global_state.n_chunk_x,
+        global_state.n_chunk_y,
+        ocean_binary_w as f32,
+        ocean_binary_h as f32,
     );
 
-    ocean_db
+    // Override world dimensions with real world size (not capped ocean image size)
+    ocean_data.world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    ocean_data.world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+    tracing::info!(
+        "🌊 Saving ocean : (texture {}x{}, world_width={}, world_height={})",
+        ocean_data.width,
+        ocean_data.height,
+        ocean_data.world_width,
+        ocean_data.world_height
+    );
+
+    db_tables
+        .ocean_data
         .save_ocean_data(ocean_data)
         .await
         .expect("Failed to save ocean data");
 
-    for (id, chunk) in terrain_mesh_data.chunks {
-        terrain_db
-            .save_terrain(chunk.to_shared_terrain_chunk_data(map_name, id))
-            .await
-            .expect("Failed to save terrain");
+    // Generate lake data from lakemap (mask + SDF)
+    tracing::info!("=== PREPARING LAKE DATA ===");
+    let lake_src = &global_state.maps.as_ref().unwrap().lake_map;
+    let lake_w = lake_src.width();
+    let lake_h = lake_src.height();
+
+    let lake_max_dim = 2048u32;
+    let (lake_target_w, lake_target_h) = if lake_w > lake_max_dim || lake_h > lake_max_dim {
+        let ratio = lake_h as f32 / lake_w as f32;
+        if lake_w >= lake_h {
+            (lake_max_dim, (lake_max_dim as f32 * ratio).round() as u32)
+        } else {
+            ((lake_max_dim as f32 / ratio).round() as u32, lake_max_dim)
+        }
+    } else {
+        (lake_w, lake_h)
+    };
+
+    // Resize and flip mask
+    // Upscale lake source for smoother SDF (same approach as ocean)
+    let lake_upscale_dim = 4096u32;
+    let lake_ratio = lake_h as f32 / lake_w as f32;
+    let (lake_upscale_w, lake_upscale_h) = if lake_w >= lake_h {
+        (
+            lake_upscale_dim,
+            (lake_upscale_dim as f32 * lake_ratio).round() as u32,
+        )
+    } else {
+        (
+            (lake_upscale_dim as f32 / lake_ratio).round() as u32,
+            lake_upscale_dim,
+        )
+    };
+
+    let lake_upscaled = image::imageops::resize(
+        lake_src,
+        lake_upscale_w,
+        lake_upscale_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let lake_flipped = image::imageops::flip_vertical(&lake_upscaled);
+
+    // Generate lake SDF: invert the mask (land=white, lake=black) to match
+    // generate_global_sdf convention (white=land, black=water)
+    let mut lake_inverted = lake_flipped.clone();
+    lake_inverted.iter_mut().for_each(|p| {
+        *p = if *p > 178 { 0 } else { 255 };
+    });
+
+    // Mask at original target resolution for client
+    let lake_mask_resized = image::imageops::resize(
+        lake_src,
+        lake_target_w,
+        lake_target_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let lake_mask_flipped = image::imageops::flip_vertical(&lake_mask_resized);
+
+    // SDF at same resolution as mask
+    let lake_sdf_w = lake_target_w as usize;
+    let lake_sdf_h = lake_target_h as usize;
+    let lake_world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    let lake_world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+    let lake_max_distance = 150.0f32 * 100.0 / 50.0; // banks are narrow
+
+    tracing::info!(
+        "Generating lake SDF {}x{} (max_distance: {})",
+        lake_sdf_w,
+        lake_sdf_h,
+        lake_max_distance
+    );
+
+    let lake_sdf = generate_global_sdf(
+        &lake_inverted,
+        lake_sdf_w,
+        lake_sdf_h,
+        lake_world_width,
+        lake_world_height,
+        lake_max_distance,
+    );
+
+    tracing::info!("✓ Lake SDF generated: {} bytes", lake_sdf.len());
+
+    let lake_data = shared::LakeData {
+        name: map_name.to_string(),
+        width: lake_target_w as usize,
+        height: lake_target_h as usize,
+        mask_values: lake_mask_flipped.into_raw(),
+        sdf_width: lake_sdf_w,
+        sdf_height: lake_sdf_h,
+        sdf_values: lake_sdf,
+        world_width: lake_world_width,
+        world_height: lake_world_height,
+        generated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    };
+
+    tracing::info!(
+        "✓ Lake data: mask {}x{}, SDF {}x{} ({:.2} KB total)",
+        lake_target_w,
+        lake_target_h,
+        lake_sdf_w,
+        lake_sdf_h,
+        (lake_data.mask_values.len() + lake_data.sdf_values.len()) as f64 / 1024.0
+    );
+
+    db_tables
+        .lake_data
+        .save_lake_data(lake_data)
+        .await
+        .expect("Failed to save lake data");
+
+    tracing::info!("✓ World globals generated in {:?}", start.elapsed());
+    global_state
+}
+
+/// Load cached world globals from DB, or generate them if not found.
+/// This is the normal server startup path.
+pub async fn load_or_generate_world_globals(
+    map_name: &str,
+    db_tables: &DatabaseTables,
+) -> WorldGlobalState {
+    let has_globals = db_tables
+        .terrain_global_data
+        .load_terrain_global_data(map_name)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+    if has_globals {
+        tracing::info!("Found cached terrain globals, loading maps only...");
+        let t = std::time::Instant::now();
+
+        let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
+        let grid_config = setup_grid_config();
+        let scale = Vec2::splat(100.);
+
+        let scaled_width = maps.binary_map.width() as f32 * scale.x;
+        let scaled_height = maps.binary_map.height() as f32 * scale.y;
+        let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+        let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
+
+        let source_binary_flipped = image::imageops::flip_vertical(&maps.binary_map);
+        let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
+        let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
+
+        let global_state = WorldGlobalState {
+            map_name: map_name.to_string(),
+            maps: Some(maps),
+            source_binary_flipped,
+            source_lake_flipped,
+            n_chunk_x,
+            n_chunk_y,
+            scale,
+            sdf_resolution: 64,
+            max_distance: 150.0,
+            grid_config: Some(grid_config),
+            source_biome_flipped_rgba: Some(source_biome_flipped),
+        };
+
+        tracing::info!(
+            "✓ World globals loaded in {:?} ({}x{} chunks)",
+            t.elapsed(),
+            n_chunk_x,
+            n_chunk_y
+        );
+        global_state
+    } else {
+        tracing::info!("No cached globals found, generating...");
+        generate_world_globals(map_name, db_tables).await
     }
+}
+
+/// Generate a single chunk's data on demand: terrain mesh, cells, buildings.
+/// Saves everything to DB and returns the data for immediate client response.
+pub async fn generate_chunk_data(
+    chunk_id: &TerrainChunkId,
+    global: &WorldGlobalState,
+    db_tables: &DatabaseTables,
+    game_state: &GameState,
+) -> (
+    shared::TerrainChunkData,
+    Vec<shared::grid::CellData>,
+    Vec<BuildingData>,
+) {
+    let t_total = std::time::Instant::now();
+    let map_name = &global.map_name;
+    let grid_config = global.grid_config.as_ref().unwrap();
+
+    // 1. Generate terrain mesh + SDF
+    let t1 = std::time::Instant::now();
+    let terrain_chunk = TerrainMeshData::generate_single_chunk(*chunk_id, global);
+
+    let terrain_data = match terrain_chunk {
+        Some(chunk) => chunk.to_shared_terrain_chunk_data(map_name, *chunk_id),
+        None => shared::TerrainChunkData {
+            name: map_name.to_string(),
+            id: *chunk_id,
+            ..Default::default()
+        },
+    };
+    let t1_elapsed = t1.elapsed();
+
+    // 2. Sample hex cells for this chunk
+    let t2 = std::time::Instant::now();
+    let maps = global.maps.as_ref().unwrap();
+    let grid_config = global.grid_config.as_ref().unwrap();
+
+    // 2. Sample hex cells for this chunk
+    let t2 = std::time::Instant::now();
+    let chunk_cells = if let Some(ref source_biome) = global.source_biome_flipped_rgba {
+        BiomeMeshData::sample_biome_for_chunk(
+            source_biome,
+            &global.source_binary_flipped,
+            &global.source_lake_flipped,
+            &global.scale,
+            &grid_config.layout,
+            chunk_id,
+        )
+    } else {
+        vec![]
+    };
+    let t2_elapsed = t2.elapsed();
+
+    // 3. Generate trees
+    let t3 = std::time::Instant::now();
+    let trees = NaturalBuildingGenerator::generate(&chunk_cells, game_state);
+    let building_data: Vec<BuildingData> = trees.buildings.values().cloned().collect();
+    let t3_elapsed = t3.elapsed();
+
+    // 4. Save to DB
+    let t4 = std::time::Instant::now();
+    db_tables
+        .terrains
+        .save_terrain(terrain_data.clone())
+        .await
+        .expect("Failed to save terrain chunk");
+
+    if !chunk_cells.is_empty() {
+        db_tables
+            .cells
+            .save_cells(&chunk_cells)
+            .await
+            .expect("Failed to save cells");
+    }
+
+    if !building_data.is_empty() {
+        db_tables
+            .buildings
+            .save_buildings(&building_data)
+            .await
+            .expect("Failed to save buildings");
+    }
+    let t4_elapsed = t4.elapsed();
+
+    tracing::info!(
+        "✓ Chunk ({},{}) generated in {:?} [terrain: {:?}, cells: {:?} ({}), trees: {:?} ({}), db: {:?}]",
+        chunk_id.x,
+        chunk_id.y,
+        t_total.elapsed(),
+        t1_elapsed,
+        t2_elapsed,
+        chunk_cells.len(),
+        t3_elapsed,
+        building_data.len(),
+        t4_elapsed
+    );
+
+    (terrain_data, chunk_cells, building_data)
+}
+
+/// Generate everything in batch (convenience for dev/testing).
+/// Uses generate_world_globals + generate_chunk_data for each chunk.
+pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_state: &GameState) {
+    tracing::info!("Starting full world generation...");
+    let start = std::time::Instant::now();
+
+    let global_state = generate_world_globals(map_name, db_tables).await;
+    let global_maps = global_state.maps.as_ref().unwrap();
+    let global_grid_config = global_state.grid_config.as_ref().unwrap();
+
+    // Generate all chunks
+    let total_chunks = global_state.n_chunk_x * global_state.n_chunk_y;
+    tracing::info!("Generating {} chunks...", total_chunks);
+
+    let mut generated = 0;
+    for cy in 0..global_state.n_chunk_y {
+        for cx in 0..global_state.n_chunk_x {
+            let chunk_id = TerrainChunkId { x: cx, y: cy };
+
+            if global_state.chunk_has_land(&chunk_id) {
+                generate_chunk_data(&chunk_id, &global_state, db_tables, game_state).await;
+                generated += 1;
+            }
+        }
+    }
+
+    // Load cached scaled binary map for biome mesh generation
+    let cache_path = format!("assets/maps/{}_binarymap.bin", map_name);
+    let scaled_binary_map: image::ImageBuffer<image::Luma<u8>, Vec<u8>> =
+        crate::utils::file_system::load_from_disk(&cache_path)
+            .expect("Scaled binary map should be cached after generate_world_globals");
 
     let biome_mesh_data = BiomeMeshData::from_image(
         map_name,
-        &maps.biome_map,
-        &scaled_binary_map, //maps.binary_map.to_luma8(),
-        &chunk_masks,
-        &Vec2::splat(5.),
+        &global_maps.biome_map,
+        &scaled_binary_map,
+        &std::collections::HashMap::new(),
+        &global_state.scale,
         "assets/maps/",
     );
 
     for (id, chunk) in biome_mesh_data.chunks.into_iter() {
-        terrain_db
+        db_tables
+            .terrains
             .save_terrain_biome(chunk.to_shared_biome_chunk_data(map_name, id))
             .await
             .expect("Failed to save terrain biome");
     }
 
-    let grid_config = &setup_grid_config();
-    let sampled_cells = BiomeMeshData::sample_biome(
+    // Voronoi zones (still global)
+    tracing::info!("=== GENERATING VORONOI ZONES ===");
+    let all_cells = BiomeMeshData::sample_biome(
         map_name,
-        &maps.biome_map.to_rgba8(),
-        &Vec2::splat(5.),
-        &grid_config.layout,
+        &global_maps.biome_map.to_rgba8(),
+        &global_state.scale,
+        &global_grid_config.layout,
         "assets/maps/",
     );
 
-    cell_db
-        .save_cells(&sampled_cells)
-        .await
-        .expect("Failed to save cell data");
+    // NOTE: BiomeMeshData::from_image and global sample_biome are legacy
+    // and still require upscaled images. Skip at large scales.
+    tracing::info!("Skipping legacy biome mesh and Voronoi generation (use on-demand)");
 
-    // === GENERATING VORONOI ZONES ===
-    tracing::info!("=== GENERATING VORONOI ZONES ===");
-
-    // Prepare cells with biome information for Voronoi generation
-    let cells_with_biomes: Vec<(shared::grid::GridCell, shared::BiomeTypeEnum)> = sampled_cells
+    let cells_with_biomes: Vec<(shared::grid::GridCell, shared::BiomeTypeEnum)> = all_cells
         .iter()
         .map(|cell_data| (cell_data.cell, cell_data.biome))
         .collect();
 
-    // Calculate world bounds from sampled cells
     let min_q = cells_with_biomes
         .iter()
         .map(|(c, _)| c.q)
@@ -235,7 +526,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         .unwrap_or(0)
         + 1;
 
-    let voronoi_seed = 12345u64; // Could be from config or derived from map seed
+    let voronoi_seed = 12345u64;
     let bounds = (min_q, max_q, min_r, max_r);
 
     match crate::world::voronoi::generate_and_save_zones(
@@ -246,30 +537,16 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
     )
     .await
     {
-        Ok(zone_count) => {
-            tracing::info!("✓ Generated {} Voronoi zones", zone_count);
-        }
-        Err(e) => {
-            tracing::error!("Failed to generate Voronoi zones: {}", e);
-        }
+        Ok(zone_count) => tracing::info!("✓ Generated {} Voronoi zones", zone_count),
+        Err(e) => tracing::error!("Failed to generate Voronoi zones: {}", e),
     }
 
-    let trees = NaturalBuildingGenerator::generate(&sampled_cells, game_state);
-
-    building_db
-        .save_buildings(
-            &trees
-                .buildings
-                .values()
-                .cloned()
-                .collect::<Vec<BuildingData>>(),
-        )
-        .await
-        .expect("Failed to save tree data");
-
-    tracing::info!("✓ Generated {} map in {:?}", map_name, start.elapsed());
-
-    // let world_config = maps.config.clone();
+    tracing::info!(
+        "✓ Full world generated in {:?} ({} land chunks out of {})",
+        start.elapsed(),
+        generated,
+        total_chunks
+    );
 }
 
 pub async fn clear_world(map_name: &str, terrain_db: &tables::TerrainsTable) {
@@ -281,7 +558,6 @@ pub async fn clear_world(map_name: &str, terrain_db: &tables::TerrainsTable) {
         .clear_terrain(map_name)
         .await
         .expect("Failed to clear terrain");
-
     terrain_db
         .clear_terrain_biome(map_name)
         .await

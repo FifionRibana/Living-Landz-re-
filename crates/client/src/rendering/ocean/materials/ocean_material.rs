@@ -35,11 +35,11 @@ impl Default for OceanParams {
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub struct OceanMaterial {
     #[texture(0)]
-    #[sampler(1)]
+    #[sampler(1, sampler_type = "filtering")]
     pub heightmap: Handle<Image>,
     
     #[texture(2)]
-    #[sampler(3)]
+    #[sampler(3, sampler_type = "filtering")]
     pub sdf_texture: Handle<Image>,
     
     #[uniform(4)]
