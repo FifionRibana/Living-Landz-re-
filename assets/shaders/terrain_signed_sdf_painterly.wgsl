@@ -18,6 +18,9 @@
 @group(2) @binding(15) var heightmap_texture: texture_2d<f32>;
 @group(2) @binding(16) var heightmap_sampler: sampler;
 @group(2) @binding(17) var<uniform> heightmap_params: vec4<f32>; // x=has, y=azimuth, z=altitude, w=strength
+@group(2) @binding(18) var lake_sdf_texture: texture_2d<f32>;
+@group(2) @binding(19) var lake_sdf_sampler: sampler;
+@group(2) @binding(20) var<uniform> lake_terrain_params: vec4<f32>; // x = has_lake
 
 // ============================================================================
 // CONSTANTES PALETTE PAINTERLY
@@ -337,7 +340,7 @@ fn sample_vegetation_with_biome_blend(
     }
 
     // Multi-sample blur everywhere
-    let spread = 12.0 / vec2<f32>(textureDimensions(biome_texture)).x;
+    let spread = 20.0 / vec2<f32>(textureDimensions(biome_texture)).x;
 
     let n0  = fbm(world_pos * 0.03 + vec2<f32>(11.1, 22.2), 2);
     let n1  = fbm(world_pos * 0.03 + vec2<f32>(33.3, 44.4), 2);
@@ -690,6 +693,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Global UVs for biome and heightmap (world-space, 0-1 over entire map)
     let world_total = vec2<f32>(biome_params.z, biome_params.w);
     let global_uv = world_pos / world_total;
+
+    // === Lake: discard water, render bank ===
+    var lake_bank_factor = 0.0;
+    if lake_terrain_params.x > 0.5 {
+        let lake_sdf_raw = textureSample(lake_sdf_texture, lake_sdf_sampler, global_uv).r;
+        let lake_sdf = (lake_sdf_raw - 0.5) * 2.0; // -1=deep lake, 0=shore, +1=land
+
+        // Discard well inside the lake (leave overlap for blending with lake shader)
+        if lake_sdf < -0.45 {
+            discard;
+        }
+
+        // Bank factor: 1.0 at water edge, fades into land
+        lake_bank_factor = 1.0 - smoothstep(-0.10, 0.40, lake_sdf);
+    }
     
     // ---- Sample biome and compute vegetation ----
     var vegetation: vec3<f32>;
@@ -751,6 +769,28 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     final_color = apply_heightmap_effects(final_color, global_uv, world_pos);
+
+    // === Lake bank effect — sandy/muddy shore ===
+    if lake_bank_factor > 0.01 {
+        // Noise for organic bank shape
+        let bank_noise = fbm(world_pos * 0.025, 4);
+        let bank_detail = fbm(world_pos * 0.08, 3);
+
+        // Sandy bank color — mix of sand and mud
+        let sand_bank = vec3<f32>(0.62, 0.56, 0.42);
+        let mud_bank = vec3<f32>(0.35, 0.30, 0.22);
+        let wet_bank = vec3<f32>(0.28, 0.26, 0.20);
+
+        // Dry bank (further from water) → sandy
+        // Wet bank (near water) → dark muddy
+        let wetness = smoothstep(0.15, -0.02, lake_bank_factor - bank_noise * 0.1);
+        let dry_color = mix(sand_bank, mud_bank, bank_detail);
+        let bank_color = mix(dry_color, wet_bank, wetness);
+
+        // Blend: strong near water, fading into vegetation
+        let bank_strength = lake_bank_factor * (0.7 + bank_noise * 0.3);
+        final_color = mix(final_color, bank_color, bank_strength);
+    }
 
     return vec4<f32>(final_color, vertex_alpha);
 }

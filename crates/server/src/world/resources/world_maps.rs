@@ -1,6 +1,6 @@
 use anyhow::Result;
 use bevy::prelude::*;
-use image::DynamicImage;
+use image::{DynamicImage, ImageBuffer, Luma};
 
 use shared::constants;
 
@@ -8,9 +8,10 @@ use super::WorldConfig;
 
 #[derive(Resource)]
 pub struct WorldMaps {
-    pub heightmap: DynamicImage,
+    pub heightmap: ImageBuffer<Luma<u8>, Vec<u8>>,
     pub biome_map: DynamicImage,
-    pub binary_map: DynamicImage,
+    pub binary_map: ImageBuffer<Luma<u8>, Vec<u8>>,
+    pub lake_map: ImageBuffer<Luma<u8>, Vec<u8>>,
     pub config: WorldConfig,
 }
 
@@ -21,6 +22,7 @@ impl WorldMaps {
         let heightmap = image::open(format!("assets/maps/{}_heightmap.png", map_name))?;
         let biome_map = image::open(format!("assets/maps/{}_biomemap.png", map_name))?;
         let binary_map = image::open(format!("assets/maps/{}_binarymap.png", map_name))?;
+        let lake_map = image::open(format!("assets/maps/{}_lakemap.png", map_name))?;
 
         let width = heightmap.width();
         let height = heightmap.height();
@@ -45,10 +47,13 @@ impl WorldMaps {
             config.chunks_y
         );
 
+        
+
         Ok(Self {
-            heightmap,
+            heightmap: heightmap.to_luma8(),
             biome_map,
-            binary_map,
+            binary_map: binary_map.to_luma8(),
+            lake_map: lake_map.to_luma8(),
             config,
         })
     }

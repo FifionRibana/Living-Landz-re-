@@ -47,6 +47,7 @@ fn main() {
             networking::NetworkingPlugin,
             rendering::terrain::TerrainPlugin,
             rendering::ocean::OceanPlugin,
+            rendering::lake::LakePlugin,
             rendering::territory::TerritoryBorderPlugin,
             ui::frosted_glass::FrostedGlassPlugin,
             ui::debug::DebugUiPlugin,

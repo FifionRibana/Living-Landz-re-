@@ -8,11 +8,11 @@ use image::{DynamicImage, ImageBuffer, Luma, Rgba};
 use imageproc::contours::Contour;
 use rayon::prelude::*;
 use shared::{BiomeColor, find_closest_biome, get_biome_color};
-use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 use shared::{MeshData as SharedMeshData, OceanData, TerrainChunkData, TerrainChunkId};
+use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 
 use crate::utils::{algorithm, file_system};
-use crate::world::resources::SdfConfig;
+use crate::world::resources::{SdfConfig, WorldGlobalState};
 
 #[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
@@ -56,152 +56,63 @@ pub struct TerrainMeshData {
 }
 
 impl TerrainMeshData {
-    pub fn from_image(
+    /// Generate global data only (SDF, biome, heightmap). No per-chunk meshes.
+    /// Returns the WorldGlobalState (held in memory) and the TerrainGlobalData (sent to client).
+    pub fn generate_globals(
         name: &str,
-        image: &DynamicImage,
-        heightmap_image: Option<&DynamicImage>,
+        binary_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        lake_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
+        heightmap_image: Option<&ImageBuffer<Luma<u8>, Vec<u8>>>,
         biome_map: Option<&DynamicImage>,
         scale: &Vec2,
-        cache_path: &str,
     ) -> (
-        Self,
-        HashMap<TerrainChunkId, ImageBuffer<image::Luma<u8>, Vec<u8>>>,
-        ImageBuffer<image::Luma<u8>, Vec<u8>>,
+        crate::world::resources::WorldGlobalState,
         Option<shared::TerrainGlobalData>,
     ) {
         let start = std::time::Instant::now();
-        let load_result = file_system::load_from_disk(cache_path);
-        let mut scaled_image: ImageBuffer<image::Luma<u8>, Vec<u8>> = ImageBuffer::default();
-        let loaded = match load_result {
-            Ok(image) => {
-                scaled_image = image;
-                true
-            }
-            _ => false,
-        };
 
-        if !loaded {
-            tracing::info!("Upscaling image by: {}x{}", scale.x, scale.y);
-            let t1 = std::time::Instant::now();
-
-            let flipped_image = image::imageops::flip_vertical(&image.to_luma8());
-
-            scaled_image = TerrainMeshData::resize_image(&flipped_image, scale, 178);
-            let scaled_image_ref = &scaled_image;
-            tracing::info!(
-                "    image upscaled to {}x{} in {:?}",
-                scaled_image_ref.width(),
-                scaled_image_ref.height(),
-                t1.elapsed()
-            );
-
-            let _ = file_system::save_to_disk(scaled_image_ref, cache_path);
-        }
-
-        let scaled_image_output = scaled_image.clone();
-        let scaled_image_ref = &scaled_image;
-
-        tracing::info!("Spliting image into chunks");
-        let t2 = std::time::Instant::now();
-        let scaled_width = scaled_image_ref.width();
-        let scaled_height = scaled_image_ref.height();
-
-        let n_chunk_x = (scaled_width as f32 / constants::CHUNK_SIZE.x).ceil() as i32;
-        let n_chunk_y = (scaled_height as f32 / constants::CHUNK_SIZE.y).ceil() as i32;
-
-        let mut chunks = HashMap::new();
-
-        for cy in 0..n_chunk_y {
-            for cx in 0..n_chunk_x {
-                let chunk_id = TerrainChunkId { x: cx, y: cy };
-                let x_offset = (cx * constants::CHUNK_SIZE.x as i32) as u32;
-                let y_offset = (cy * constants::CHUNK_SIZE.y as i32) as u32;
-
-                let cropped = ImageBuffer::from_fn(
-                    constants::CHUNK_SIZE.x as u32,
-                    constants::CHUNK_SIZE.y as u32,
-                    |px, py| *scaled_image.get_pixel(x_offset + px, y_offset + py),
-                );
-
-                chunks.insert(chunk_id, cropped);
-            }
-        }
-        tracing::info!("    {} chunks split in {:?}", chunks.len(), t2.elapsed());
-
-        tracing::info!("Generating global SDF");
-        let t_sdf = std::time::Instant::now();
-
-        let sdf_resolution = 64usize;
-        let global_sdf_width = n_chunk_x as usize * sdf_resolution;
-        let global_sdf_height = n_chunk_y as usize * sdf_resolution;
-        let max_distance = 150.0f32;
-
-        let global_sdf = generate_global_sdf(
-            scaled_image_ref,
-            global_sdf_width,
-            global_sdf_height,
-            n_chunk_x as f32 * constants::CHUNK_SIZE.x,
-            n_chunk_y as f32 * constants::CHUNK_SIZE.y,
-            max_distance,
-        );
+        // Compute chunk dimensions from source + scale (NO global upscale)
+        let source_w = binary_image.width() as f32;
+        let source_h = binary_image.height() as f32;
+        let scaled_width = source_w * scale.x;
+        let scaled_height = source_h * scale.y;
+        let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+        let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
 
         tracing::info!(
-            "    Global SDF {}x{} generated in {:?}",
-            global_sdf_width,
-            global_sdf_height,
-            t_sdf.elapsed()
+            "    Source {}x{}, scale {}x → {}x{} world ({} chunks)",
+            binary_image.width(), binary_image.height(), scale.x,
+            scaled_width, scaled_height, n_chunk_x * n_chunk_y
         );
 
-        tracing::info!("Splitting SDF into chunks");
-        let t3 = std::time::Instant::now();
+        // Prepare flipped source binary (for per-chunk SDF)
+        let source_binary_flipped = image::imageops::flip_vertical(binary_image);
+        let source_lake_flipped = image::imageops::flip_vertical(lake_image);
 
-        let chunk_sdf_values = split_sdf_into_chunks(
-            &global_sdf,
-            global_sdf_width,
-            global_sdf_height,
-            sdf_resolution,
-            n_chunk_x,
-            n_chunk_y,
-        );
-
-        let chunk_sdf_data: HashMap<TerrainChunkId, Vec<TerrainChunkSdfData>> = chunk_sdf_values
-            .into_iter()
-            .map(|(id, values)| {
-                let mut data = TerrainChunkSdfData::new(sdf_resolution as u8);
-                data.values = values;
-                (id, vec![data])
-            })
-            .collect();
-
-        let chunk_sdf_data_ref = &chunk_sdf_data;
-
-        tracing::info!("    SDF chunks created in {:?}", t3.elapsed());
-
-        // Generate global biome + heightmap textures (not split into chunks)
+        // Generate global biome + heightmap textures
         let terrain_global_data = if let Some(biome_img) = biome_map {
             tracing::info!("Generating global biome texture");
             let t_biome = std::time::Instant::now();
 
             let biome_rgba = image::imageops::flip_vertical(&biome_img.to_rgba8());
-            let biome_resolution = 256usize;
-            let global_biome_width = n_chunk_x as usize * biome_resolution;
-            let global_biome_height = n_chunk_y as usize * biome_resolution;
+            let biome_base_resolution = 4096usize;
+            let biome_aspect = biome_img.height() as f32 / biome_img.width() as f32;
+            let global_biome_width = biome_base_resolution;
+            let global_biome_height =
+                (biome_base_resolution as f32 * biome_aspect).round() as usize;
 
             let global_biome =
                 generate_global_biome_texture(&biome_rgba, global_biome_width, global_biome_height);
 
             tracing::info!(
-                "    Global biome texture {}x{} ({} bytes) generated in {:?}",
+                "    Global biome texture {}x{} generated in {:?}",
                 global_biome_width,
                 global_biome_height,
-                global_biome.len(),
                 t_biome.elapsed()
             );
 
-            // Generate global heightmap
             tracing::info!("Generating global heightmap");
             let t_hm = std::time::Instant::now();
-            // Fixed resolution independent of SDF — source aspect ratio preserved
             let hm_base_resolution = 2048usize;
             let source_aspect = if let Some(hm_img) = heightmap_image {
                 hm_img.height() as f32 / hm_img.width() as f32
@@ -212,18 +123,15 @@ impl TerrainMeshData {
             let hm_height = (hm_base_resolution as f32 * source_aspect).round() as usize;
 
             let global_heightmap = if let Some(hm_img) = heightmap_image {
-                let heightmap_luma = hm_img.to_luma8();
-                generate_global_heightmap(
-                    &heightmap_luma,
-                    hm_width,
-                    hm_height,
-                )
+                generate_global_heightmap(&hm_img, hm_width, hm_height)
             } else {
                 vec![128u8; hm_width * hm_height]
             };
             tracing::info!(
                 "    Global heightmap {}x{} generated in {:?}",
-                hm_width, hm_height, t_hm.elapsed()
+                hm_width,
+                hm_height,
+                t_hm.elapsed()
             );
 
             let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
@@ -248,103 +156,91 @@ impl TerrainMeshData {
             None
         };
 
-        tracing::info!("Detecting chunks outlines");
-        let t4 = std::time::Instant::now();
+        tracing::info!("Globals generated in {:?}", start.elapsed());
 
-        let chunk_contours = (&chunks)
-            .into_iter()
-            .map(|(&id, buffer)| {
-                // let buffer_ref = &buffer;
-                let mut contours = TerrainMeshData::detect_image_contour(buffer);
+        let global_state = WorldGlobalState {
+            map_name: name.to_string(),
+            maps: None,
+            source_binary_flipped,
+            source_lake_flipped,
+            n_chunk_x,
+            n_chunk_y,
+            scale: *scale,
+            sdf_resolution: 64,
+            max_distance: 150.0,
+            grid_config: None,
+            source_biome_flipped_rgba: None,
+        };
 
-                if contours.len() == 0 && buffer.get_pixel(10, 10)[0] > 0 {
-                    let width = buffer.width() as f64;
-                    let height = buffer.height() as f64;
-                    contours = vec![vec![
-                        [0.0, 0.0],
-                        [0.0, height],
-                        [width, height],
-                        [width, 0.0],
-                    ]];
-                }
-                (id, contours)
+        (global_state, terrain_global_data)
+    }
+
+    /// Generate a single chunk's terrain data from pre-computed globals.
+    pub fn generate_single_chunk(
+        chunk_id: TerrainChunkId,
+        global: &crate::world::resources::WorldGlobalState,
+    ) -> Option<TerrainChunkMeshData> {
+        // Extract SDF for this chunk
+        let (sdf_data, chunk_mask) = global.generate_chunk_sdf_and_mask(&chunk_id);
+
+        // Check if chunk has any land
+        // Check if chunk has any land or is near coast
+        let has_land = sdf_data
+            .first()
+            .map(|s| s.values.iter().any(|&v| v > 128))
+            .unwrap_or(false);
+
+        // Check if any neighboring chunk has land (using global binary map)
+        let near_coast = if !has_land {
+            let neighbors = [
+                (-1, -1), (0, -1), (1, -1),
+                (-1,  0),          (1,  0),
+                (-1,  1), (0,  1), (1,  1),
+            ];
+            neighbors.iter().any(|(dx, dy)| {
+                let neighbor_id = shared::TerrainChunkId {
+                    x: chunk_id.x + dx,
+                    y: chunk_id.y + dy,
+                };
+                global.chunk_has_land(&neighbor_id)
             })
-            .collect::<HashMap<_, _>>();
+        } else {
+            false
+        };
 
-        tracing::info!(
-            "    {} outlines detected in {:?}",
-            chunk_contours.len(),
-            t4.elapsed()
-        );
+        if !has_land && !near_coast {
+            return None;
+        }
 
-        let chunk_contours_ref = &chunk_contours;
+        // Detect contours from binary mask
+        let mut contours = TerrainMeshData::detect_image_contour(&chunk_mask);
 
-        tracing::info!("Generating mesh faces from outlines");
-        let t5 = std::time::Instant::now();
+        if contours.is_empty() && chunk_mask.get_pixel(10, 10)[0] > 0 {
+            let width = chunk_mask.width() as f64;
+            let height = chunk_mask.height() as f64;
+            contours = vec![vec![
+                [0.0, 0.0],
+                [0.0, height],
+                [width, height],
+                [width, 0.0],
+            ]];
+        }
 
-        let chunk_meshes: HashMap<_, _> = chunk_sdf_data
-            .iter()
-            .filter_map(|(&id, sdf_data)| {
-                if let Some(sdf) = sdf_data.first() {
-                    // Un chunk a besoin d'un mesh s'il contient de la terre
-                    let has_land = sdf.values.iter().any(|&v| v > 128);
+        // Generate mesh
+        let mesh = generate_full_chunk_mesh(constants::CHUNK_SIZE);
 
-                    if has_land {
-                        Some((id, generate_full_chunk_mesh(constants::CHUNK_SIZE)))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        tracing::info!(
-            "    {} meshes generated in {:?}",
-            chunk_meshes.len(),
-            t5.elapsed()
-        );
-
-        // let t6 = std::time::Instant::now();
-
-        tracing::info!("TerrainMeshData completed in {:?}", start.elapsed());
-
-        (
-            Self {
-                name: name.to_string(),
-                width: image.width() as u32,
-                height: image.height() as u32,
-                scale: [scale.x as u32, scale.y as u32],
-                chunks: chunk_meshes
-                    .into_iter()
-                    .map(|(id, meshes)| {
-                        (
-                            id,
-                            TerrainChunkMeshData {
-                                width: constants::CHUNK_SIZE.x as u32,
-                                height: constants::CHUNK_SIZE.y as u32,
-                                mesh_data: meshes.clone(),
-                                outlines: chunk_contours_ref.get(&id).cloned().unwrap_or_default(),
-                                sdf_data: chunk_sdf_data_ref.get(&id).cloned().unwrap_or_default(),
-                                road_sdf_data: None, // Les routes seront ajoutées dynamiquement
-                                generated_at: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs(),
-                            },
-                        )
-                    })
-                    .collect::<HashMap<_, _>>(),
-                generated_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            },
-            chunks,
-            scaled_image_output,
-            terrain_global_data,
-        )
+        Some(TerrainChunkMeshData {
+            width: constants::CHUNK_SIZE.x as u32,
+            height: constants::CHUNK_SIZE.y as u32,
+            mesh_data: mesh,
+            outlines: contours,
+            sdf_data,
+            road_sdf_data: None,
+            generated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
     }
 
     pub fn resize_image<P>(
@@ -423,274 +319,6 @@ impl TerrainMeshData {
 
         Ok(())
     }
-
-    // Dans generate_sdf_data
-    pub fn generate_sdf_data(
-        contour_points: &[Vec2],
-        chunk_origin: Vec2,
-        config: &SdfConfig,
-    ) -> Vec<u8> {
-        let res = config.resolution as usize;
-        let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
-        let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
-
-        (0..res * res)
-            .into_par_iter()
-            .map(|idx| {
-                let x = idx % res;
-                let y = idx / res;
-
-                let local_pos = chunk_origin
-                    + Vec2::new(
-                        (x as f32 + 0.5) * texel_size_x,
-                        (y as f32 + 0.5) * texel_size_y,
-                    );
-
-                let dist =
-                    TerrainMeshData::compute_min_distance_to_contour(local_pos, contour_points);
-                let normalized = (dist / config.max_distance).clamp(0.0, 1.0);
-
-                (normalized * 255.0) as u8
-            })
-            .collect()
-    }
-
-    fn compute_min_distance_to_contour(point: Vec2, contour: &[Vec2]) -> f32 {
-        if contour.len() < 2 {
-            return f32::MAX;
-        }
-
-        let mut min_dist = f32::MAX;
-
-        for i in 0..contour.len() {
-            let a = contour[i];
-            let b = contour[(i + 1) % contour.len()];
-
-            let dist = TerrainMeshData::distance_point_to_segment(point, a, b);
-            min_dist = min_dist.min(dist);
-        }
-
-        min_dist
-    }
-
-    pub fn generate_sdf_data_multi_contours(
-        all_contours: &[Vec<Vec2>],
-        chunk_origin: Vec2,
-        config: &SdfConfig,
-    ) -> Vec<u8> {
-        let res = config.resolution as usize;
-        let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
-        let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
-
-        // Tolérance en pixels pour la détection des bords
-        let edge_threshold = 2.0;
-        let max_x = config.chunk_world_size_x - edge_threshold;
-        let max_y = config.chunk_world_size_y - edge_threshold;
-
-        // Collecter tous les segments valides (pas alignés sur les bords)
-        let valid_segments: Vec<(Vec2, Vec2)> = all_contours
-            .iter()
-            .flat_map(|contour| {
-                if contour.len() < 2 {
-                    return vec![];
-                }
-
-                (0..contour.len())
-                    .filter_map(|i| {
-                        let a = contour[i];
-                        let b = contour[(i + 1) % contour.len()];
-
-                        if TerrainMeshData::is_segment_on_chunk_edge(
-                            a,
-                            b,
-                            edge_threshold,
-                            max_x,
-                            max_y,
-                        ) {
-                            None // Ignorer ce segment
-                        } else {
-                            Some((a, b))
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-
-        if valid_segments.is_empty() {
-            return vec![255u8; res * res];
-        }
-
-        (0..res * res)
-            .into_par_iter()
-            .map(|idx| {
-                let x = idx % res;
-                let y = idx / res;
-
-                let local_pos = chunk_origin
-                    + Vec2::new(
-                        (x as f32 + 0.5) * texel_size_x,
-                        (y as f32 + 0.5) * texel_size_y,
-                    );
-
-                let min_dist = valid_segments
-                    .iter()
-                    .map(|(a, b)| TerrainMeshData::distance_point_to_segment(local_pos, *a, *b))
-                    .fold(f32::MAX, f32::min);
-
-                let normalized = (min_dist / config.max_distance).clamp(0.0, 1.0);
-                (normalized * 255.0) as u8
-            })
-            .collect()
-    }
-
-    pub fn generate_signed_sdf_data_multi_contours(
-        all_contours: &[Vec<Vec2>],
-        chunk_origin: Vec2,
-        config: &SdfConfig,
-        is_land: impl Fn(Vec2) -> bool + Sync, // Fonction pour savoir si un point est sur terre
-    ) -> Vec<u8> {
-        let res = config.resolution as usize;
-        let texel_size_x = config.chunk_world_size_x / config.resolution as f32;
-        let texel_size_y = config.chunk_world_size_y / config.resolution as f32;
-
-        let edge_threshold = 2.0;
-        let max_x = config.chunk_world_size_x - edge_threshold;
-        let max_y = config.chunk_world_size_y - edge_threshold;
-
-        let valid_segments: Vec<(Vec2, Vec2)> = all_contours
-            .iter()
-            .flat_map(|contour| {
-                if contour.len() < 2 {
-                    return vec![];
-                }
-
-                (0..contour.len())
-                    .filter_map(|i| {
-                        let a = contour[i];
-                        let b = contour[(i + 1) % contour.len()];
-
-                        if TerrainMeshData::is_segment_on_chunk_edge(
-                            a,
-                            b,
-                            edge_threshold,
-                            max_x,
-                            max_y,
-                        ) {
-                            None
-                        } else {
-                            Some((a, b))
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-
-        if valid_segments.is_empty() {
-            let center = Vec2::new(
-                config.chunk_world_size_x / 2.0,
-                config.chunk_world_size_y / 2.0,
-            );
-            if is_land(center) {
-                return vec![255u8; res * res]; // Tout terre
-            } else {
-                return vec![0u8; res * res]; // Tout eau
-            }
-        }
-
-        (0..res * res)
-            .into_par_iter()
-            .map(|idx| {
-                let x = idx % res;
-                let y = idx / res;
-
-                let local_pos = chunk_origin
-                    + Vec2::new(
-                        (x as f32 + 0.5) * texel_size_x,
-                        (y as f32 + 0.5) * texel_size_y,
-                    );
-
-                let min_dist = valid_segments
-                    .iter()
-                    .map(|(a, b)| TerrainMeshData::distance_point_to_segment(local_pos, *a, *b))
-                    .fold(f32::MAX, f32::min);
-
-                // Signed : positif sur terre, négatif dans l'eau
-                let signed_dist = if is_land(local_pos) {
-                    min_dist
-                } else {
-                    -min_dist
-                };
-
-                // Encoder : 128 = sur le contour, 0 = loin dans l'eau, 255 = loin sur terre
-                let normalized = (signed_dist / config.max_distance).clamp(-1.0, 1.0);
-                let encoded = ((normalized + 1.0) * 0.5 * 255.0) as u8;
-
-                encoded
-            })
-            .collect()
-    }
-
-    /// Vérifie si un segment est entièrement sur un bord du chunk
-    fn is_segment_on_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-        // Bord gauche
-        if a.x < threshold && b.x < threshold {
-            return true;
-        }
-        // Bord droit
-        if a.x > max_x && b.x > max_x {
-            return true;
-        }
-        // Bord bas
-        if a.y < threshold && b.y < threshold {
-            return true;
-        }
-        // Bord haut
-        if a.y > max_y && b.y > max_y {
-            return true;
-        }
-        false
-    }
-
-    /// Vérifie si un segment est aligné sur un bord du chunk (côte artificielle à ignorer)
-    fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-        // Tolérance pour la position sur le bord
-        let pos_threshold = threshold;
-        // Tolérance pour l'alignement (segment quasi horizontal ou vertical)
-        let align_threshold = threshold;
-
-        // Bord gauche : les deux points près de x=0 ET segment quasi vertical
-        let on_left =
-            a.x < pos_threshold && b.x < pos_threshold && (a.x - b.x).abs() < align_threshold;
-
-        // Bord droit : les deux points près de x=max ET segment quasi vertical
-        let on_right = a.x > max_x && b.x > max_x && (a.x - b.x).abs() < align_threshold;
-
-        // Bord bas : les deux points près de y=0 ET segment quasi horizontal
-        let on_bottom =
-            a.y < pos_threshold && b.y < pos_threshold && (a.y - b.y).abs() < align_threshold;
-
-        // Bord haut : les deux points près de y=max ET segment quasi horizontal
-        let on_top = a.y > max_y && b.y > max_y && (a.y - b.y).abs() < align_threshold;
-
-        on_left || on_right || on_bottom || on_top
-    }
-
-    fn distance_point_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
-        let ab = b - a;
-        let ap = p - a;
-
-        let ab_len_sq = ab.length_squared();
-
-        if ab_len_sq < f32::EPSILON {
-            return ap.length();
-        }
-
-        let t = (ap.dot(ab) / ab_len_sq).clamp(0.0, 1.0);
-
-        let closest = a + ab * t;
-
-        (p - closest).length()
-    }
 }
 
 // server/src/terrain/mesh_generator.rs
@@ -732,416 +360,7 @@ pub fn generate_full_chunk_mesh(chunk_size: Vec2) -> MeshData {
     }
 }
 
-/// Simplification Douglas-Peucker
-fn simplify_contour(points: &[Vec2], tolerance: f32) -> Vec<Vec2> {
-    if points.len() < 3 {
-        return points.to_vec();
-    }
-
-    // Marquer les points à garder
-    let mut keep = vec![false; points.len()];
-    keep[0] = true;
-    keep[points.len() - 1] = true;
-
-    simplify_recursive(points, 0, points.len() - 1, tolerance, &mut keep);
-
-    points
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| keep[*i])
-        .map(|(_, &p)| p)
-        .collect()
-}
-
-fn simplify_recursive(
-    points: &[Vec2],
-    start: usize,
-    end: usize,
-    tolerance: f32,
-    keep: &mut [bool],
-) {
-    if end <= start + 1 {
-        return;
-    }
-
-    let start_pt = points[start];
-    let end_pt = points[end];
-
-    let mut max_dist = 0.0;
-    let mut max_idx = start;
-
-    for i in (start + 1)..end {
-        let dist = point_to_line_distance(points[i], start_pt, end_pt);
-        if dist > max_dist {
-            max_dist = dist;
-            max_idx = i;
-        }
-    }
-
-    if max_dist > tolerance {
-        keep[max_idx] = true;
-        simplify_recursive(points, start, max_idx, tolerance, keep);
-        simplify_recursive(points, max_idx, end, tolerance, keep);
-    }
-}
-
-fn point_to_line_distance(point: Vec2, line_start: Vec2, line_end: Vec2) -> f32 {
-    let line = line_end - line_start;
-    let len_sq = line.length_squared();
-
-    if len_sq < f32::EPSILON {
-        return (point - line_start).length();
-    }
-
-    let t = ((point - line_start).dot(line) / len_sq).clamp(0.0, 1.0);
-    let projection = line_start + line * t;
-
-    (point - projection).length()
-}
-
-/// Re-calcule les edge_info pour les points simplifiés
-fn resample_edge_info(
-    _original: &[Vec2],
-    _original_edges: &[EdgeType],
-    simplified: &[Vec2],
-    threshold: f32,
-    chunk_size: Vec2,
-) -> Vec<EdgeType> {
-    simplified
-        .iter()
-        .map(|&p| detect_point_edge(p, threshold, chunk_size.x, chunk_size.y))
-        .collect()
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum EdgeType {
-    None,
-    Left,
-    Right,
-    Bottom,
-    Top,
-}
-
-fn detect_point_edge(p: Vec2, threshold: f32, max_x: f32, max_y: f32) -> EdgeType {
-    if p.x < threshold {
-        EdgeType::Left
-    } else if p.x > max_x - threshold {
-        EdgeType::Right
-    } else if p.y < threshold {
-        EdgeType::Bottom
-    } else if p.y > max_y - threshold {
-        EdgeType::Top
-    } else {
-        EdgeType::None
-    }
-}
-
-fn snap_edge_points(points: &[Vec2], edge_info: &[EdgeType], chunk_size: Vec2) -> Vec<Vec2> {
-    points
-        .iter()
-        .enumerate()
-        .map(
-            |(i, &p)| match edge_info.get(i).unwrap_or(&EdgeType::None) {
-                EdgeType::Left => Vec2::new(0.0, p.y),
-                EdgeType::Right => Vec2::new(chunk_size.x, p.y),
-                EdgeType::Bottom => Vec2::new(p.x, 0.0),
-                EdgeType::Top => Vec2::new(p.x, chunk_size.y),
-                EdgeType::None => p,
-            },
-        )
-        .collect()
-}
-
-fn filter_coastal_points_with_edges(
-    contour: &[Vec2],
-    threshold: f32,
-    max_x: f32,
-    max_y: f32,
-) -> (Vec<Vec2>, bool, Vec<EdgeType>) {
-    if contour.len() < 3 {
-        return (vec![], false, vec![]);
-    }
-
-    let n = contour.len();
-    let mut result: Vec<Vec2> = Vec::new();
-    let mut edge_info = Vec::new();
-    let mut on_edge_count = 0;
-
-    for i in 0..n {
-        let a = contour[i];
-        let b = contour[(i + 1) % n];
-
-        if is_segment_on_chunk_edge(a, b, threshold, max_x, max_y) {
-            on_edge_count += 1;
-            continue;
-        }
-
-        if result.is_empty() || (*result.last().unwrap() - a).length() > 0.5 {
-            result.push(a);
-            edge_info.push(detect_point_edge(a, threshold, max_x, max_y));
-        }
-    }
-
-    let is_closed = on_edge_count == 0;
-
-    if is_closed && result.len() > 1 {
-        if (*result.first().unwrap() - *result.last().unwrap()).length() < 1.0 {
-            result.pop();
-            edge_info.pop();
-        }
-    }
-
-    (result, is_closed, edge_info)
-}
-
-fn compute_smoothed_normals(points: &[Vec2], window_size: usize, is_closed: bool) -> Vec<Vec2> {
-    let n = points.len();
-    let half_window = window_size / 2;
-
-    (0..n)
-        .map(|i| {
-            let mut avg_normal = Vec2::ZERO;
-            let mut count = 0;
-
-            for offset in 0..window_size {
-                let raw_idx = i as i32 - half_window as i32 + offset as i32;
-
-                let idx = if is_closed {
-                    ((raw_idx % n as i32) + n as i32) as usize % n
-                } else {
-                    if raw_idx < 0 || raw_idx >= n as i32 - 1 {
-                        continue;
-                    }
-                    raw_idx as usize
-                };
-
-                let next_idx = if is_closed {
-                    (idx + 1) % n
-                } else {
-                    if idx + 1 >= n {
-                        continue;
-                    }
-                    idx + 1
-                };
-
-                let dir = (points[next_idx] - points[idx]).normalize_or_zero();
-                if dir != Vec2::ZERO {
-                    avg_normal += Vec2::new(-dir.y, dir.x);
-                    count += 1;
-                }
-            }
-
-            if count > 0 {
-                avg_normal /= count as f32;
-            }
-
-            let result = avg_normal.normalize_or_zero();
-            if result == Vec2::ZERO {
-                // Fallback
-                let prev_i = if i > 0 {
-                    i - 1
-                } else if is_closed {
-                    n - 1
-                } else {
-                    0
-                };
-                let next_i = if i < n - 1 {
-                    i + 1
-                } else if is_closed {
-                    0
-                } else {
-                    n - 1
-                };
-                let dir = (points[next_i] - points[prev_i]).normalize_or_zero();
-                Vec2::new(-dir.y, dir.x)
-            } else {
-                result
-            }
-        })
-        .collect()
-}
-
-fn compute_safe_offset_distances(
-    points: &[Vec2],
-    normals: &[Vec2],
-    max_width: f32,
-    min_factor: f32,
-    is_closed: bool,
-) -> Vec<f32> {
-    let n = points.len();
-    let min_width = max_width * min_factor;
-
-    let mut distances = vec![max_width; n];
-
-    for i in 0..n {
-        let point = points[i];
-        let normal = normals[i];
-
-        for j in 0..n {
-            let dist_idx = {
-                let d = (j as i32 - i as i32).abs();
-                d.min(n as i32 - d) as usize
-            };
-
-            if dist_idx < 3 {
-                continue;
-            }
-
-            let j_next = if is_closed {
-                (j + 1) % n
-            } else if j + 1 < n {
-                j + 1
-            } else {
-                continue;
-            };
-
-            let seg_start = points[j];
-            let seg_end = points[j_next];
-
-            if let Some(t) = ray_segment_intersection(point, normal, seg_start, seg_end) {
-                if t > 0.0 && t < distances[i] {
-                    distances[i] = (t * 0.4).max(min_width);
-                }
-            }
-        }
-    }
-
-    for _ in 0..5 {
-        let outer_points: Vec<Vec2> = points
-            .iter()
-            .enumerate()
-            .map(|(i, &p)| p + normals[i] * distances[i])
-            .collect();
-
-        let mut adjusted = false;
-
-        for i in 0..n {
-            let i_next = if is_closed {
-                (i + 1) % n
-            } else if i + 1 < n {
-                i + 1
-            } else {
-                continue;
-            };
-
-            let seg1_start = outer_points[i];
-            let seg1_end = outer_points[i_next];
-
-            for j in 0..n {
-                let dist_idx = {
-                    let d = (j as i32 - i as i32).abs();
-                    d.min(n as i32 - d) as usize
-                };
-
-                if dist_idx < 3 {
-                    continue;
-                }
-
-                let j_next = if is_closed {
-                    (j + 1) % n
-                } else if j + 1 < n {
-                    j + 1
-                } else {
-                    continue;
-                };
-
-                let seg2_start = outer_points[j];
-                let seg2_end = outer_points[j_next];
-
-                if segments_intersect(seg1_start, seg1_end, seg2_start, seg2_end) {
-                    distances[i] = (distances[i] * 0.6).max(min_width);
-                    distances[i_next] = (distances[i_next] * 0.6).max(min_width);
-                    distances[j] = (distances[j] * 0.6).max(min_width);
-                    distances[j_next] = (distances[j_next] * 0.6).max(min_width);
-                    adjusted = true;
-                }
-            }
-        }
-
-        if !adjusted {
-            break;
-        }
-    }
-
-    smooth_distances(&mut distances, is_closed);
-
-    distances
-}
-
-fn smooth_distances(distances: &mut [f32], is_closed: bool) {
-    let n = distances.len();
-    if n < 3 {
-        return;
-    }
-
-    let original = distances.to_vec();
-
-    for i in 0..n {
-        if !is_closed && (i == 0 || i == n - 1) {
-            continue;
-        }
-
-        let prev_i = if i > 0 { i - 1 } else { n - 1 };
-        let next_i = if i < n - 1 { i + 1 } else { 0 };
-
-        let avg = (original[prev_i] + original[i] + original[next_i]) / 3.0;
-        distances[i] = distances[i].min(avg);
-    }
-}
-
-fn segments_intersect(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2) -> bool {
-    let d1 = cross_2d(b2 - b1, a1 - b1);
-    let d2 = cross_2d(b2 - b1, a2 - b1);
-    let d3 = cross_2d(a2 - a1, b1 - a1);
-    let d4 = cross_2d(a2 - a1, b2 - a1);
-
-    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
-        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
-}
-
-fn cross_2d(a: Vec2, b: Vec2) -> f32 {
-    a.x * b.y - a.y * b.x
-}
-
-fn ray_segment_intersection(
-    ray_origin: Vec2,
-    ray_dir: Vec2,
-    seg_a: Vec2,
-    seg_b: Vec2,
-) -> Option<f32> {
-    let v1 = ray_origin - seg_a;
-    let v2 = seg_b - seg_a;
-    let v3 = Vec2::new(-ray_dir.y, ray_dir.x);
-
-    let dot = v2.dot(v3);
-    if dot.abs() < 0.0001 {
-        return None;
-    }
-
-    let t1 = (v2.x * v1.y - v2.y * v1.x) / dot;
-    let t2 = v1.dot(v3) / dot;
-
-    if t1 >= 0.0 && t2 >= 0.0 && t2 <= 1.0 {
-        Some(t1)
-    } else {
-        None
-    }
-}
-
-fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y: f32) -> bool {
-    let align_threshold = threshold;
-
-    let on_left = a.x < threshold && b.x < threshold && (a.x - b.x).abs() < align_threshold;
-    let on_right =
-        a.x > max_x - threshold && b.x > max_x - threshold && (a.x - b.x).abs() < align_threshold;
-    let on_bottom = a.y < threshold && b.y < threshold && (a.y - b.y).abs() < align_threshold;
-    let on_top =
-        a.y > max_y - threshold && b.y > max_y - threshold && (a.y - b.y).abs() < align_threshold;
-
-    on_left || on_right || on_bottom || on_top
-}
-
-fn generate_global_sdf(
+pub fn generate_global_sdf(
     image: &ImageBuffer<Luma<u8>, Vec<u8>>,
     sdf_width: usize,
     sdf_height: usize,
@@ -1248,8 +467,8 @@ fn generate_global_sdf(
 /// À utiliser pour le rendu de l'océan autour du continent
 pub fn generate_ocean_data(
     name: String,
-    binary_map: &DynamicImage,
-    heightmap_image: &DynamicImage,
+    binary_map: &ImageBuffer<Luma<u8>, Vec<u8>>,
+    heightmap_image: &ImageBuffer<Luma<u8>, Vec<u8>>,
     n_chunk_x: i32,
     n_chunk_y: i32,
     world_width: f32,
@@ -1275,9 +494,21 @@ pub fn generate_ocean_data(
     );
     tracing::info!("World dimensions: {}x{}", world_width, world_height);
 
-    let sdf_resolution = 64usize;
-    let global_width = n_chunk_x as usize * sdf_resolution;
-    let global_height = n_chunk_y as usize * sdf_resolution;
+  // Cap ocean SDF resolution to avoid huge textures at large scales
+    let max_ocean_sdf_dim = 2048usize;
+    let raw_width = n_chunk_x as usize * 64;
+    let raw_height = n_chunk_y as usize * 64;
+
+    let (global_width, global_height) = if raw_width > max_ocean_sdf_dim || raw_height > max_ocean_sdf_dim {
+        let ratio = raw_height as f32 / raw_width as f32;
+        if raw_width >= raw_height {
+            (max_ocean_sdf_dim, (max_ocean_sdf_dim as f32 * ratio).round() as usize)
+        } else {
+            ((max_ocean_sdf_dim as f32 / ratio).round() as usize, max_ocean_sdf_dim)
+        }
+    } else {
+        (raw_width, raw_height)
+    };
     let max_distance = 50.0f32;
 
     tracing::info!("Target SDF resolution: {}x{}", global_width, global_height);
@@ -1306,7 +537,6 @@ pub fn generate_ocean_data(
         );
         tracing::error!("Parameters seem wrong:");
         tracing::error!("  n_chunk_x = {}, n_chunk_y = {}", n_chunk_x, n_chunk_y);
-        tracing::error!("  sdf_resolution = {}", sdf_resolution);
         tracing::error!(
             "  global_width = {}, global_height = {}",
             global_width,
@@ -1316,17 +546,15 @@ pub fn generate_ocean_data(
     }
 
     // 1. Générer le SDF global
-    tracing::info!("Converting binary_map to luma8...");
-    let binary_luma = binary_map.to_luma8();
     tracing::info!(
         "✓ Binary luma ready: {}x{}",
-        binary_luma.width(),
-        binary_luma.height()
+        binary_map.width(),
+        binary_map.height()
     );
 
     tracing::info!("Generating global SDF...");
     let global_sdf = generate_global_sdf(
-        &binary_luma,
+        &binary_map,
         global_width,
         global_height,
         world_width,
@@ -1336,16 +564,14 @@ pub fn generate_ocean_data(
     tracing::info!("✓ Global SDF generated: {} bytes", global_sdf.len());
 
     // 2. Générer la heightmap globale
-    tracing::info!("Converting heightmap to luma8...");
-    let heightmap_luma = heightmap_image.to_luma8();
     tracing::info!(
         "✓ Heightmap luma ready: {}x{}",
-        heightmap_luma.width(),
-        heightmap_luma.height()
+        heightmap_image.width(),
+        heightmap_image.height()
     );
 
     tracing::info!("Generating global heightmap...");
-    let global_heightmap = generate_global_heightmap(&heightmap_luma, global_width, global_height);
+    let global_heightmap = generate_global_heightmap(&heightmap_image, global_width, global_height);
     tracing::info!(
         "✓ Global heightmap generated: {} bytes",
         global_heightmap.len()
@@ -1360,6 +586,8 @@ pub fn generate_ocean_data(
         max_distance,
         global_sdf,
         global_heightmap,
+        world_width,
+        world_height,
     );
     tracing::info!("✓ OceanData created successfully");
     tracing::info!("=== OCEAN DATA GENERATION END ===");
@@ -1450,124 +678,76 @@ fn generate_global_biome_texture(
     target_width: usize,
     target_height: usize,
 ) -> Vec<u8> {
-    let img_w = biome_map.width() as i32;
-    let img_h = biome_map.height() as i32;
-    let scale_x = img_w as f32 / target_width as f32;
-    let scale_y = img_h as f32 / target_height as f32;
-    let total_pixels = target_width * target_height;
+    use rayon::prelude::*;
+
+    let img_w = biome_map.width() as usize;
+    let img_h = biome_map.height() as usize;
 
     tracing::info!(
-        "    Biome blend texture: {}x{} -> {}x{} (scale: {:.2}x{:.2})",
+        "    Biome blend texture: source {}x{} -> target {}x{}",
         img_w,
         img_h,
         target_width,
-        target_height,
-        scale_x,
-        scale_y
+        target_height
     );
 
     let is_water_biome = |id: u8| -> bool { id <= 2 || id == 13 };
 
-    // Helper: sample biome ID at source pixel with clamping
-    let sample_id = |sx: i32, sy: i32| -> u8 {
-        let cx = sx.clamp(0, img_w - 1) as u32;
-        let cy = sy.clamp(0, img_h - 1) as u32;
-        let pixel = biome_map.get_pixel(cx, cy);
-        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-        find_closest_biome(&color).to_id() as u8
-    };
+    // =========================================================================
+    // Step 1: Pre-compute biome IDs at SOURCE resolution (fast, ~1.9M pixels)
+    // =========================================================================
+    let t1 = std::time::Instant::now();
 
-    // Pass 1: For each target pixel, find the dominant pure biome at source resolution.
-    // "Pure" = pixel color matches a known biome exactly (distance < 5).
-    // Start with a small window (3x3) and expand up to 15x15 until we find pure pixels.
-    // This guarantees anti-aliased boundary pixels are never counted.
-    let max_radius: i32 = 7; // max window = 15x15
-    let purity_threshold = 5; // max color distance to count as "pure"
-
-    tracing::info!(
-        "    Sampling with expanding window, max radius: {}, purity threshold: {}",
-        max_radius,
-        purity_threshold
-    );
-
-    let clean_ids: Vec<u8> = (0..total_pixels)
+    let source_ids: Vec<u8> = (0..img_w * img_h)
         .into_par_iter()
         .map(|idx| {
-            let tx = idx % target_width;
-            let ty = idx / target_width;
-            let src_x = ((tx as f32 + 0.5) * scale_x) as i32;
-            let src_y = ((ty as f32 + 0.5) * scale_y) as i32;
+            let x = idx % img_w;
+            let y = idx / img_w;
+            let pixel = biome_map.get_pixel(x as u32, y as u32);
+            let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+            let biome = find_closest_biome(&color);
+            let id = biome.to_id() as u8;
 
-            // Try expanding radii until we find at least one pure pixel
-            for radius in 1..=max_radius {
-                let mut counts = [0u16; 16];
-                let mut total_pure = 0u16;
-
-                for dy in -radius..=radius {
-                    for dx in -radius..=radius {
-                        let cx = (src_x + dx).clamp(0, img_w - 1) as u32;
-                        let cy = (src_y + dy).clamp(0, img_h - 1) as u32;
-                        let pixel = biome_map.get_pixel(cx, cy);
-                        let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                        let biome_enum = find_closest_biome(&color);
-                        let id = biome_enum.to_id() as u8;
-
-                        // Only count pixels that are an exact match to a known biome
-                        let ref_color = get_biome_color(&biome_enum);
-                        let dist = color.distance_to(&ref_color);
-
-                        if dist < purity_threshold && (id as usize) < 16 && id > 2 && id != 13 {
-                            counts[id as usize] += 1;
-                            total_pure += 1;
-                        }
-                    }
-                }
-
-                // If we found pure pixels, pick the majority
-                if total_pure > 0 {
-                    let mut best_id = 5u8;
-                    let mut best_count = 0u16;
-                    for id in 0u8..16 {
-                        if counts[id as usize] > best_count {
-                            best_count = counts[id as usize];
-                            best_id = id;
-                        }
-                    }
-                    return best_id;
-                }
+            // Check purity — only accept if close to reference color
+            let ref_color = get_biome_color(&biome);
+            let dist = color.distance_to(&ref_color);
+            if dist < 5 && !is_water_biome(id) {
+                id
+            } else {
+                255u8 // mark as "impure" for dilation
             }
-
-            // Absolute fallback (should be very rare)
-            5u8 // Grassland
         })
         .collect();
 
-    // Pass 2: Dilate into any remaining water pixels
-    let mut ids = clean_ids;
+    tracing::info!("    Step 1: Source IDs computed in {:?}", t1.elapsed());
+
+    // =========================================================================
+    // Step 2: Dilate impure/water pixels at SOURCE resolution (small, fast)
+    // =========================================================================
+    let t2 = std::time::Instant::now();
+
+    let mut ids = source_ids;
     for _ in 0..16 {
         let snapshot = ids.clone();
-        for y in 0..target_height {
-            for x in 0..target_width {
-                let idx = y * target_width + x;
-                if !is_water_biome(snapshot[idx]) {
+        for y in 0..img_h {
+            for x in 0..img_w {
+                let idx = y * img_w + x;
+                if snapshot[idx] != 255 && !is_water_biome(snapshot[idx]) {
                     continue;
                 }
                 let mut found = None;
-                for dy in -1i32..=1 {
+                'search: for dy in -1i32..=1 {
                     for dx in -1i32..=1 {
                         if dx == 0 && dy == 0 {
                             continue;
                         }
-                        let nx = (x as i32 + dx).clamp(0, target_width as i32 - 1) as usize;
-                        let ny = (y as i32 + dy).clamp(0, target_height as i32 - 1) as usize;
-                        let n = snapshot[ny * target_width + nx];
-                        if !is_water_biome(n) {
+                        let nx = (x as i32 + dx).clamp(0, img_w as i32 - 1) as usize;
+                        let ny = (y as i32 + dy).clamp(0, img_h as i32 - 1) as usize;
+                        let n = snapshot[ny * img_w + nx];
+                        if n != 255 && !is_water_biome(n) {
                             found = Some(n);
-                            break;
+                            break 'search;
                         }
-                    }
-                    if found.is_some() {
-                        break;
                     }
                 }
                 if let Some(b) = found {
@@ -1576,44 +756,73 @@ fn generate_global_biome_texture(
             }
         }
     }
+
+    // Final fallback — any remaining impure/water → Grassland
     for pixel in ids.iter_mut() {
-        if is_water_biome(*pixel) {
-            *pixel = 5;
+        if *pixel == 255 || is_water_biome(*pixel) {
+            *pixel = 5; // Grassland
         }
     }
 
-    // Pass 3: Compute blend — find nearest different biome and distance
+    tracing::info!("    Step 2: Dilation at source res in {:?}", t2.elapsed());
+
+    // =========================================================================
+    // Step 3: Compute blend at intermediate resolution (2× source) for smooth transitions
+    // =========================================================================
+    let t3 = std::time::Instant::now();
+    let total_pixels = target_width * target_height;
+
+    let blend_scale = 2usize; // 2× source resolution
+    let blend_w = img_w * blend_scale;
+    let blend_h = img_h * blend_scale;
+    let blend_total = blend_w * blend_h;
+
     let transition_radius: i32 = 16;
     let transition_width: f32 = 28.0;
 
-    let rgba: Vec<u8> = (0..total_pixels)
+    // Upscale IDs to blend resolution (nearest)
+    let blend_ids: Vec<u8> = (0..blend_total)
         .into_par_iter()
-        .flat_map(|idx| {
-            let x = (idx % target_width) as i32;
-            let y = (idx / target_width) as i32;
-            let primary = ids[idx];
+        .map(|idx| {
+            let bx = idx % blend_w;
+            let by = idx / blend_w;
+            let sx = bx / blend_scale;
+            let sy = by / blend_scale;
+            ids[sy * img_w + sx]
+        })
+        .collect();
+
+    // Compute secondary + blend at blend resolution
+    let mut blend_data = vec![(0u8, 0u8); blend_total];
+
+    blend_data
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(idx, result)| {
+            let x = (idx % blend_w) as i32;
+            let y = (idx / blend_w) as i32;
+            let primary = blend_ids[idx];
 
             let mut nearest_dist_sq = i32::MAX;
             let mut secondary = primary;
 
             for dy in -transition_radius..=transition_radius {
                 let ny = y + dy;
-                if ny < 0 || ny >= target_height as i32 {
+                if ny < 0 || ny >= blend_h as i32 {
                     continue;
                 }
                 for dx in -transition_radius..=transition_radius {
                     let nx = x + dx;
-                    if nx < 0 || nx >= target_width as i32 {
+                    if nx < 0 || nx >= blend_w as i32 {
                         continue;
                     }
-                    let dist_sq = dx * dx + dy * dy;
-                    if dist_sq >= nearest_dist_sq {
-                        continue;
-                    }
-                    let neighbor = ids[ny as usize * target_width + nx as usize];
-                    if neighbor != primary {
-                        nearest_dist_sq = dist_sq;
-                        secondary = neighbor;
+                    let nid = blend_ids[(ny as usize) * blend_w + nx as usize];
+                    if nid != primary {
+                        let d = dx * dx + dy * dy;
+                        if d < nearest_dist_sq {
+                            nearest_dist_sq = d;
+                            secondary = nid;
+                        }
                     }
                 }
             }
@@ -1622,89 +831,69 @@ fn generate_global_biome_texture(
                 0u8
             } else {
                 let dist = (nearest_dist_sq as f32).sqrt();
-                let t = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
-                let smooth = t * t * (3.0 - 2.0 * t);
+                let smooth = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
                 (smooth * 128.0) as u8
             };
 
-            vec![primary * 17, secondary * 17, blend, 255u8]
-        })
-        .collect();
+            *result = (secondary, blend);
+        });
+
+    tracing::info!(
+        "    Step 3a: Blend at {}x{} in {:?}",
+        blend_w,
+        blend_h,
+        t3.elapsed()
+    );
+
+    // Step 4b: Upscale to target RGBA — nearest for IDs, bilinear for blend
+    let t3b = std::time::Instant::now();
+
+    let blend_to_target_x = blend_w as f32 / target_width as f32;
+    let blend_to_target_y = blend_h as f32 / target_height as f32;
+
+    let mut rgba = vec![0u8; total_pixels * 4];
+
+    rgba.par_chunks_mut(4).enumerate().for_each(|(idx, pixel)| {
+        let tx = idx % target_width;
+        let ty = idx / target_width;
+
+        // Nearest for IDs
+        let bx = ((tx as f32 + 0.5) * blend_to_target_x) as usize;
+        let by = ((ty as f32 + 0.5) * blend_to_target_y) as usize;
+        let bx = bx.min(blend_w - 1);
+        let by = by.min(blend_h - 1);
+        let b_idx = by * blend_w + bx;
+
+        let primary = blend_ids[b_idx];
+        let (secondary, _) = blend_data[b_idx];
+
+        // Bilinear for blend factor
+        let fx = (tx as f32 + 0.5) * blend_to_target_x - 0.5;
+        let fy = (ty as f32 + 0.5) * blend_to_target_y - 0.5;
+        let x0 = (fx.floor() as i32).clamp(0, blend_w as i32 - 1) as usize;
+        let y0 = (fy.floor() as i32).clamp(0, blend_h as i32 - 1) as usize;
+        let x1 = (x0 + 1).min(blend_w - 1);
+        let y1 = (y0 + 1).min(blend_h - 1);
+        let frac_x = (fx - fx.floor()).clamp(0.0, 1.0);
+        let frac_y = (fy - fy.floor()).clamp(0.0, 1.0);
+
+        let b00 = blend_data[y0 * blend_w + x0].1 as f32;
+        let b10 = blend_data[y0 * blend_w + x1].1 as f32;
+        let b01 = blend_data[y1 * blend_w + x0].1 as f32;
+        let b11 = blend_data[y1 * blend_w + x1].1 as f32;
+
+        let blend = (b00 * (1.0 - frac_x) * (1.0 - frac_y)
+            + b10 * frac_x * (1.0 - frac_y)
+            + b01 * (1.0 - frac_x) * frac_y
+            + b11 * frac_x * frac_y) as u8;
+
+        pixel[0] = primary * 17;
+        pixel[1] = secondary * 17;
+        pixel[2] = blend;
+        pixel[3] = 255;
+    });
+
+    tracing::info!("    Step 3b: Upscaled to RGBA in {:?}", t3b.elapsed());
 
     rgba
-}
-
-/// Découpe la SDF globale en chunks avec overlap correct
-fn split_sdf_into_chunks(
-    global_sdf: &[u8],
-    global_width: usize,
-    global_height: usize,
-    chunk_resolution: usize,
-    n_chunk_x: i32,
-    n_chunk_y: i32,
-) -> HashMap<TerrainChunkId, Vec<u8>> {
-    let mut result = HashMap::new();
-
-    // Overlap en texels (0.5 de chaque côté = 1 texel total d'extension)
-    let overlap = 0.5f32;
-
-    for cy in 0..n_chunk_y {
-        for cx in 0..n_chunk_x {
-            let chunk_id = TerrainChunkId { x: cx, y: cy };
-
-            let mut sdf_values = Vec::with_capacity(chunk_resolution * chunk_resolution);
-
-            let base_x = cx as f32 * chunk_resolution as f32;
-            let base_y = cy as f32 * chunk_resolution as f32;
-
-            for sy in 0..chunk_resolution {
-                for sx in 0..chunk_resolution {
-                    // Mapper [0, 63] → [-0.5, 63.5] dans la SDF globale
-                    let t_x = sx as f32 / (chunk_resolution - 1) as f32; // 0 à 1
-                    let t_y = sy as f32 / (chunk_resolution - 1) as f32;
-
-                    // Position avec overlap symétrique
-                    let global_x =
-                        base_x - overlap + t_x * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
-                    let global_y =
-                        base_y - overlap + t_y * (chunk_resolution as f32 - 1.0 + 2.0 * overlap);
-
-                    let value = sample_sdf_bilinear(
-                        global_sdf,
-                        global_width,
-                        global_height,
-                        global_x,
-                        global_y,
-                    );
-
-                    sdf_values.push(value);
-                }
-            }
-
-            result.insert(chunk_id, sdf_values);
-        }
-    }
-
-    result
-}
-
-fn sample_sdf_bilinear(sdf: &[u8], width: usize, height: usize, x: f32, y: f32) -> u8 {
-    let x0 = (x.floor() as i32).clamp(0, width as i32 - 1) as usize;
-    let y0 = (y.floor() as i32).clamp(0, height as i32 - 1) as usize;
-    let x1 = (x0 + 1).min(width - 1);
-    let y1 = (y0 + 1).min(height - 1);
-
-    let fx = (x - x.floor()).clamp(0.0, 1.0);
-    let fy = (y - y.floor()).clamp(0.0, 1.0);
-
-    let v00 = sdf[y0 * width + x0] as f32;
-    let v10 = sdf[y0 * width + x1] as f32;
-    let v01 = sdf[y1 * width + x0] as f32;
-    let v11 = sdf[y1 * width + x1] as f32;
-
-    let v0 = v00 * (1.0 - fx) + v10 * fx;
-    let v1 = v01 * (1.0 - fx) + v11 * fx;
-    let v = v0 * (1.0 - fy) + v1 * fy;
-
-    v.round().clamp(0.0, 255.0) as u8
 }
