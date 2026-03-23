@@ -79,7 +79,7 @@ pub fn spawn_lake(
             },
             ..default()
         })),
-        Transform::from_translation(Vec3::new(0.0, 0.0, -1.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, -100.0)),
     ));
 }
 
