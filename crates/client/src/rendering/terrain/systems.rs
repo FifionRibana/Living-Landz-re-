@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use bevy::mesh::Indices;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
 use hexx::Hex;
@@ -16,8 +17,9 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::networking::client::NetworkClient;
+use crate::rendering::terrain::components::TreeGlobalMesh;
 use crate::rendering::terrain::materials::{
-    BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams
+    BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,
 };
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
@@ -255,29 +257,28 @@ pub fn spawn_terrain(
                 (dummy, HeightmapParams::default())
             };
 
-        let (lake_sdf_texture, lake_params) =
-            if let Some(lh) = world_cache.get_lake_sdf_handle() {
-                (
-                    lh.clone(),
-                    LakeParams {
-                        has_lake: 1.0,
-                        ..default()
-                    },
-                )
-            } else {
-                let dummy = images.add(Image::new(
-                    Extent3d {
-                        width: 1,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    vec![255u8], // all land = no lake
-                    TextureFormat::R8Unorm,
-                    default(),
-                ));
-                (dummy, LakeParams::default())
-            };
+        let (lake_sdf_texture, lake_params) = if let Some(lh) = world_cache.get_lake_sdf_handle() {
+            (
+                lh.clone(),
+                LakeParams {
+                    has_lake: 1.0,
+                    ..default()
+                },
+            )
+        } else {
+            let dummy = images.add(Image::new(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![255u8], // all land = no lake
+                TextureFormat::R8Unorm,
+                default(),
+            ));
+            (dummy, LakeParams::default())
+        };
 
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
@@ -607,68 +608,9 @@ pub fn spawn_building(
         // );
 
         match (&building_base.category, &building.specific_data) {
-            (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(tree_data)) => {
-                let tree_type = TreeTypeEnum::Cedar; // TODO: create assets for oak and larch
-                // let tree_type = tree_data.tree_type;
-                let age = TreeAge::get_tree_age(tree_data.age as u32);
-                let variation = tree_data.variant;
-                let density = match tree_data.density {
-                    (..0.45) => 1,
-                    (0.45..0.55) => 2,
-                    (0.55..0.65) => 3,
-                    (0.65..0.75) => 4,
-                    (0.75..0.85) => 5,
-                    (0.85..) => 6,
-                    _ => 6,
-                };
-
-                let variant = &format!(
-                    "{}_{}_{:02}{:02}",
-                    tree_type.to_name_lowercase(),
-                    age.to_name(),
-                    variation,
-                    density
-                );
-                let image_handle = tree_atlas
-                    .handles
-                    .get(variant)
-                    .expect(format!("Tree variation not found {}", variant).as_str());
-
-                let image_size = images.get(&*image_handle).map(|img| {
-                    let size = img.texture_descriptor.size;
-                    Vec2::new(size.width as f32, size.height as f32)
-                });
-
-                let scale_var = rng.random_range(0.9..=1.1);
-                let flip_x = rng.random_bool(0.5);
-
-                let offset_x: f32 = rng.random_range(-8.0..=8.0);
-                let offset_y: f32 = rng.random_range(-8.0..=8.0);
-
-                world_position.x += offset_x;
-                world_position.y += offset_y + 8.0; // shift slightly up
-
-                let custom_size = image_size.map(|size| {
-                    let width = size.x.min(256.0f32) * scale_var * 64. / 256.; // TODO: assets shall be already downsized
-                    let height = width * (size.y / size.x) * scale_var; // Aspect ratio conservé
-                    Vec2::new(width, height)
-                });
-
-                commands.spawn((
-                    Name::new(format!("{}_{}", &variant, building_id)),
-                    Sprite {
-                        image: image_handle.clone(),
-                        custom_size,
-                        flip_x,
-                        ..default()
-                    },
-                    Transform::from_translation(world_position.extend(-world_position.y * 0.0001)),
-                    GlobalTransform::default(),
-                    Visibility::default(),
-                    Building {
-                        id: building_id as i64,
-                    },
-                ));
+            (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(_tree_data)) => {
+                // Trees are rendered via instanced mesh merging in spawn_tree_meshes
+                continue;
             }
             (
                 BuildingCategoryEnum::ManufacturingWorkshops,
@@ -1047,11 +989,269 @@ fn is_segment_on_chunk_edge(a: Vec2, b: Vec2, threshold: f32, max_x: f32, max_y:
     on_left || on_right || on_bottom || on_top
 }
 
-// Wave animation disabled for terrain_signed_sdf.wgsl shader
-// pub fn update_terrain_wave_time(time: Res<Time>, mut materials: ResMut<Assets<TerrainMaterial>>) {
-//     let elapsed = time.elapsed_secs();
-//
-//     for (_, material) in materials.iter_mut() {
-//         material.wave_params.time = elapsed;
-//     }
-// }
+/// Pack individual tree sprites into a single texture atlas
+pub fn build_tree_atlas(
+    mut tree_atlas: ResMut<TreeAtlas>,
+    mut images: ResMut<Assets<Image>>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    mut built: Local<bool>,
+) {
+    if *built || tree_atlas.atlas_image.is_some() {
+        return;
+    }
+
+    let variant_names: Vec<String> = tree_atlas
+        .sprites
+        .values()
+        .flat_map(|v| v.iter().cloned())
+        .collect();
+
+    if variant_names.is_empty() {
+        return;
+    }
+
+    let all_loaded = variant_names.iter().all(|name| {
+        tree_atlas
+            .handles
+            .get(name.as_str())
+            .and_then(|h| images.get(h))
+            .is_some()
+    });
+
+    if !all_loaded {
+        return;
+    }
+
+    let sprite_size = 256u32;
+    let cols = 5u32;
+    let rows = (variant_names.len() as u32 + cols - 1) / cols;
+    let atlas_width = cols * sprite_size;
+    let atlas_height = rows * sprite_size;
+
+    info!(
+        "Building tree atlas: {}x{} ({} variants)",
+        atlas_width,
+        atlas_height,
+        variant_names.len()
+    );
+
+    let mut atlas_data = vec![0u8; (atlas_width * atlas_height * 4) as usize];
+
+    for (idx, name) in variant_names.iter().enumerate() {
+        let handle = tree_atlas.handles.get(name.as_str()).unwrap();
+        let image = images.get(handle).unwrap();
+        let src_data = image.data.as_ref().unwrap();
+        let src_w = image.texture_descriptor.size.width;
+        let src_h = image.texture_descriptor.size.height;
+
+        let col = (idx as u32) % cols;
+        let row = (idx as u32) / cols;
+        let dst_x = col * sprite_size;
+        let dst_y = row * sprite_size;
+
+        for y in 0..src_h.min(sprite_size) {
+            for x in 0..src_w.min(sprite_size) {
+                let src_idx = ((y * src_w + x) * 4) as usize;
+                let dst_idx = (((dst_y + y) * atlas_width + dst_x + x) * 4) as usize;
+                if src_idx + 3 < src_data.len() && dst_idx + 3 < atlas_data.len() {
+                    atlas_data[dst_idx] = src_data[src_idx];
+                    atlas_data[dst_idx + 1] = src_data[src_idx + 1];
+                    atlas_data[dst_idx + 2] = src_data[src_idx + 2];
+                    atlas_data[dst_idx + 3] = src_data[src_idx + 3];
+                }
+            }
+        }
+
+        tree_atlas.variants.insert(name.clone(), idx);
+    }
+
+    let atlas_image = Image::new(
+        Extent3d {
+            width: atlas_width,
+            height: atlas_height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        atlas_data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+
+    let layout =
+        TextureAtlasLayout::from_grid(UVec2::new(sprite_size, sprite_size), cols, rows, None, None);
+
+    tree_atlas.sprite_size = sprite_size;
+    tree_atlas.atlas_cols = cols;
+    tree_atlas.atlas_rows = rows;
+    tree_atlas.atlas_image = Some(images.add(atlas_image));
+    tree_atlas.atlas_layout = Some(texture_atlas_layouts.add(layout));
+
+    info!(
+        "✓ Tree atlas built: {}x{} ({} variants)",
+        atlas_width,
+        atlas_height,
+        variant_names.len()
+    );
+    *built = true;
+}
+
+/// Single merged mesh for ALL visible trees. Rebuilt when building cache changes.
+pub fn rebuild_tree_mesh(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut tree_materials: ResMut<Assets<TreeMaterial>>,
+    mut world_cache: Option<ResMut<WorldCache>>,
+    tree_atlas: Res<TreeAtlas>,
+    grid_config: Res<GridConfig>,
+    existing: Query<Entity, With<TreeGlobalMesh>>,
+    mut shared_material: Local<Option<MeshMaterial2d<TreeMaterial>>>,
+) {
+    let Some(ref mut world_cache) = world_cache else { return; };
+
+    if !world_cache.is_buildings_dirty() && existing.iter().count() > 0 {
+        return;
+    }
+
+    let Some(atlas_image) = &tree_atlas.atlas_image else { return; };
+
+    world_cache.clear_buildings_dirty();
+
+    for entity in existing.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    let material = shared_material.get_or_insert_with(|| {
+        MeshMaterial2d(tree_materials.add(TreeMaterial {
+            texture: atlas_image.clone(),
+        }))
+    }).clone();
+
+    // Collect ALL tree quads
+    let mut quads: Vec<TreeQuad> = Vec::new();
+
+    for building in world_cache.loaded_buildings() {
+        let shared::BuildingSpecific::Tree(tree_data) = &building.specific_data else { continue };
+
+        let tree_type = shared::TreeTypeEnum::Cedar;
+        let age = shared::TreeAge::get_tree_age(tree_data.age as u32);
+        let variation = tree_data.variant;
+        let building_id = building.base_data.id;
+
+        let cell_pos = grid_config.layout.hex_to_world_pos(
+            hexx::Hex::new(building.base_data.cell.q, building.base_data.cell.r),
+        );
+
+        let tree_count = match tree_data.density {
+            d if d < 0.35 => 1,
+            d if d < 0.50 => 2,
+            d if d < 0.60 => 3,
+            d if d < 0.70 => 4,
+            d if d < 0.80 => 5,
+            d if d < 0.90 => 6,
+            d if d < 0.95 => 7,
+            _ => 8,
+        };
+
+        for tree_i in 0..tree_count {
+            let sub_seed = building_id.wrapping_mul(31).wrapping_add(tree_i as u64);
+            let mut sub_rng = rand::rngs::StdRng::seed_from_u64(sub_seed);
+
+            let offset_x: f32 = sub_rng.random_range(-18.0..=18.0);
+            let offset_y: f32 = sub_rng.random_range(-18.0..=18.0);
+            let scale_var: f32 = sub_rng.random_range(0.85..=1.15);
+            let flip_x: bool = sub_rng.random_bool(0.5);
+
+            let (sub_age, sub_var) = if tree_i > 0 {
+                let alt_var = sub_rng.random_range(1..=3i32);
+                let alt_age = shared::TreeAge::get_tree_age(
+                    (tree_data.age as i32 + sub_rng.random_range(-30..=30)).max(0) as u32,
+                );
+                (alt_age, alt_var)
+            } else {
+                (age, variation)
+            };
+
+            let variant_key = format!(
+                "{}_{}_{:02}01",
+                tree_type.to_name_lowercase(),
+                sub_age.to_name(),
+                sub_var
+            );
+
+            let Some(uvs) = tree_atlas.get_atlas_uvs(&variant_key) else { continue };
+
+            let pos = Vec2::new(
+                cell_pos.x + offset_x,
+                cell_pos.y + offset_y + 8.0,
+            );
+            let display_size = 48.0 * scale_var;
+
+            quads.push(TreeQuad { pos, size: display_size, uvs, flip_x });
+        }
+    }
+
+    if quads.is_empty() {
+        return;
+    }
+
+    // Global sort back-to-front: higher Y drawn first
+    quads.sort_by(|a, b| b.pos.y.partial_cmp(&a.pos.y).unwrap());
+
+    // Build single mesh
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(quads.len() * 4);
+    let mut uvs_out: Vec<[f32; 2]> = Vec::with_capacity(quads.len() * 4);
+    let mut indices: Vec<u32> = Vec::with_capacity(quads.len() * 6);
+
+    for (qi, quad) in quads.iter().enumerate() {
+        let half = quad.size / 2.0;
+        let base_idx = (qi * 4) as u32;
+
+        positions.push([quad.pos.x - half, quad.pos.y - half, 0.0]);
+        positions.push([quad.pos.x + half, quad.pos.y - half, 0.0]);
+        positions.push([quad.pos.x + half, quad.pos.y + half, 0.0]);
+        positions.push([quad.pos.x - half, quad.pos.y + half, 0.0]);
+
+        let [u_min, v_min, u_max, v_max] = quad.uvs;
+        let (ul, ur) = if quad.flip_x { (u_max, u_min) } else { (u_min, u_max) };
+
+        uvs_out.push([ul, v_max]);
+        uvs_out.push([ur, v_max]);
+        uvs_out.push([ur, v_min]);
+        uvs_out.push([ul, v_min]);
+
+        indices.push(base_idx);
+        indices.push(base_idx + 1);
+        indices.push(base_idx + 2);
+        indices.push(base_idx);
+        indices.push(base_idx + 2);
+        indices.push(base_idx + 3);
+    }
+
+    let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
+
+    let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs_out)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_indices(Indices::U32(indices));
+
+    info!(
+        "✓ Tree mesh rebuilt: {} quads {} vertices",
+        quads.len(), quads.len() * 4
+    );
+
+    commands.spawn((
+        Name::new("TreeGlobalMesh"),
+        Mesh2d(meshes.add(mesh)),
+        material,
+        Transform::from_translation(Vec3::new(0.0, 0.0, -0.5)),
+        TreeGlobalMesh,
+    ));
+}
+
+struct TreeQuad {
+    pos: Vec2,
+    size: f32,
+    uvs: [f32; 4], // u_min, v_min, u_max, v_max
+    flip_x: bool,
+}
