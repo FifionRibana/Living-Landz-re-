@@ -12,19 +12,20 @@ pub fn setup_tree_atlas(mut commands: Commands, asset_server: Res<AssetServer>) 
             continue;
         }
 
-        let mut variations = HashMap::new();
         let sprite_variations = atlas
             .get_variations(tree_type)
-            .expect(format!("No variation found for tree type {:?}", tree_type).as_str());
+            .expect(format!("No variation found for tree type {:?}", tree_type).as_str())
+            .to_vec();
 
         for sprite_variation in sprite_variations {
             let path = format!("sprites/trees/{}.png", sprite_variation);
-            variations.insert(sprite_variation.clone(), asset_server.load(path));
+            atlas
+                .handles
+                .insert(sprite_variation.clone(), asset_server.load(path));
         }
-
-        atlas.handles.extend(variations);
     }
 
+    let count = atlas.handles.len();
     commands.insert_resource(atlas);
-    info!("✓ Tree atlas loaded");
+    info!("✓ Tree atlas loaded ({} variants)", count);
 }

@@ -115,6 +115,7 @@ impl CellCache {
 #[derive(Default, Clone)]
 pub struct BuildingCache {
     loaded: HashMap<GridCell, BuildingData>,
+    pub dirty: bool,
 }
 
 impl BuildingCache {
@@ -123,6 +124,7 @@ impl BuildingCache {
         buildings.iter().for_each(|building_data| {
             self.loaded.insert(building_data.base_data.cell, *building_data);
         });
+        self.dirty = true;
     }
 
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
@@ -475,6 +477,14 @@ impl WorldCache {
         max_distance: i32,
     ) -> (Vec<i64>, Vec<BuildingData>) {
         self.buildings.unload_distant(center, max_distance)
+    }
+
+    pub fn is_buildings_dirty(&self) -> bool {
+        self.buildings.dirty
+    }
+
+    pub fn clear_buildings_dirty(&mut self) {
+        self.buildings.dirty = false;
     }
 
     // OCEAN
