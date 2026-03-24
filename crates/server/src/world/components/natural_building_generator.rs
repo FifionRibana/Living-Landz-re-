@@ -81,7 +81,7 @@ impl NaturalBuildingGenerator {
                     .expect(format!("No variations for {:?} type", tree_type).as_str());
 
                 let variant_count = (tree_variations.len()
-                    / (TreeAge::iter().collect::<Vec<TreeAge>>().len() * 6))
+                    / TreeAge::iter().collect::<Vec<TreeAge>>().len())
                     as usize;
                 let tree_variant_idx = rng.random_range(..variant_count);
 
