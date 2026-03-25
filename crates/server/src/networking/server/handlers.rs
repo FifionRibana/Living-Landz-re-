@@ -261,7 +261,14 @@ pub async fn handle_connection(
                 match msg {
                     Some(Ok(Message::Binary(data))) => {
                         tracing::info!("Received message from {}: {} bytes", addr, data.len());
-                        match bincode::decode_from_slice(&data[..], bincode::config::standard()) {
+                        let decompressed = match shared::protocol::compression::decompress(&data[..]) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                tracing::warn!("Decompression failed from {}: {}", addr, e);
+                                continue;
+                            }
+                        };
+                        match bincode::decode_from_slice(&decompressed[..], bincode::config::standard()) {
                             Ok((client_msg, _)) => {
                                 tracing::debug!("Received: {:?}", client_msg);
 
@@ -270,9 +277,14 @@ pub async fn handle_connection(
 
                                 // Envoyer les réponses DIRECTEMENT (comme avant)
                                 for response in responses {
-                                    let response_data =
-                                        bincode::encode_to_vec(&response, bincode::config::standard())
-                                            .unwrap();
+                                    let raw = bincode::encode_to_vec(&response, bincode::config::standard())
+                                        .unwrap();
+                                    let response_data = shared::protocol::compression::compress(&raw);
+                                    tracing::trace!(
+                                        "Send: {} bytes → {} bytes ({:.0}%)",
+                                        raw.len(), response_data.len(),
+                                        response_data.len() as f64 / raw.len().max(1) as f64 * 100.0
+                                    );
                                     if let Err(e) = write.send(Message::Binary(response_data.into())).await {
                                         tracing::error!("Failed to send direct response: {}", e);
                                         break;
@@ -351,7 +363,8 @@ pub async fn handle_connection(
                     tracing::debug!("Sending async {} to session {}", message_type, session_id);
                 }
 
-                let data = bincode::encode_to_vec(&async_message, bincode::config::standard()).unwrap();
+                let raw = bincode::encode_to_vec(&async_message, bincode::config::standard()).unwrap();
+                let data = shared::protocol::compression::compress(&raw);
                 if let Err(e) = write.send(Message::Binary(data.into())).await {
                     tracing::error!("Failed to send async message: {}", e);
                     break;
@@ -2065,7 +2078,8 @@ async fn handle_client_message(
                 Ok(Some(lake_data)) => {
                     tracing::info!(
                         "✓ Sending lake data: {}x{} ({:.2} KB)",
-                        lake_data.width, lake_data.height,
+                        lake_data.width,
+                        lake_data.height,
                         lake_data.mask_values.len() as f64 / 1024.0
                     );
                     vec![ServerMessage::LakeData { lake_data }]
