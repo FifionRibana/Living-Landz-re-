@@ -71,7 +71,7 @@ async fn main() {
 
     if args.contains(&"--clear".to_string()) {
         tracing::info!("=== Starting World Cleaning ===");
-        world::systems::clear_world(map_name, &db_tables.terrains).await;
+        world::systems::clear_world(map_name, &db_tables).await;
         tracing::info!("=== Cleaning Complete - Exiting ===");
         return;
     } else if args.contains(&"--save-png".to_string()) {
