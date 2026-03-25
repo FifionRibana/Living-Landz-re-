@@ -151,9 +151,25 @@ impl NetworkClient {
                 true => {
                     match socket.read() {
                         Ok(Message::Binary(data)) => {
-                            info!("Received {} bytes from server", data.len());
-                            match bincode::decode_from_slice(&data[..], bincode::config::standard())
-                            {
+                            let decompressed =
+                                match shared::protocol::compression::decompress(&data[..]) {
+                                    Ok(d) => {
+                                        info!(
+                                            "Received {} bytes → {} bytes decompressed",
+                                            data.len(),
+                                            d.len()
+                                        );
+                                        d
+                                    }
+                                    Err(e) => {
+                                        error!("Decompression error: {}", e);
+                                        continue;
+                                    }
+                                };
+                            match bincode::decode_from_slice(
+                                &decompressed[..],
+                                bincode::config::standard(),
+                            ) {
                                 Ok((server_msg, _)) => {
                                     // info!("✓ Deserialized ServerMessage: {:?}", server_msg);
                                     incoming.lock().unwrap().push_back(server_msg);
@@ -198,11 +214,12 @@ impl NetworkClient {
         }
 
         match bincode::encode_to_vec(&message, bincode::config::standard()) {
-            Ok(data) => {
+            Ok(raw) => {
+                let data = shared::protocol::compression::compress(&raw);
                 info!(
-                    "Queuing message ({} bytes) to server: {:?}",
-                    data.len(),
-                    message
+                    "Queuing message ({} → {} bytes) to server",
+                    raw.len(),
+                    data.len()
                 );
                 if let Err(e) = self.outgoing.send(data) {
                     error!("Failed to queue message: {}", e);

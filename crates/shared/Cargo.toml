@@ -11,3 +11,5 @@ chrono = { workspace = true }
 hexx = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
+
+lz4_flex = { workspace = true }
