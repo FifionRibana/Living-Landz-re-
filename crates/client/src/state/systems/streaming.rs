@@ -7,7 +7,7 @@ use shared::{
 
 use crate::camera::MainCamera;
 use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::components::{Biome, Terrain, Building};
+use crate::rendering::terrain::components::{Biome, Building, Terrain};
 // use crate::rendering::terrain::components::Terrain;
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
 
@@ -55,11 +55,18 @@ pub fn request_chunks_around_camera(
                 y: terrain_chunk_id.y + dy,
             };
 
-            if !world_cache.is_terrain_loaded("Gaulyia", &id)
-                && !world_cache.is_terrain_requested("Gaulyia", &id)
-            {
-                world_cache.mark_terrain_requested("Gaulyia", &id);
-                to_request.push(id);
+            if !world_cache.is_terrain_loaded("Gaulyia", &id) {
+                let should_request = match world_cache.get_terrain_requested_time("Gaulyia", &id) {
+                    Some(requested_at) => {
+                        time.elapsed_secs() - requested_at > streaming_config.request_timeout
+                    }
+                    None => true,
+                };
+
+                if should_request {
+                    world_cache.mark_terrain_requested_at("Gaulyia", &id, time.elapsed_secs());
+                    to_request.push(id);
+                }
             }
 
             for biome_type in BiomeTypeEnum::iter() {
@@ -74,6 +81,12 @@ pub fn request_chunks_around_camera(
             }
         }
     }
+
+    to_request.sort_unstable_by_key(|id| {
+        let dx = id.x - terrain_chunk_id.x;
+        let dy = id.y - terrain_chunk_id.y;
+        dx * dx + dy * dy
+    });
 
     if !to_request.is_empty() {
         info!("Requesting {} chunks", to_request.len());
@@ -119,8 +132,12 @@ pub fn unload_distant_chunks(
 
     entities.retain(|(_, key)| removed_keys.contains(key));
 
-    for (entity, _) in entities {
-        commands.entity(entity).despawn();
+    let to_despawn: Vec<Entity> = entities.into_iter().map(|(e, _)| e).collect();
+    if !to_despawn.is_empty() {
+        info!("Despawning {} terrain entities", to_despawn.len());
+        for entity in to_despawn {
+            commands.entity(entity).despawn();
+        }
     }
 
     for biome_type in BiomeTypeEnum::iter() {
@@ -143,10 +160,16 @@ pub fn unload_distant_chunks(
     let (removed_building_keys, _) =
         world_cache.unload_distant_building(terrain_chunk_id, streaming_config.unload_distance);
 
-    let mut b_entities: HashSet<_> = building_entities.iter().map(|(e, b)| (e, b.id)).collect();
-    b_entities.retain(|(_, key)| removed_building_keys.contains(key));
-
-    for (entity, _) in b_entities {
-        commands.entity(entity).despawn();
+    if !removed_building_keys.is_empty() {
+        let mut count = 0;
+        for (entity, building) in building_entities.iter() {
+            if removed_building_keys.contains(&building.id) {
+                commands.entity(entity).despawn();
+                count += 1;
+            }
+        }
+        if count > 0 {
+            info!("Despawned {} building entities", count);
+        }
     }
 }

@@ -16,10 +16,8 @@ pub fn setup_cell_details_panel(
     let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
-            left: 42.,
-            right: 42.,
-            top: 76.,
-            bottom: 42.,
+            min_inset: Vec2::new(42., 76.),
+            max_inset: Vec2::new(42., 42.)
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },

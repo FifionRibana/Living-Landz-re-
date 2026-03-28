@@ -61,10 +61,10 @@ pub fn setup_management_panel(
                     padding: UiRect::all(Val::Px(32.0)),
                     row_gap: Val::Px(16.0),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(12.0)),
                     ..default()
                 },
                 BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-                BorderRadius::all(Val::Px(12.0)),
             ))
             .with_children(|panel| {
                 match &player_info.organization {

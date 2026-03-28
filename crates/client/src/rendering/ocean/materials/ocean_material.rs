@@ -7,27 +7,27 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType};
 
 #[derive(Clone, Copy, ShaderType)]
 pub struct OceanParams {
-    pub time: f32,
     pub world_width: f32,
     pub world_height: f32,
     pub max_depth: f32,
     pub wave_speed: f32,
     pub wave_amplitude: f32,
     pub foam_width: f32,
-    pub _padding: f32,
+    pub _padding1: f32,
+    pub _padding2: f32,
 }
 
 impl Default for OceanParams {
     fn default() -> Self {
         Self {
-            time: 0.0,
             world_width: 6000.0,  // Ajuster selon ta carte
             world_height: 5000.0,
             max_depth: 100.0,
             wave_speed: 1.0,
             wave_amplitude: 0.08,
             foam_width: 0.15,
-            _padding: 0.0,
+            _padding1: 0.0,
+            _padding2: 0.0,
         }
     }
 }

@@ -33,11 +33,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(20.0),
                         border: UiRect::all(Val::Px(2.0)),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.12, 0.12, 0.15, 0.95)), // Semi-transparent dark panel
                     BorderColor::all(Color::srgb(0.3, 0.3, 0.35)),
-                    BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|form| {
                     // Title
@@ -91,11 +91,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                             height: Val::Px(42.0),
                             padding: UiRect::all(Val::Px(12.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.9)),
-                        BorderRadius::all(Val::Px(4.0)),
                         RegisterFamilyNameInput,
                     ));
 
@@ -138,11 +138,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                             height: Val::Px(42.0),
                             padding: UiRect::all(Val::Px(12.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.9)),
-                        BorderRadius::all(Val::Px(4.0)),
                         RegisterPasswordInput,
                     ));
 
@@ -185,11 +185,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                             height: Val::Px(42.0),
                             padding: UiRect::all(Val::Px(12.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.9)),
-                        BorderRadius::all(Val::Px(4.0)),
                         RegisterPasswordConfirmInput,
                     ));
 
@@ -255,11 +255,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             border: UiRect::all(Val::Px(2.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.5, 0.65, 0.45)),
                         BackgroundColor(Color::srgb(0.35, 0.5, 0.3)),
-                        BorderRadius::all(Val::Px(4.0)),
                         RegisterSubmitButton,
                     ))
                     .with_children(|button| {
@@ -284,11 +284,11 @@ pub fn setup_register_panel(mut commands: Commands, asset_server: Res<AssetServe
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.15, 0.15, 0.18, 0.8)),
-                        BorderRadius::all(Val::Px(4.0)),
                         RegisterBackButton,
                     ))
                     .with_children(|button| {

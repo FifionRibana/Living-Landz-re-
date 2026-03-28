@@ -95,9 +95,9 @@ pub fn setup_production_panel(
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(8.0),
                 padding: UiRect::all(Val::Px(8.0)),
+                // border_radius: BorderRadius::all(Val::Px(8.0)),
                 ..default()
             },
-            // BorderRadius::all(Val::Px(8.0)),
             // BorderColor::all(Color::srgba_u8(235, 225, 209, 120)),
             ProductionPanel,
             Pickable::IGNORE,
@@ -132,9 +132,9 @@ pub fn setup_production_panel(
                             padding: UiRect::all(Val::Px(6.0)),
                             flex_direction: FlexDirection::Column,
                             row_gap: Val::Px(4.0),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
-                        BorderRadius::all(Val::Px(4.0)),
                         BorderColor::all(Color::srgba_u8(235, 225, 209, 80)),
                         ProductionSlotEntry {
                             slot_index: i as usize,
@@ -179,10 +179,10 @@ pub fn setup_production_panel(
                                 Node {
                                     width: Val::Percent(100.0),
                                     height: Val::Percent(100.0),
+                                    border_radius: BorderRadius::all(Val::Px(2.0)),
                                     ..default()
                                 },
                                 BackgroundColor(Color::srgba_u8(40, 40, 40, 120)),
-                                BorderRadius::all(Val::Px(2.0)),
                             ));
                         });
 
@@ -194,10 +194,10 @@ pub fn setup_production_panel(
                                 position_type: PositionType::Absolute,
                                 bottom: Val::Px(6.0),
                                 left: Val::Px(6.0),
+                                border_radius: BorderRadius::all(Val::Px(2.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba_u8(50, 150, 255, 200)),
-                            BorderRadius::all(Val::Px(2.0)),
                             ProductionSlotProgressBar,
                         ));
                     });
@@ -343,9 +343,9 @@ pub fn update_production_panel(
                             Node {
                                 width: Val::Px(22.0),
                                 height: Val::Px(22.0),
+                                border_radius: BorderRadius::all(Val::Px(11.0)),
                                 ..default()
                             },
-                            BorderRadius::all(Val::Px(11.0)),
                         ));
                     }
                 }

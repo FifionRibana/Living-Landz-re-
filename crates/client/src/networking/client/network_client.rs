@@ -232,9 +232,15 @@ impl NetworkClient {
         }
     }
 
+    /// Drain up to `max` messages per frame. Large terrain payloads are expensive to process.
     pub fn poll_messages(&mut self) -> Vec<shared::protocol::ServerMessage> {
+        self.poll_messages_limited(5)
+    }
+
+    pub fn poll_messages_limited(&mut self, max: usize) -> Vec<shared::protocol::ServerMessage> {
         let mut messages = self.incoming.lock().unwrap();
-        messages.drain(..).collect()
+        let count = messages.len().min(max);
+        messages.drain(..count).collect()
     }
 
     pub fn is_connected(&self) -> bool {

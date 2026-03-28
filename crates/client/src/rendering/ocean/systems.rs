@@ -164,9 +164,3 @@ pub fn spawn_ocean(
         Transform::from_translation(Vec3::new(0.0, 0.0, -500.0)),
     ));
 }
-
-pub fn update_ocean_time(time: Res<Time>, mut materials: ResMut<Assets<OceanMaterial>>) {
-    for (_, material) in materials.iter_mut() {
-        material.params.time = time.elapsed_secs();
-    }
-}

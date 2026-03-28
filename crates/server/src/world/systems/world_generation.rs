@@ -396,26 +396,68 @@ pub async fn generate_chunk_data(
 
     // 4. Save to DB
     let t4 = std::time::Instant::now();
-    db_tables
-        .terrains
-        .save_terrain(terrain_data.clone())
-        .await
-        .expect("Failed to save terrain chunk");
+    for attempt in 0..3 {
+        match db_tables.terrains.save_terrain(terrain_data.clone()).await {
+            Ok(_) => break,
+            Err(e) if attempt < 2 => {
+                tracing::warn!(
+                    "Terrain save attempt {} failed, retrying: {}",
+                    attempt + 1,
+                    e
+                );
+                tokio::time::sleep(tokio::time::Duration::from_millis(
+                    50 * (attempt as u64 + 1),
+                ))
+                .await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to save terrain after 3 attempts: {}", e);
+            }
+        }
+    }
 
     if !chunk_cells.is_empty() {
-        db_tables
-            .cells
-            .save_cells(&chunk_cells)
-            .await
-            .expect("Failed to save cells");
+        for attempt in 0..3 {
+            match db_tables.cells.save_cells(&chunk_cells).await {
+                Ok(_) => break,
+                Err(e) if attempt < 2 => {
+                    tracing::warn!(
+                        "Cells save attempt {} failed (deadlock?), retrying: {}",
+                        attempt + 1,
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        50 * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to save cells after 3 attempts: {}", e);
+                }
+            }
+        }
     }
 
     if !building_data.is_empty() {
-        db_tables
-            .buildings
-            .save_buildings(&building_data)
-            .await
-            .expect("Failed to save buildings");
+        for attempt in 0..3 {
+            match db_tables.buildings.save_buildings(&building_data).await {
+                Ok(_) => break,
+                Err(e) if attempt < 2 => {
+                    tracing::warn!(
+                        "Buildings save attempt {} failed (deadlock?), retrying: {}",
+                        attempt + 1,
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        50 * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to save buildings after 3 attempts: {}", e);
+                }
+            }
+        }
     }
     let t4_elapsed = t4.elapsed();
 
@@ -550,7 +592,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 }
 
 /// Selective world clearing: removes procedurally generated data while preserving player data.
-/// 
+///
 /// DELETES:
 ///   - terrain.terrains (chunk meshes)
 ///   - terrain.terrain_biomes (biome chunk data)
@@ -568,7 +610,10 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 ///   - game.players, game.characters
 ///   - units, inventories, actions
 pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
-    tracing::info!("=== Starting Selective World Clearing for '{}' ===", map_name);
+    tracing::info!(
+        "=== Starting Selective World Clearing for '{}' ===",
+        map_name
+    );
     let start = std::time::Instant::now();
 
     let pool = &db_tables.pool;
@@ -578,50 +623,88 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
     let trees_deleted = sqlx::query(
         "DELETE FROM buildings.trees WHERE building_id IN (SELECT id FROM buildings.buildings_base WHERE category_id = 1)"
     ).execute(&mut *tx).await.expect("Failed to clear trees");
-    tracing::info!("  🗑️  buildings.trees: {} rows", trees_deleted.rows_affected());
+    tracing::info!(
+        "  🗑️  buildings.trees: {} rows",
+        trees_deleted.rows_affected()
+    );
 
     // 2. Natural buildings base
-    let natural_deleted = sqlx::query(
-        "DELETE FROM buildings.buildings_base WHERE category_id = 1"
-    ).execute(&mut *tx).await.expect("Failed to clear natural buildings");
-    tracing::info!("  🗑️  buildings.buildings_base (Natural): {} rows", natural_deleted.rows_affected());
+    let natural_deleted = sqlx::query("DELETE FROM buildings.buildings_base WHERE category_id = 1")
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear natural buildings");
+    tracing::info!(
+        "  🗑️  buildings.buildings_base (Natural): {} rows",
+        natural_deleted.rows_affected()
+    );
 
     // 3. Voronoi (FK order: cells first)
     let vzc_deleted = sqlx::query("DELETE FROM terrain.voronoi_zone_cells")
-        .execute(&mut *tx).await.expect("Failed to clear voronoi zone cells");
-    tracing::info!("  🗑️  terrain.voronoi_zone_cells: {} rows", vzc_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear voronoi zone cells");
+    tracing::info!(
+        "  🗑️  terrain.voronoi_zone_cells: {} rows",
+        vzc_deleted.rows_affected()
+    );
 
     let vz_deleted = sqlx::query("DELETE FROM terrain.voronoi_zones")
-        .execute(&mut *tx).await.expect("Failed to clear voronoi zones");
-    tracing::info!("  🗑️  terrain.voronoi_zones: {} rows", vz_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear voronoi zones");
+    tracing::info!(
+        "  🗑️  terrain.voronoi_zones: {} rows",
+        vz_deleted.rows_affected()
+    );
 
     // 4. Cells
     let cells_deleted = sqlx::query("DELETE FROM terrain.cells")
-        .execute(&mut *tx).await.expect("Failed to clear cells");
-    tracing::info!("  🗑️  terrain.cells: {} rows", cells_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear cells");
+    tracing::info!(
+        "  🗑️  terrain.cells: {} rows",
+        cells_deleted.rows_affected()
+    );
 
     // 5. Terrain chunks
     let terrains_deleted = sqlx::query("DELETE FROM terrain.terrains WHERE name = $1")
         .bind(map_name)
-        .execute(&mut *tx).await.expect("Failed to clear terrains");
-    tracing::info!("  🗑️  terrain.terrains: {} rows", terrains_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear terrains");
+    tracing::info!(
+        "  🗑️  terrain.terrains: {} rows",
+        terrains_deleted.rows_affected()
+    );
 
     // 6. Biome chunks
     let biomes_deleted = sqlx::query("DELETE FROM terrain.terrain_biomes WHERE name = $1")
         .bind(map_name)
-        .execute(&mut *tx).await.expect("Failed to clear terrain biomes");
-    tracing::info!("  🗑️  terrain.terrain_biomes: {} rows", biomes_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear terrain biomes");
+    tracing::info!(
+        "  🗑️  terrain.terrain_biomes: {} rows",
+        biomes_deleted.rows_affected()
+    );
 
     // 7. Ocean data
     let ocean_deleted = sqlx::query("DELETE FROM terrain.ocean_data WHERE name = $1")
         .bind(map_name)
-        .execute(&mut *tx).await.expect("Failed to clear ocean data");
-    tracing::info!("  🗑️  terrain.ocean_data: {} rows", ocean_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear ocean data");
+    tracing::info!(
+        "  🗑️  terrain.ocean_data: {} rows",
+        ocean_deleted.rows_affected()
+    );
 
     // 8. Lake data (may not exist on all DB versions)
     match sqlx::query("DELETE FROM terrain.lake_data WHERE name = $1")
         .bind(map_name)
-        .execute(&mut *tx).await
+        .execute(&mut *tx)
+        .await
     {
         Ok(r) => tracing::info!("  🗑️  terrain.lake_data: {} rows", r.rows_affected()),
         Err(_) => tracing::info!("  ⏩  terrain.lake_data: table not found, skipping"),
@@ -629,18 +712,31 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
 
     // 9. Road chunk visibility cache (not the road_segments themselves)
     let road_cache_deleted = sqlx::query("DELETE FROM terrain.road_chunk_visibility")
-        .execute(&mut *tx).await.expect("Failed to clear road chunk visibility");
-    tracing::info!("  🗑️  terrain.road_chunk_visibility: {} rows", road_cache_deleted.rows_affected());
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear road chunk visibility");
+    tracing::info!(
+        "  🗑️  terrain.road_chunk_visibility: {} rows",
+        road_cache_deleted.rows_affected()
+    );
 
     // 10. Territory contours (regenerated from territory data)
     let contours_deleted = sqlx::query("DELETE FROM terrain.territory_chunk_contours")
-        .execute(&mut *tx).await;
+        .execute(&mut *tx)
+        .await;
     match contours_deleted {
-        Ok(r) => tracing::info!("  🗑️  terrain.territory_chunk_contours: {} rows", r.rows_affected()),
-        Err(_) => tracing::info!("  ⏩  terrain.territory_chunk_contours: table not found, skipping"),
+        Ok(r) => tracing::info!(
+            "  🗑️  terrain.territory_chunk_contours: {} rows",
+            r.rows_affected()
+        ),
+        Err(_) => {
+            tracing::info!("  ⏩  terrain.territory_chunk_contours: table not found, skipping")
+        }
     }
 
-    tx.commit().await.expect("Failed to commit clear transaction");
+    tx.commit()
+        .await
+        .expect("Failed to commit clear transaction");
 
     // 11. Clean up .bin cache files
     let cache_patterns = [
@@ -653,7 +749,11 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         }
     }
 
-    tracing::info!("=== ✓ World '{}' cleared in {:?} ===", map_name, start.elapsed());
+    tracing::info!(
+        "=== ✓ World '{}' cleared in {:?} ===",
+        map_name,
+        start.elapsed()
+    );
     tracing::info!("  Preserved: player buildings, road segments, organizations, units, players");
 }
 

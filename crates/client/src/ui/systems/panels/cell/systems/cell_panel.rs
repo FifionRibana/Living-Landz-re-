@@ -111,10 +111,10 @@ pub fn setup_cell_slots(
                                 // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
+                                border_radius: BorderRadius::all(Val::Px(8.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
-                            BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
                             Pickable {
                                 should_block_lower: false,
@@ -127,10 +127,10 @@ pub fn setup_cell_slots(
                             Node {
                                 width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
+                                border_radius: BorderRadius::all(Val::Px(8.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
-                            BorderRadius::all(Val::Px(8.)),
                             InteriorSlotContainer,
                             Pickable {
                                 should_block_lower: false,
@@ -144,10 +144,10 @@ pub fn setup_cell_slots(
                                 // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
+                                border_radius: BorderRadius::all(Val::Px(8.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
-                            BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
                             Pickable {
                                 should_block_lower: false,
@@ -161,10 +161,10 @@ pub fn setup_cell_slots(
                                 // width: Val::Px(window.height() - 64.),
                                 margin: UiRect::all(Val::Px(10.)),
                                 flex_grow: 1.0,
+                                border_radius: BorderRadius::all(Val::Px(8.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
-                            BorderRadius::all(Val::Px(8.)),
                             ExteriorSlotContainer,
                             Pickable {
                                 should_block_lower: false,

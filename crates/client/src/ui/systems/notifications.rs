@@ -77,10 +77,10 @@ pub fn spawn_notifications(
                     ),
                     max_width: Val::Px(450.0),
                     margin: UiRect::left(Val::Px(-225.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(bg_color),
-                BorderRadius::all(Val::Px(6.0)),
                 ToastNotification {
                     spawned_at: notif.spawned_at,
                 },

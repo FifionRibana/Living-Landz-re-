@@ -57,11 +57,11 @@ pub fn setup_character_creation(
                     width: Val::Px(860.0),
                     height: Val::Px(540.0),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(PANEL_BG),
                 BorderColor::all(PANEL_BORDER),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|container| {
                 spawn_preview_panel(container, &font_bold, &font_regular, &asset_server, &creation_state);
@@ -125,11 +125,11 @@ fn spawn_preview_panel(
                         overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
                     BackgroundColor(PREVIEW_BG),
                     BorderColor::all(FRAME_BORDER),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_children(|frame| {
                     for (i, layer) in creation_state.layers.iter().enumerate() {
@@ -184,11 +184,11 @@ fn spawn_preview_panel(
                                 width: Val::Px(8.0),
                                 height: Val::Px(8.0),
                                 border: UiRect::all(Val::Px(1.0)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
                                 ..default()
                             },
                             BackgroundColor(if layer.current > 0 { GOLD } else { Color::NONE }),
                             BorderColor::all(GOLD_DIM),
-                            BorderRadius::all(Val::Px(4.0)),
                         ));
                     }
 
@@ -252,12 +252,12 @@ fn spawn_preview_panel(
                                         align_items: AlignItems::Center,
                                         justify_content: JustifyContent::Center,
                                         border: UiRect::all(Val::Px(1.0)),
+                                        border_radius: BorderRadius::all(Val::Px(3.0)),
                                         ..default()
                                     },
                                     Button,
                                     BackgroundColor(ARROW_BG),
                                     BorderColor::all(ARROW_BORDER),
-                                    BorderRadius::all(Val::Px(3.0)),
                                     RandomNameButton,
                                 ))
                                 .with_children(|btn| {
@@ -293,11 +293,11 @@ fn spawn_preview_panel(
                             height: Val::Px(38.0),
                             padding: UiRect::all(Val::Px(10.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             ..default()
                         },
                         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
                         BorderColor::all(PANEL_BORDER),
-                        BorderRadius::all(Val::Px(3.0)),
                         FirstNameInput,
                     ));
                 });
@@ -368,13 +368,13 @@ fn spawn_controls_panel(
                         height: Val::Px(34.0),
                         margin: UiRect::top(Val::Px(10.0)),
                         border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
                         column_gap: Val::Px(6.0),
                         ..default()
                     },
                     Button,
                     BackgroundColor(ARROW_BG),
                     BorderColor::all(ARROW_BORDER),
-                    BorderRadius::all(Val::Px(3.0)),
                     RandomAllButton,
                 ))
                 .with_children(|btn| {
@@ -473,12 +473,12 @@ fn spawn_gender_button(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             Button,
             BackgroundColor(if is_active { GENDER_ACTIVE_BG } else { GENDER_INACTIVE_BG }),
             BorderColor::all(if is_active { GENDER_ACTIVE_BORDER } else { GENDER_INACTIVE_BORDER }),
-            BorderRadius::all(Val::Px(3.0)),
             GenderButton { gender },
             GenderActiveIndicator { gender },
         ))
@@ -529,11 +529,11 @@ fn spawn_selector_row(
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.79, 0.66, 0.30, 0.06)),
                 BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.3)),
-                BorderRadius::all(Val::Px(4.0)),
             ))
             .with_children(|icon_box| {
                 icon_box.spawn((
@@ -607,12 +607,12 @@ fn spawn_arrow(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             Button,
             BackgroundColor(ARROW_BG),
             BorderColor::all(ARROW_BORDER),
-            BorderRadius::all(Val::Px(3.0)),
             LayerArrowButton { category, direction },
         ))
         .with_children(|btn| {
@@ -651,11 +651,11 @@ fn spawn_future_item(
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(3.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.79, 0.66, 0.30, 0.03)),
                 BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.15)),
-                BorderRadius::all(Val::Px(3.0)),
             ))
             .with_children(|icon_box| {
                 icon_box.spawn((
@@ -700,12 +700,12 @@ fn spawn_action_button(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             Button,
             BackgroundColor(bg),
             BorderColor::all(border_color),
-            BorderRadius::all(Val::Px(3.0)),
             marker,
         ))
         .with_children(|btn| {

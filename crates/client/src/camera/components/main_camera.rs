@@ -39,10 +39,10 @@ pub fn setup_camera(
     commands.spawn((
         Camera2d,
         Camera {
-            target: RenderTarget::Image(image_handle.clone().into()),
             order: 0,
             ..default()
         },
+        RenderTarget::Image(image_handle.clone().into()),
         MainCamera,
         GAME_LAYER,
     ));
