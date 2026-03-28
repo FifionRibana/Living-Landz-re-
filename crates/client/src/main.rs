@@ -48,6 +48,7 @@ fn main() {
             rendering::ocean::OceanPlugin,
             rendering::lake::LakePlugin,
             rendering::territory::TerritoryBorderPlugin,
+            rendering::mist::MistPlugin,
             ui::frosted_glass::FrostedGlassPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
