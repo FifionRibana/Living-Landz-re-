@@ -56,12 +56,12 @@ pub fn update_context_menu(
                 flex_direction: FlexDirection::Column,
                 min_width: Val::Px(160.0),
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 padding: UiRect::axes(Val::Px(0.0), Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(MENU_BG),
             BorderColor::all(MENU_BORDER),
-            BorderRadius::all(Val::Px(4.0)),
             GlobalZIndex(1000),
             ContextMenuRoot,
             // Bloque les clics en dessous

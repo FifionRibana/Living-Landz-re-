@@ -22,10 +22,8 @@ pub fn setup_top_bar(
     let top_bar_image = asset_server.load("ui/ui_top_bar_3.png");
     let top_bar_slicer = TextureSlicer {
         border: BorderRect {
-            left: 24.,
-            right: 24.,
-            top: 19.,
-            bottom: 49.,
+            min_inset: Vec2::new(24., 19.),
+            max_inset: Vec2::new(24., 49.)
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
@@ -469,10 +467,10 @@ pub fn setup_top_bar(
                                 left: Val::Px(52.),
                                 top: Val::Px(6.),
                                 padding: UiRect::axes(Val::Px(8.), Val::Px(4.)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.9)),
-                            BorderRadius::all(Val::Px(4.)),
                             GlobalZIndex(2000),
                             Visibility::Hidden,
                             crate::ui::components::ActionModeTooltip,

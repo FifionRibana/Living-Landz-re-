@@ -2,13 +2,28 @@ use bevy::{ecs::relationship::RelatedSpawnerCommands, prelude::*};
 
 use crate::ui::components::{ActionBarMarker, ActionCategory, ActionCategoryButton};
 
-pub fn setup_action_bar(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &Res<AssetServer>) {
+pub fn setup_action_bar(
+    parent: &mut RelatedSpawnerCommands<ChildOf>,
+    asset_server: &Res<AssetServer>,
+) {
     let categories = [
         (ActionCategory::Roads, "ui/icons/road.png", "Chemin"),
-        (ActionCategory::Buildings, "ui/icons/village.png", "Constructions"),
+        (
+            ActionCategory::Buildings,
+            "ui/icons/village.png",
+            "Constructions",
+        ),
         (ActionCategory::Production, "ui/icons/cog.png", "Production"),
-        (ActionCategory::Management, "ui/icons/bookmarklet.png", "Gestion"),
-        (ActionCategory::Entertainment, "ui/icons/laurels-trophy.png", "Divertissement"),
+        (
+            ActionCategory::Management,
+            "ui/icons/bookmarklet.png",
+            "Gestion",
+        ),
+        (
+            ActionCategory::Entertainment,
+            "ui/icons/laurels-trophy.png",
+            "Divertissement",
+        ),
     ];
 
     parent
@@ -39,12 +54,14 @@ pub fn setup_action_bar(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
                             height: px(48.),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
+                            border_radius: BorderRadius::all(Val::Px(8.0)),
                             ..default()
                         },
                         BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8)),
                         BorderColor::all(Color::srgb_u8(150, 130, 100)),
-                        BorderRadius::all(px(8.)),
-                        ActionCategoryButton { category: *category },
+                        ActionCategoryButton {
+                            category: *category,
+                        },
                         Pickable {
                             should_block_lower: true,
                             is_hoverable: true,
@@ -72,10 +89,7 @@ pub fn setup_action_bar(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
 }
 
 pub fn handle_action_category_button_interactions(
-    mut query: Query<
-        (&ActionCategoryButton, &Interaction),
-        Changed<Interaction>,
-    >,
+    mut query: Query<(&ActionCategoryButton, &Interaction), Changed<Interaction>>,
     mut action_state: ResMut<crate::ui::resources::ActionState>,
 ) {
     for (category_button, interaction) in &mut query {

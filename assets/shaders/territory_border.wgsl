@@ -11,7 +11,6 @@ struct BorderParams {
 }
 
 @group(2) @binding(2) var<uniform> params: BorderParams;
-@group(2) @binding(3) var<uniform> time: f32;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {

@@ -508,10 +508,10 @@ fn spawn_action_card(
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
                 row_gap: Val::Px(4.0),
+                border_radius: BorderRadius::all(Val::Px(10.0)),
                 ..default()
             },
             BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-            BorderRadius::all(Val::Px(10.0)),
             // Pickable {
             //     should_block_lower: true,
             //     is_hoverable: true,
@@ -799,10 +799,10 @@ pub fn update_action_detail_panel(
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(8.0),
                 margin: UiRect::bottom(Val::Px(8.0)),
+                border_radius: BorderRadius::all(Val::Px(8.0)),
                 ..default()
             },
             BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-            BorderRadius::all(Val::Px(8.0)),
             ActionDetailPanel,
         ))
         .with_children(|panel| {
@@ -961,9 +961,9 @@ pub fn update_action_detail_panel(
                                                 Node {
                                                     width: Val::Percent(100.0),
                                                     height: Val::Percent(100.0),
+                                                    border_radius: BorderRadius::all(Val::Px(18.0)),
                                                     ..default()
                                                 },
-                                                BorderRadius::all(Val::Px(18.0)),
                                             ));
                                         });
                                 }
@@ -980,6 +980,7 @@ pub fn update_action_detail_panel(
                                 Val::Px(6.0),
                                 Val::Px(6.0),
                             ),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BackgroundColor(if action.executable {
@@ -987,7 +988,6 @@ pub fn update_action_detail_panel(
                         } else {
                             Color::srgba_u8(80, 80, 80, 180)
                         }),
-                        BorderRadius::all(Val::Px(4.0)),
                         Interaction::default(),
                         ActionExecuteButton {
                             action_id: action.id.clone(),

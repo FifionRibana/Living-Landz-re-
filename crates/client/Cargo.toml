@@ -15,7 +15,7 @@ path = "src/bin/territory_contour.rs"
 shared = { path = "../shared" }
 
 bevy = { workspace = true }
-bevy_ui_text_input = "0.6"
+bevy_ui_text_input = "0.7"
 bincode = { workspace = true }
 hexx = { workspace = true }
 image = { workspace = true }
@@ -30,3 +30,4 @@ chrono = { workspace = true }
 [features]
 default = []
 dev = ["bevy/dynamic_linking"] # Hot reload en dev
+profile = ["bevy/trace_tracy"]

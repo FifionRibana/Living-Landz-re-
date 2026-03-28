@@ -1,7 +1,7 @@
-#import bevy_pbr::{
-    mesh_view_bindings::globals,
-}
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
+#import bevy_render::globals::Globals
+
+@group(0) @binding(1) var<uniform> globals: Globals;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material_color: vec4<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var<uniform> material_time: f32;
@@ -29,7 +29,7 @@ fn fragment(
 ) -> @location(0) vec4<f32> {
     var color = material_color;
 
-    let hue = fract(material_time / 2.0); // 0 à 1 en 2 secondes
+    let hue = fract(globals.time / 2.0); // 0 à 1 en 2 secondes
     // let hsv = vec3<f32>(hue, 0.8, 1.0); // Saturation élevée, luminosité max
     let rgb = hsv_to_rgb(hue, 0.8, 1.0); // Saturation élevée, luminosité max
     

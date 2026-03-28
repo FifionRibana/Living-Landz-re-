@@ -1,14 +1,17 @@
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
+#import bevy_render::globals::Globals
+
+@group(0) @binding(1) var<uniform> globals: Globals;
 
 struct OceanParams {
-    time: f32,
     world_width: f32,
     world_height: f32,
     max_depth: f32,
     wave_speed: f32,
     wave_amplitude: f32,
     foam_width: f32,
-    _padding: f32,
+    _padding1: f32,
+    _padding2: f32,
 }
 
 @group(2) @binding(0) var heightmap: texture_2d<f32>;
@@ -94,7 +97,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let deep_mix = mix(deep_color.rgb, ABYSS_COLOR, saturate((depth - 0.5) * 2.0));
     var ocean_color = mix(shallow_mix, deep_mix, step(0.5, depth));
 
-    let time = params.time;
+    let time = globals.time;
 
     // === Courants océaniques ===
     let current_time = time * 0.03;

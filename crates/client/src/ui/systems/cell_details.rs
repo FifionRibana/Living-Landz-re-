@@ -299,11 +299,11 @@ fn spawn_organization_badge(
                 column_gap: Val::Px(8.0),
                 padding: UiRect::new(Val::Px(8.0), Val::Px(12.0), Val::Px(6.0), Val::Px(6.0)),
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.12, 0.09, 0.06, 0.85)),
             BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.6)),
-            BorderRadius::all(Val::Px(4.0)),
             crate::ui::components::OrganizationBadge,
             Pickable {
                 should_block_lower: true,

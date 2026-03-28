@@ -141,12 +141,6 @@ pub fn create_lake_textures(
     info!("✓ Lake textures created");
 }
 
-pub fn update_lake_time(time: Res<Time>, mut materials: ResMut<Assets<LakeMaterial>>) {
-    for (_, material) in materials.iter_mut() {
-        material.params.time = time.elapsed_secs();
-    }
-}
-
 fn create_lake_mesh(width: f32, height: f32) -> Mesh {
     let vertices = vec![
         [0.0, 0.0, 0.0],

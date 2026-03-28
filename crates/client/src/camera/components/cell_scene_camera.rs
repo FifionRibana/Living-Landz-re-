@@ -43,11 +43,11 @@ pub fn setup_cell_scene_camera(
     commands.spawn((
         Camera2d,
         Camera {
-            target: RenderTarget::Image(image_handle.clone().into()),
             order: 1,
             is_active: false,
             ..default()
         },
+        RenderTarget::Image(image_handle.clone().into()),
         CellSceneCamera,
         CELL_SCENE_LAYER,
     ));

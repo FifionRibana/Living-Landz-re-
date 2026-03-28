@@ -25,7 +25,6 @@ impl Plugin for TerritoryBorderPlugin {
             // Systems
             .add_systems(Update, (
                 // Old SDF-based system (deprecated)
-                update_territory_border_time,
                 process_territory_border_sdf_data,
                 debug_territory_borders,
                 visualize_border_cells,

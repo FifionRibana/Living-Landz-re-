@@ -50,13 +50,13 @@ pub fn setup_blur_capture(
     commands.spawn((
         Camera2d,
         Camera {
-            target: RenderTarget::Image(bevy::camera::ImageRenderTarget {
-                handle: capture_handle,
-                scale_factor: FloatOrd(1. / (blur_settings.scale as f32)),
-            }),
             order: -1, // Render avant la caméra principale
             ..default()
         },
+        RenderTarget::Image(bevy::camera::ImageRenderTarget {
+            handle: capture_handle,
+            scale_factor: 1. / (blur_settings.scale as f32),
+        }),
         BlurCaptureCamera,
         RenderLayers::layer(0), // Ne capture que le layer 0 (game world)
     ));
