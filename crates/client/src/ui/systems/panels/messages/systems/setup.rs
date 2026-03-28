@@ -82,10 +82,10 @@ pub fn setup_messages_panel(
                                 Node {
                                     width: Val::Px(item_width),
                                     height: Val::Px(200.0),
+                                    border_radius: BorderRadius::all(Val::Px(12.0)),
                                     ..default()
                                 },
                                 BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-                                BorderRadius::all(Val::Px(12.0)),
                             ))
                             .with_children(|carousel_item| {
                                 carousel_item.spawn((

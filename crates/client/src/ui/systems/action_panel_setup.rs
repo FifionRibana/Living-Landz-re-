@@ -11,10 +11,8 @@ pub fn setup_action_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_se
     let wood_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let wood_panel_slicer = TextureSlicer {
         border: BorderRect {
-            left: 42.,
-            right: 42.,
-            top: 42.,
-            bottom: 42.,
+            min_inset: Vec2::new(42., 42.),
+            max_inset: Vec2::new(42., 42.)
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },

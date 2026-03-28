@@ -19,14 +19,14 @@ use crate::ui::frosted_glass::{BlurSettings, FrostedGlassMaterial};
 pub struct BlurPipeline {
     pub downsample_pipeline: CachedComputePipelineId,
     pub upsample_pipeline: CachedComputePipelineId,
-    pub bind_group_layout: BindGroupLayout,
+    pub bind_group_layout: BindGroupLayoutDescriptor,
 }
 
 impl FromWorld for BlurPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
 
-        let bind_group_layout = render_device.create_bind_group_layout(
+        let bind_group_layout = BindGroupLayoutDescriptor::new(
             "blur_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,

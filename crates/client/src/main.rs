@@ -5,7 +5,6 @@ mod camera;
 mod grid;
 // mod input;
 mod networking;
-mod post_processing;
 mod rendering;
 mod state;
 pub mod states;
@@ -52,7 +51,6 @@ fn main() {
             ui::frosted_glass::FrostedGlassPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
-            // post_processing::MedievalPostProcessPlugin,
         ))
         .add_plugins((
             // LogDiagnosticsPlugin::default(),

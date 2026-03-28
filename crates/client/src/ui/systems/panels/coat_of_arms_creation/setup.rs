@@ -55,11 +55,11 @@ pub fn setup_coat_of_arms_creation(
                     width: Val::Px(860.0),
                     height: Val::Px(540.0),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(PANEL_BG),
                 BorderColor::all(PANEL_BORDER),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|container| {
                 // ═══ Left: Preview panel ═══
@@ -122,6 +122,7 @@ fn spawn_preview_panel(
                         width: Val::Px(260.0),
                         height: Val::Px(260.0),
                         border: UiRect::all(Val::Px(2.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         position_type: PositionType::Relative,
                         overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
@@ -130,7 +131,6 @@ fn spawn_preview_panel(
                     },
                     BackgroundColor(PREVIEW_BG),
                     BorderColor::all(FRAME_BORDER),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_children(|frame| {
                     // Stacked heraldry layer images
@@ -193,6 +193,7 @@ fn spawn_preview_panel(
                                 width: Val::Px(8.0),
                                 height: Val::Px(8.0),
                                 border: UiRect::all(Val::Px(1.0)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
                                 ..default()
                             },
                             BackgroundColor(if layer_state.current > 0 {
@@ -201,7 +202,6 @@ fn spawn_preview_panel(
                                 Color::NONE
                             }),
                             BorderColor::all(GOLD_DIM),
-                            BorderRadius::all(Val::Px(4.0)),
                         ));
                     }
 
@@ -269,11 +269,11 @@ fn spawn_preview_panel(
                             height: Val::Px(38.0),
                             padding: UiRect::all(Val::Px(10.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             ..default()
                         },
                         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.3)),
                         BorderColor::all(PANEL_BORDER),
-                        BorderRadius::all(Val::Px(3.0)),
                         MottoInput,
                     ));
                 });
@@ -437,11 +437,11 @@ fn spawn_selector_row(
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.79, 0.66, 0.30, 0.06)),
                 BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.3)),
-                BorderRadius::all(Val::Px(4.0)),
             ))
             .with_children(|icon_box| {
                 icon_box.spawn((
@@ -530,12 +530,12 @@ fn spawn_arrow(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             Button,
             BackgroundColor(ARROW_BG),
             BorderColor::all(ARROW_BORDER),
-            BorderRadius::all(Val::Px(3.0)),
             HeraldryArrowButton { layer, direction },
         ))
         .with_children(|btn| {
@@ -574,11 +574,11 @@ fn spawn_future_item(
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(3.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.79, 0.66, 0.30, 0.03)),
                 BorderColor::all(Color::srgba(0.55, 0.45, 0.30, 0.15)),
-                BorderRadius::all(Val::Px(3.0)),
             ))
             .with_children(|icon_box| {
                 icon_box.spawn((
@@ -623,12 +623,12 @@ fn spawn_action_button(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             Button,
             BackgroundColor(bg),
             BorderColor::all(border_color),
-            BorderRadius::all(Val::Px(3.0)),
             marker,
         ))
         .with_children(|btn| {

@@ -77,14 +77,13 @@ pub fn setup_pause_menu(
                         align_items: AlignItems::Center,
                         row_gap: Val::Px(16.0),
                         border: UiRect::all(Val::Px(2.0)),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
                         ..default()
                     },
                     MaterialNode(materials.add(material)),
                     BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-                    BorderRadius::all(Val::Px(8.0)),
                     // BackgroundColor(PANEL_BG),
                     // BorderColor::all(BUTTON_BORDER),
-                    // BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| {
                     // Title
@@ -149,12 +148,12 @@ fn spawn_button(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             Button,
             BackgroundColor(bg_color),
             BorderColor::all(BUTTON_BORDER),
-            BorderRadius::all(Val::Px(4.0)),
             marker,
         ))
         .with_children(|btn| {

@@ -10,10 +10,8 @@ pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
     let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
-            left: 42.,
-            right: 42.,
-            top: 76.,
-            bottom: 42.,
+            min_inset: Vec2::new(42., 76.),
+            max_inset: Vec2::new(42., 42.)
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
@@ -273,11 +271,11 @@ pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
                 left: px(10.),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                border_radius: BorderRadius::all(Val::Px(24.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8)),
             BorderColor::all(Color::srgb_u8(150, 130, 100)),
-            BorderRadius::all(px(24.)),
             ChatIconButton,
             Visibility::Hidden, // Initially hidden, shown when chat is collapsed
             Interaction::None,
@@ -315,10 +313,10 @@ pub fn setup_chat_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_serv
                         right: px(-4.),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        border_radius: BorderRadius::all(Val::Px(10.0)),
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.8, 0.2, 0.2)),
-                    BorderRadius::all(px(10.)),
                     ChatNotificationBadge,
                     Visibility::Hidden, // Only visible when there are unread messages
                     Pickable {
