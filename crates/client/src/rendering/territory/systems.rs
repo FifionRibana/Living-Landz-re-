@@ -33,16 +33,6 @@ pub struct TerritoryBorderLayer {
     pub organization_id: u64,
 }
 
-/// System to update time uniform for animations
-pub fn update_territory_border_time(
-    time: Res<Time>,
-    mut materials: ResMut<Assets<TerritoryBorderMaterial>>,
-) {
-    for (_, material) in materials.iter_mut() {
-        material.time = time.elapsed_secs();
-    }
-}
-
 /// Spawn territory border layer for a chunk
 pub fn spawn_territory_border_layer(
     commands: &mut Commands,
@@ -82,8 +72,7 @@ pub fn spawn_territory_border_layer(
             edge_softness: 1.5,
             glow_intensity: 0.0,
             color: border_color.into(),
-        },
-        time: 0.0,
+        }
     };
 
     // Create quad mesh for the chunk

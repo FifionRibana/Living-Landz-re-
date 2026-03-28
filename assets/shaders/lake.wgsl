@@ -1,10 +1,13 @@
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
+#import bevy_render::globals::Globals
+
+@group(0) @binding(1) var<uniform> globals: Globals;
 
 struct LakeParams {
-    time: f32,
     world_width: f32,
     world_height: f32,
-    _padding: f32,
+    _padding1: f32,
+    _padding2: f32,
 }
 
 @group(2) @binding(0) var mask_texture: texture_2d<f32>;
@@ -49,7 +52,7 @@ fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
-    let time = params.time;
+    let time = globals.time;
 
     // === Lake mask — for discard only ===
     let mask = textureSample(mask_texture, mask_sampler, uv).r;

@@ -16,6 +16,7 @@ use shared::{
 
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
+use crate::camera::MainCamera;
 use crate::networking::client::NetworkClient;
 use crate::rendering::terrain::components::TreeGlobalMesh;
 use crate::rendering::terrain::materials::{
@@ -110,12 +111,10 @@ pub fn spawn_terrain(
     mut commands: Commands,
     world_cache_opt: Option<Res<WorldCache>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    // mut materials: ResMut<Assets<ColorMaterial>>,
     mut terrain_materials: ResMut<Assets<TerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    // default_terrain_material: Res<DefaultTerrainMaterial>,
     terrains: Query<&Terrain>,
-    // biomes: Query<&Biome>,
+    camera: Query<&Transform, With<MainCamera>>,
 ) {
     let Some(world_cache) = world_cache_opt else {
         return;
@@ -125,67 +124,55 @@ pub fn spawn_terrain(
         .iter()
         .map(|t| TerrainChunkData::storage_key(t.name.as_str(), t.id))
         .collect();
-    // let spawned_biomes: HashSet<_> = biomes
-    //     .iter()
-    //     .map(|b| BiomeChunkData::storage_key(b.name.as_str(), b.id))
-    //     .collect();
 
-    for terrain in world_cache.loaded_terrains() {
-        let terrain_name = terrain.clone().name;
+    // Get camera position for priority sorting
+    let camera_chunk = if let Ok(transform) = camera.single() {
+        let pos = transform.translation.truncate();
+        TerrainChunkId {
+            x: (pos.x / constants::CHUNK_SIZE.x).round() as i32,
+            y: (pos.y / constants::CHUNK_SIZE.y).round() as i32,
+        }
+    } else {
+        TerrainChunkId { x: 0, y: 0 }
+    };
+
+    // Collect unspawned chunks and sort by distance to camera
+    let mut to_spawn: Vec<_> = world_cache.loaded_terrains()
+        .filter(|t| {
+            !t.mesh_data.triangles.is_empty()
+                && !spawned_terrains.contains(&t.get_storage_key())
+        })
+        .collect();
+
+    to_spawn.sort_unstable_by_key(|t| {
+        let dx = t.id.x - camera_chunk.x;
+        let dy = t.id.y - camera_chunk.y;
+        dx * dx + dy * dy
+    });
+
+    let mut spawned_this_frame = 0;
+    let max_spawns_per_frame = 3;
+
+    for terrain in to_spawn.into_iter().take(max_spawns_per_frame) {
         if spawned_terrains.contains(&terrain.get_storage_key()) {
             continue;
         }
 
-        // Skip chunks with no triangles (e.g., ocean-only chunks)
         if terrain.mesh_data.triangles.is_empty() {
             continue;
         }
 
-        info!(
-            "Spawning {} triangles for chunk ({},{}).",
-            terrain.mesh_data.triangles.len(),
-            terrain.id.x,
-            terrain.id.y
-        );
+        if spawned_this_frame >= max_spawns_per_frame {
+            break;
+        }
 
-        let mesh_data = terrain.mesh_data.clone();
-        let mesh_data_ref = &mesh_data;
+        let terrain_name = &terrain.name;
 
-        // Debug des positions de la mesh
-        let pos_min = mesh_data
-            .triangles
-            .clone()
-            .iter()
-            .fold([f32::MAX, f32::MAX, f32::MAX], |acc, p| {
-                [acc[0].min(p[0]), acc[1].min(p[1]), acc[2].min(p[2])]
-            });
-        let pos_max = mesh_data
-            .triangles
-            .clone()
-            .iter()
-            .fold([f32::MIN, f32::MIN, f32::MIN], |acc, p| {
-                [acc[0].max(p[0]), acc[1].max(p[1]), acc[2].max(p[2])]
-            });
+        // Use data directly — no clone
+        let mut all_triangles = terrain.mesh_data.triangles.clone(); // needed: extend_mesh_edges mutates
+        let all_normals = terrain.mesh_data.normals.clone();
+        let all_uvs = terrain.mesh_data.uvs.clone();
 
-        info!("Mesh positions - min: {:?}, max: {:?}", pos_min, pos_max);
-
-        // TODO : sdf pour les biomes ou via shader pour blend avec terrain
-
-        // Générer les UV avant d'étendre les bords
-        let mut all_triangles = mesh_data_ref.triangles.clone();
-        let all_normals = mesh_data_ref.normals.clone();
-        let all_uvs = mesh_data_ref.uvs.clone();
-        // generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
-
-        // Vertex colors : terrain principal = opaque
-        let _all_colors: Vec<[f32; 4]> = vec![[1.0, 1.0, 1.0, 1.0]; all_triangles.len()];
-
-        let _uvs =
-            generate_uvs_from_positions(&mesh_data_ref.triangles.clone(), constants::CHUNK_SIZE);
-
-        // let mut triangles = mesh_data_ref.triangles.clone();
-
-        // Étendre les bords de 1 pixel pour éviter les coutures
         extend_mesh_edges(&mut all_triangles, 600.0, 503.0, 1.0);
 
         let mesh = Mesh::new(
@@ -194,8 +181,7 @@ pub fn spawn_terrain(
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, all_triangles)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, all_uvs.clone());
-        // .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, all_colors);
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, all_uvs);
 
         let world_position = Vec2::new(
             terrain.id.x as f32 * constants::CHUNK_SIZE.x,
@@ -204,7 +190,7 @@ pub fn spawn_terrain(
 
         let mesh_handle = meshes.add(mesh);
 
-        // Get global biome + heightmap handles from cache (or create dummies)
+        // Get global textures (same as before, no changes)
         let (biome_texture, biome_params) = if let (Some(bh), Some(global)) = (
             world_cache.get_terrain_global_biome_handle(),
             world_cache.get_terrain_global(),
@@ -273,7 +259,7 @@ pub fn spawn_terrain(
                     depth_or_array_layers: 1,
                 },
                 TextureDimension::D2,
-                vec![255u8], // all land = no lake
+                vec![255u8],
                 TextureFormat::R8Unorm,
                 default(),
             ));
@@ -283,136 +269,36 @@ pub fn spawn_terrain(
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
-            // Create road texture (real or dummy)
             let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {
-                info!("Creating road texture for chunk {:?}", terrain.id);
                 let road_tex = create_road_sdf_texture(road_sdf, &mut images);
                 (
                     road_tex,
                     RoadParams {
                         has_roads: 1.0,
-                        edge_softness: 2.0,
-                        noise_frequency: 0.15,
-                        noise_amplitude: 3.0,
+                        ..default()
                     },
                 )
             } else {
-                // Create dummy 1x1 RG16 texture (no roads)
-                let dummy_road = images.add(Image::new(
+                let dummy = images.add(Image::new(
                     Extent3d {
                         width: 1,
                         height: 1,
                         depth_or_array_layers: 1,
                     },
                     TextureDimension::D2,
-                    vec![128u8, 128u8, 0u8, 0u8], // Distance=0.5, metadata=0
-                    TextureFormat::Rg16Unorm,
+                    vec![0u8],
+                    TextureFormat::R8Unorm,
                     default(),
                 ));
-                (
-                    dummy_road,
-                    RoadParams {
-                        has_roads: 0.0,
-                        edge_softness: 2.0,
-                        noise_frequency: 0.15,
-                        noise_amplitude: 3.0,
-                    },
-                )
-            };
-
-            info!("Creating material WITH SDF for chunk {:?}", terrain.id);
-            MeshMaterial2d(terrain_materials.add(TerrainMaterial {
-                sdf_texture, // rgba(168, 176, 119, 1) // rgba(196, 180, 144, 1)
-                sand_color: LinearRgba::new(0.62, 0.56, 0.40, 1.0),
-                // sand_color: LinearRgba::new(0.77, 0.71, 0.56, 1.0), //LinearRgba::new(0.76, 0.70, 0.50, 1.0),
-                grass_color: LinearRgba::new(0.30, 0.38, 0.20, 1.0),
-                // grass_color: LinearRgba::new(0.66, 0.69, 0.47, 1.0),//LinearRgba::new(0.36, 0.52, 0.28, 1.0),
-                sdf_params: SdfParams {
-                    beach_start: -0.05,
-                    beach_end: 0.2,
-                    has_coast: 1.0, // Terrain has coast SDF
-                    _padding: 0.0,
-                },
-                road_sdf_texture: road_texture,
-                road_params, // rgba(160, 136, 104, 1)
-                road_color_light: LinearRgba::new(0.62, 0.53, 0.41, 1.0), //LinearRgba::new(0.76, 0.70, 0.55, 1.0),
-                road_color_dark: LinearRgba::new(0.55, 0.48, 0.38, 1.0),
-                road_color_tracks: LinearRgba::new(0.40, 0.35, 0.28, 1.0),
-                chunk_info: ChunkInfo {
-                    world_offset_x: world_position.x,
-                    world_offset_y: world_position.y,
-                    chunk_width: constants::CHUNK_SIZE.x,
-                    chunk_height: constants::CHUNK_SIZE.y,
-                },
-                biome_texture: biome_texture.clone(),
-                biome_params,
-                heightmap_texture: heightmap_texture.clone(),
-                heightmap_params,
-                lake_sdf_texture: lake_sdf_texture.clone(),
-                lake_params,
-            }))
-        } else {
-            info!("Creating material WITHOUT SDF for chunk {:?}", terrain.id);
-            let dummy_sdf = images.add(Image::new(
-                Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                vec![255u8], // Tout terre
-                TextureFormat::R8Unorm,
-                default(),
-            ));
-
-            // Check for roads even without terrain SDF
-            let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {
-                info!(
-                    "Creating road texture for chunk {:?} (no terrain SDF)",
-                    terrain.id
-                );
-                let road_tex = create_road_sdf_texture(road_sdf, &mut images);
-                (
-                    road_tex,
-                    RoadParams {
-                        has_roads: 1.0,
-                        edge_softness: 2.0,
-                        noise_frequency: 0.15,
-                        noise_amplitude: 3.0,
-                    },
-                )
-            } else {
-                // Create dummy 1x1 RG16 texture (no roads)
-                let dummy_road = images.add(Image::new(
-                    Extent3d {
-                        width: 1,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    vec![128u8, 128u8, 0u8, 0u8], // Distance=0.5, metadata=0
-                    TextureFormat::Rg16Unorm,
-                    default(),
-                ));
-                (
-                    dummy_road,
-                    RoadParams {
-                        has_roads: 0.0,
-                        edge_softness: 2.0,
-                        noise_frequency: 0.15,
-                        noise_amplitude: 3.0,
-                    },
-                )
+                (dummy, RoadParams::default())
             };
 
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
-                sdf_texture: dummy_sdf,
-                sand_color: LinearRgba::new(0.62, 0.56, 0.40, 1.0),
-                grass_color: LinearRgba::new(0.30, 0.38, 0.20, 1.0),
+                sdf_texture,
                 sdf_params: SdfParams {
-                    beach_start: 0.0,
-                    beach_end: 0.0,
-                    has_coast: 0.0, // No coast SDF
+                    beach_start: -0.1,
+                    beach_end: 0.4,
+                    has_coast: 1.0,
                     _padding: 0.0,
                 },
                 road_sdf_texture: road_texture,
@@ -432,60 +318,55 @@ pub fn spawn_terrain(
                 heightmap_params,
                 lake_sdf_texture: lake_sdf_texture.clone(),
                 lake_params,
+                ..default()
+            }))
+        } else {
+            // No SDF — simple material (same structure, skip road/coast)
+            let dummy_sdf = images.add(Image::new(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![128u8],
+                TextureFormat::R8Unorm,
+                default(),
+            ));
+            let dummy_road = images.add(Image::new(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                vec![0u8],
+                TextureFormat::R8Unorm,
+                default(),
+            ));
+            MeshMaterial2d(terrain_materials.add(TerrainMaterial {
+                sdf_texture: dummy_sdf,
+                road_sdf_texture: dummy_road,
+                chunk_info: ChunkInfo {
+                    world_offset_x: world_position.x,
+                    world_offset_y: world_position.y,
+                    chunk_width: constants::CHUNK_SIZE.x,
+                    chunk_height: constants::CHUNK_SIZE.y,
+                },
+                biome_texture: biome_texture.clone(),
+                biome_params,
+                heightmap_texture: heightmap_texture.clone(),
+                heightmap_params,
+                lake_sdf_texture: lake_sdf_texture.clone(),
+                lake_params,
+                ..default()
             }))
         };
 
-        // Debug des données SDF
-        if let Some(sdf) = terrain.sdf_data.first() {
-            let min_val = sdf.values.iter().min().unwrap_or(&255);
-            let max_val = sdf.values.iter().max().unwrap_or(&0);
-            let zero_count = sdf.values.iter().filter(|&&v| v < 50).count();
-
-            info!(
-                "SDF debug - resolution: {}, min: {}, max: {}, values near 0: {}, total: {}",
-                sdf.resolution,
-                min_val,
-                max_val,
-                zero_count,
-                sdf.values.len()
-            );
-        }
-
-        if let Some(sdf) = terrain.sdf_data.first() {
-            let min_val = sdf.values.iter().min().unwrap_or(&0);
-            let max_val = sdf.values.iter().max().unwrap_or(&0);
-            let mid_count = sdf.values.iter().filter(|&&v| v > 100 && v < 156).count();
-            let land_count = sdf.values.iter().filter(|&&v| v > 128).count();
-            let water_count = sdf.values.iter().filter(|&&v| v < 128).count();
-
-            info!(
-                "Chunk {:?} SDF - min: {}, max: {}, land: {}, water: {}, near_edge: {}, total: {}",
-                terrain.id,
-                min_val,
-                max_val,
-                land_count,
-                water_count,
-                mid_count,
-                sdf.values.len()
-            );
-        }
-
-        // Debug des UV
-        let uv_min = all_uvs
-            .clone()
-            .iter()
-            .fold(Vec2::MAX, |acc, &uv| acc.min(Vec2::new(uv[0], uv[1])));
-        let uv_max = all_uvs
-            .clone()
-            .iter()
-            .fold(Vec2::MIN, |acc, &uv| acc.max(Vec2::new(uv[0], uv[1])));
-        info!("UV range: min {:?}, max {:?}", uv_min, uv_max);
-
         commands.spawn((
-            Name::new(format!("Terrain_{}", terrain_name.clone())),
+            Name::new(format!("Terrain_{}_{}", terrain.id.x, terrain.id.y)),
             Mesh2d(mesh_handle),
             material_handle,
-            // MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgb(0.4, 0.6, 0.3)))),
             Transform::from_translation(world_position.extend(-1000.)),
             Terrain {
                 name: terrain_name.clone(),
@@ -493,89 +374,13 @@ pub fn spawn_terrain(
             },
         ));
 
-        // if !terrain.sdf_data.is_empty() {
-        //     info!(
-        //         "    with {} SDF data layers.",
-        //         terrain.sdf_data.len()
-        //     );
-        //     for sdf in terrain.sdf_data.iter() {
-        //         info!(
-        //             "    sdf points: {}", sdf.values.len()
-        //         );
-        //     };
-        //     for sdf in terrain.sdf_data.iter() {
-        //         let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
-
-        //         let material_handle  =terrain_materials.add(TerrainMaterial {
-        //             sdf_texture,
-        //             ..default()
-        //         });
-
-        //         commands.spawn((
-        //             Name::new(format!("TerrainSDF_{}_{}", terrain_name.clone(), sdf.resolution)),
-        //             MeshMaterial3d(material_handle.clone()),
-        //             // Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        //             // Transform::from_translation(world_position.extend(-100.)),
-        //         ));
-        //     }
-        // }
+        spawned_this_frame += 1;
     }
-
-    // for biome in world_cache.loaded_biomes() {
-    //     let biome_name = biome.clone().name;
-    //     // if biome.id.biome == BiomeTypeEnum::Ocean || biome.id.biome == BiomeTypeEnum::DeepOcean {
-    //     //     continue;
-    //     // }
-    //     // if biome.id.biome != BiomeTypeEnum::Savanna {
-    //     //     continue;
-    //     // }
-    //     if spawned_biomes.contains(&biome.get_storage_key()) {
-    //         continue;
-    //     }
-
-    //     info!(
-    //         "Spawning {} triangles for biome {:?} chunk ({},{}).",
-    //         biome.mesh_data.triangles.len(),
-    //         biome.id.biome,
-    //         biome.id.x,
-    //         biome.id.y
-    //     );
-
-    //     let mesh_data = biome.mesh_data.clone();
-
-    //     let mesh = Mesh::new(
-    //         PrimitiveTopology::TriangleList,
-    //         RenderAssetUsages::RENDER_WORLD,
-    //     )
-    //     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, mesh_data.triangles)
-    //     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, mesh_data.normals)
-    //     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, mesh_data.uvs);
-
-    //     let world_position = Vec2::new(
-    //         biome.id.x as f32 * constants::CHUNK_SIZE.x,
-    //         biome.id.y as f32 * constants::CHUNK_SIZE.y,
-    //     );
-
-    //     // Create an atlas instead of using a new one every time
-    //     let color = *get_biome_color(&biome.id.biome).as_color();
-
-    //     commands.spawn((
-    //         Name::new(format!("Biome_{}", biome_name)),
-    //         Mesh2d(meshes.add(mesh)),
-    //         MeshMaterial2d(materials.add(ColorMaterial::from_color(color))),
-    //         Transform::from_translation(world_position.extend(-1000.0)),
-    //         Biome {
-    //             name: biome_name,
-    //             id: biome.id,
-    //         },
-    //     ));
-    // }
 }
 
 pub fn spawn_building(
     mut commands: Commands,
     world_cache_opt: Option<Res<WorldCache>>,
-    // mut materials: ResMut<Assets<ColorMaterial>>,
     buildings: Query<&Building>,
     images: Res<Assets<Image>>,
     tree_atlas: Res<TreeAtlas>,
@@ -1105,41 +910,77 @@ pub fn rebuild_tree_mesh(
     grid_config: Res<GridConfig>,
     existing: Query<Entity, With<TreeGlobalMesh>>,
     mut shared_material: Local<Option<MeshMaterial2d<TreeMaterial>>>,
+    time: Res<Time>,
+    mut pending_rebuild: Local<f64>,
 ) {
-    let Some(ref mut world_cache) = world_cache else { return; };
+    let Some(ref mut world_cache) = world_cache else {
+        return;
+    };
+    let Some(atlas_image) = &tree_atlas.atlas_image else {
+        return;
+    };
 
-    if !world_cache.is_buildings_dirty() && existing.iter().count() > 0 {
+    // Track dirty → set rebuild timer
+    if world_cache.is_buildings_dirty() {
+        *pending_rebuild = time.elapsed_secs_f64();
+        world_cache.clear_buildings_dirty();
+    }
+
+    // Nothing pending
+    if *pending_rebuild == 0.0 && existing.iter().count() > 0 {
         return;
     }
 
-    let Some(atlas_image) = &tree_atlas.atlas_image else { return; };
+    // Still waiting for debounce (0.5s after last dirty)
+    if *pending_rebuild > 0.0 && time.elapsed_secs_f64() - *pending_rebuild < 0.5 {
+        return;
+    }
 
-    world_cache.clear_buildings_dirty();
+    // First load: no existing mesh and no pending → need initial dirty
+    if *pending_rebuild == 0.0 && existing.iter().count() == 0 {
+        return;
+    }
 
+    *pending_rebuild = 0.0;
+
+    // Despawn old
     for entity in existing.iter() {
         commands.entity(entity).despawn();
     }
 
-    let material = shared_material.get_or_insert_with(|| {
-        MeshMaterial2d(tree_materials.add(TreeMaterial {
-            texture: atlas_image.clone(),
-        }))
-    }).clone();
+    let material = shared_material
+        .get_or_insert_with(|| {
+            MeshMaterial2d(tree_materials.add(TreeMaterial {
+                texture: atlas_image.clone(),
+            }))
+        })
+        .clone();
 
     // Collect ALL tree quads
-    let mut quads: Vec<TreeQuad> = Vec::new();
+    let mut quads: Vec<TreeQuad> = Vec::with_capacity(100000);
 
     for building in world_cache.loaded_buildings() {
-        let shared::BuildingSpecific::Tree(tree_data) = &building.specific_data else { continue };
+        let shared::BuildingSpecific::Tree(tree_data) = &building.specific_data else {
+            continue;
+        };
 
-        let tree_type = shared::TreeTypeEnum::Cedar;
         let age = shared::TreeAge::get_tree_age(tree_data.age as u32);
+        let age_idx = age.to_index();
         let variation = tree_data.variant;
         let building_id = building.base_data.id;
 
-        let cell_pos = grid_config.layout.hex_to_world_pos(
-            hexx::Hex::new(building.base_data.cell.q, building.base_data.cell.r),
-        );
+        // Fast numeric lookup — no format!, no HashMap<String>
+        let Some(uvs) = tree_atlas
+            .get_atlas_index_fast(age_idx, variation)
+            .and_then(|idx| tree_atlas.get_atlas_uvs_by_index(idx))
+        else {
+            continue;
+        };
+
+        let cell_pos = grid_config.layout.hex_to_world_pos(hexx::Hex::new(
+            building.base_data.cell.q,
+            building.base_data.cell.r,
+        ));
 
         let tree_count = match tree_data.density {
             d if d < 0.35 => 1,
@@ -1161,32 +1002,28 @@ pub fn rebuild_tree_mesh(
             let scale_var: f32 = sub_rng.random_range(0.85..=1.15);
             let flip_x: bool = sub_rng.random_bool(0.5);
 
-            let (sub_age, sub_var) = if tree_i > 0 {
+            // Sub-tree variant — fast numeric path
+            let sub_uvs = if tree_i > 0 {
                 let alt_var = sub_rng.random_range(1..=3i32);
-                let alt_age = shared::TreeAge::get_tree_age(
-                    (tree_data.age as i32 + sub_rng.random_range(-30..=30)).max(0) as u32,
-                );
-                (alt_age, alt_var)
+                let alt_age_raw =
+                    (tree_data.age as i32 + sub_rng.random_range(-30..=30)).max(0) as u32;
+                let alt_age_idx = shared::TreeAge::get_tree_age(alt_age_raw).to_index();
+                tree_atlas
+                    .get_atlas_index_fast(alt_age_idx, alt_var)
+                    .and_then(|idx| tree_atlas.get_atlas_uvs_by_index(idx))
+                    .unwrap_or(uvs)
             } else {
-                (age, variation)
+                uvs
             };
 
-            let variant_key = format!(
-                "{}_{}_{:02}01",
-                tree_type.to_name_lowercase(),
-                sub_age.to_name(),
-                sub_var
-            );
+            let pos = Vec2::new(cell_pos.x + offset_x, cell_pos.y + offset_y + 8.0);
 
-            let Some(uvs) = tree_atlas.get_atlas_uvs(&variant_key) else { continue };
-
-            let pos = Vec2::new(
-                cell_pos.x + offset_x,
-                cell_pos.y + offset_y + 8.0,
-            );
-            let display_size = 48.0 * scale_var;
-
-            quads.push(TreeQuad { pos, size: display_size, uvs, flip_x });
+            quads.push(TreeQuad {
+                pos,
+                size: 48.0 * scale_var,
+                uvs: sub_uvs,
+                flip_x,
+            });
         }
     }
 
@@ -1195,12 +1032,13 @@ pub fn rebuild_tree_mesh(
     }
 
     // Global sort back-to-front: higher Y drawn first
-    quads.sort_by(|a, b| b.pos.y.partial_cmp(&a.pos.y).unwrap());
+    quads.sort_unstable_by_key(|q| (-q.pos.y * 100.0) as i32);
 
     // Build single mesh
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(quads.len() * 4);
-    let mut uvs_out: Vec<[f32; 2]> = Vec::with_capacity(quads.len() * 4);
-    let mut indices: Vec<u32> = Vec::with_capacity(quads.len() * 6);
+    let num_quads = quads.len();
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(num_quads * 4);
+    let mut uvs_out: Vec<[f32; 2]> = Vec::with_capacity(num_quads * 4);
+    let mut indices: Vec<u32> = Vec::with_capacity(num_quads * 6);
 
     for (qi, quad) in quads.iter().enumerate() {
         let half = quad.size / 2.0;
@@ -1212,7 +1050,11 @@ pub fn rebuild_tree_mesh(
         positions.push([quad.pos.x - half, quad.pos.y + half, 0.0]);
 
         let [u_min, v_min, u_max, v_max] = quad.uvs;
-        let (ul, ur) = if quad.flip_x { (u_max, u_min) } else { (u_min, u_max) };
+        let (ul, ur) = if quad.flip_x {
+            (u_max, u_min)
+        } else {
+            (u_min, u_max)
+        };
 
         uvs_out.push([ul, v_max]);
         uvs_out.push([ur, v_max]);
@@ -1229,15 +1071,19 @@ pub fn rebuild_tree_mesh(
 
     let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
 
-    let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs_out)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_indices(Indices::U32(indices));
+    let mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs_out)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(indices));
 
     info!(
         "✓ Tree mesh rebuilt: {} quads {} vertices",
-        quads.len(), quads.len() * 4
+        quads.len(),
+        quads.len() * 4
     );
 
     commands.spawn((

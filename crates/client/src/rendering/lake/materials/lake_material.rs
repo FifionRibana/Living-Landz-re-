@@ -5,19 +5,19 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType};
 
 #[derive(Clone, Copy, ShaderType)]
 pub struct LakeParams {
-    pub time: f32,
     pub world_width: f32,
     pub world_height: f32,
-    pub _padding: f32,
+    pub _padding1: f32,
+    pub _padding2: f32,
 }
 
 impl Default for LakeParams {
     fn default() -> Self {
         Self {
-            time: 0.0,
             world_width: 9600.0,
             world_height: 5030.0,
-            _padding: 0.0,
+            _padding1: 0.0,
+            _padding2: 0.0,
         }
     }
 }

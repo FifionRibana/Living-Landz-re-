@@ -16,7 +16,6 @@ impl Plugin for LakePlugin {
                     systems::request_lake_data,
                     systems::create_lake_textures,
                     systems::spawn_lake,
-                    systems::update_lake_time,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

@@ -19,6 +19,7 @@ pub struct WorldCache {
 pub struct TerrainCache {
     loaded: HashMap<String, TerrainChunkData>,
     requested: HashSet<String>,
+    requested_at: HashMap<String, f32>,
 }
 
 impl TerrainCache {
@@ -59,6 +60,23 @@ impl TerrainCache {
 
     pub fn mark_requested(&mut self, name: &str, id: &TerrainChunkId) {
         self.requested.insert(format!("{}_{}_{}", name, id.x, id.y));
+    }
+
+    pub fn mark_requested_at(&mut self, name: &str, id: &TerrainChunkId, time: f32) {
+        let key = TerrainChunkData::storage_key(name, *id);
+        self.requested_at.insert(key, time);
+    }
+
+    pub fn is_requested_recently(&self, name: &str, id: &TerrainChunkId, timeout: f32, now: f32) -> bool {
+        let key = TerrainChunkData::storage_key(name, *id);
+        self.requested_at.get(&key)
+            .map(|&t| now - t < timeout)
+            .unwrap_or(false)
+    }
+    
+    pub fn get_requested_time(&self, name: &str, id: &TerrainChunkId) -> Option<f32> {
+        let key = TerrainChunkData::storage_key(name, *id);
+        self.requested_at.get(&key).copied()
     }
 
     pub fn unload_distant(
@@ -116,6 +134,7 @@ impl CellCache {
 pub struct BuildingCache {
     loaded: HashMap<GridCell, BuildingData>,
     pub dirty: bool,
+    pub dirty_since: f64
 }
 
 impl BuildingCache {
@@ -124,6 +143,9 @@ impl BuildingCache {
         buildings.iter().for_each(|building_data| {
             self.loaded.insert(building_data.base_data.cell, *building_data);
         });
+        if !self.dirty {
+            self.dirty_since = 0.0; // will be set by rebuild system
+        }
         self.dirty = true;
     }
 
@@ -139,24 +161,24 @@ impl BuildingCache {
         let mut removed_ids = Vec::new();
         let mut removed = Vec::new();
 
-        self.loaded.retain(|cell, data| {
+        self.loaded.retain(|_cell, data| {
             let keep =
                 (data.base_data.chunk.x - center.x).abs() <= max_distance 
                 && (data.base_data.chunk.y - center.y).abs() <= max_distance;
 
             if !keep {
                 // DEBUG: afficher le chunk du bâtiment vs le centre
-                warn!(
-                    "📦 Unloading building id={} cell=({},{}) chunk=({},{}) center=({},{}) dist=({},{})",
-                    data.base_data.id,
-                    cell.q, cell.r,
-                    data.base_data.chunk.x, data.base_data.chunk.y,
-                    center.x, center.y,
-                    (data.base_data.chunk.x - center.x).abs(),
-                    (data.base_data.chunk.y - center.y).abs(),
-                );
+                // warn!(
+                //     "📦 Unloading building id={} cell=({},{}) chunk=({},{}) center=({},{}) dist=({},{})",
+                //     data.base_data.id,
+                //     cell.q, cell.r,
+                //     data.base_data.chunk.x, data.base_data.chunk.y,
+                //     center.x, center.y,
+                //     (data.base_data.chunk.x - center.x).abs(),
+                //     (data.base_data.chunk.y - center.y).abs(),
+                // );
                 removed_ids.push(data.base_data.id as i64);
-                removed.push(data.clone());
+                removed.push(*data);
             }
 
             keep
@@ -410,6 +432,18 @@ impl WorldCache {
 
     pub fn mark_terrain_requested(&mut self, name: &str, id: &TerrainChunkId) {
         self.terrains.mark_requested(name, id);
+    }
+    
+    pub fn mark_terrain_requested_at(&mut self, name: &str, id: &TerrainChunkId, time: f32) {
+       self.terrains.mark_requested_at(name, id, time)
+    }
+
+    pub fn is_terrain_requested_recently(&self, name: &str, id: &TerrainChunkId, timeout: f32, now: f32) -> bool {
+        self.terrains.is_requested_recently(name, id, timeout, now)
+    }
+
+    pub fn get_terrain_requested_time(&self, name: &str, id: &TerrainChunkId) -> Option<f32> {
+        self.terrains.get_requested_time(name, id)
     }
 
     pub fn unload_distant_terrain(

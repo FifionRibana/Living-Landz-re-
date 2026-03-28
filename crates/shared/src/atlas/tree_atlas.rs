@@ -58,4 +58,31 @@ impl TreeAtlas {
         let v_max = ((row + 1) * self.sprite_size) as f32 / atlas_h;
         Some([u_min, v_min, u_max, v_max])
     }
+
+    /// Fast lookup: (age_index, variation) → atlas_index
+    pub fn get_atlas_index_fast(&self, age_idx: usize, variation: i32) -> Option<usize> {
+        // Layout: 3 variations per age, ages in order
+        // index = age_idx * 3 + (variation - 1)
+        let idx = age_idx * 3 + (variation as usize - 1);
+        if idx < self.variants.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    /// Fast UV lookup by index
+    pub fn get_atlas_uvs_by_index(&self, idx: usize) -> Option<[f32; 4]> {
+        if idx >= self.variants.len() { return None; }
+        let col = (idx as u32) % self.atlas_cols;
+        let row = (idx as u32) / self.atlas_cols;
+        let atlas_w = (self.atlas_cols * self.sprite_size) as f32;
+        let atlas_h = (self.atlas_rows * self.sprite_size) as f32;
+        Some([
+            (col * self.sprite_size) as f32 / atlas_w,
+            (row * self.sprite_size) as f32 / atlas_h,
+            ((col + 1) * self.sprite_size) as f32 / atlas_w,
+            ((row + 1) * self.sprite_size) as f32 / atlas_h,
+        ])
+    }
 }

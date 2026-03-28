@@ -19,7 +19,6 @@ impl Plugin for OceanPlugin {
                 (
                     systems::request_ocean_data,
                     systems::spawn_ocean,
-                    systems::update_ocean_time,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

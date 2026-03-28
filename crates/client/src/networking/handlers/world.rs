@@ -34,13 +34,18 @@ pub fn handle_world_events(
                     continue;
                 };
 
+                if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
+                    // Already loaded — skip, don't re-insert, don't despawn
+                    continue;
+                }
+
                 info!(
                     "✓ Received terrain: {} with {} units",
                     terrain_chunk_data.name,
                     unit_data.len()
                 );
 
-                let is_update = cache.insert_terrain(&terrain_chunk_data);
+                let is_update = cache.insert_terrain(terrain_chunk_data);
 
                 if is_update {
                     let terrain_name = &terrain_chunk_data.name;
@@ -62,8 +67,8 @@ pub fn handle_world_events(
                     cache.insert_biome(chunk_data);
                 }
 
-                cache.insert_cells(&cell_data);
-                cache.insert_buildings(&building_data);
+                cache.insert_cells(cell_data);
+                cache.insert_buildings(building_data);
 
                 for unit in unit_data {
                     let cell = unit.current_cell;
