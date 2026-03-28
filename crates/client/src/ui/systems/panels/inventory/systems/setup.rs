@@ -72,12 +72,12 @@ pub fn setup_inventory_panel(
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(12.0),
                         border: UiRect::all(Val::Px(2.0)),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
                         overflow: Overflow::scroll_y(),
                         ..default()
                     },
                     MaterialNode(materials.add(material)),
                     BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-                    BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| {
                     // Header: Title

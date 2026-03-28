@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy::state::state_scoped::DespawnOnExit;
 use crate::state::resources::UnitsDataCache;
 use crate::states::GameView;
 use crate::ui::resources::UnitSelectionState;
+use bevy::prelude::*;
+use bevy::state::state_scoped::DespawnOnExit;
 use shared::ProfessionEnum;
 
 // ─── Marker components (local to this module) ───────────────
@@ -47,10 +47,8 @@ pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetS
     let paper_panel_image = asset_server.load("ui/ui_paper_panel_md.png");
     let paper_panel_slicer = TextureSlicer {
         border: BorderRect {
-            left: 42.,
-            right: 42.,
-            top: 76.,
-            bottom: 42.,
+            min_inset: Vec2::new(42., 76.),
+            max_inset: Vec2::new(42., 42.)
         },
         center_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
         sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
@@ -120,10 +118,10 @@ pub fn setup_unit_details_panel(mut commands: Commands, asset_server: Res<AssetS
                         display: Display::Flex,
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        border_radius: BorderRadius::all(Val::Px(11.0)),
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.15, 0.5, 0.15)),
-                    BorderRadius::all(Val::Px(11.0)),
                     GlobalZIndex(5),
                     Pickable {
                         should_block_lower: false,
@@ -222,7 +220,11 @@ pub fn handle_tab_click(
         }
         for mut vis in &mut panel_query {
             // Will be set properly in the next block, but toggle immediately
-            let expanded = state_query.iter().next().map(|s| s.expanded).unwrap_or(false);
+            let expanded = state_query
+                .iter()
+                .next()
+                .map(|s| s.expanded)
+                .unwrap_or(false);
             *vis = if expanded {
                 Visibility::Visible
             } else {
@@ -273,10 +275,10 @@ pub fn update_panel_content(
                     flex_direction: FlexDirection::Row,
                     align_items: AlignItems::Center,
                     column_gap: Val::Px(10.0),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.06)),
-                BorderRadius::all(Val::Px(4.0)),
                 Pickable {
                     should_block_lower: false,
                     is_hoverable: false,
@@ -345,10 +347,10 @@ pub fn update_panel_content(
                                 Node {
                                     width: Val::Px(10.0),
                                     height: Val::Px(10.0),
+                                    border_radius: BorderRadius::all(Val::Px(5.0)),
                                     ..default()
                                 },
                                 BackgroundColor(profession_color(&unit_data.profession)),
-                                BorderRadius::all(Val::Px(5.0)),
                             ));
                             row.spawn((
                                 Text::new(unit_data.profession.to_name()),

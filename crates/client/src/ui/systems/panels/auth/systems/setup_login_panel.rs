@@ -46,6 +46,7 @@ pub fn setup_login_panel(
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(20.0),
                         border: UiRect::all(Val::Px(2.0)),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
                         ..default()
                     },
                     // BackgroundColor(Color::srgba_u8(235, 225, 209, 128)), // Semi-transparent dark panel
@@ -74,7 +75,6 @@ pub fn setup_login_panel(
                     //     ..default()
                     // }),
                     BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
-                    BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|form| {
                     // Title
@@ -144,11 +144,11 @@ pub fn setup_login_panel(
                             height: Val::Px(42.0),
                             padding: UiRect::all(Val::Px(12.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.9)),
-                        BorderRadius::all(Val::Px(4.0)),
                         LoginFamilyNameInput,
                     ));
 
@@ -191,11 +191,11 @@ pub fn setup_login_panel(
                             height: Val::Px(42.0),
                             padding: UiRect::all(Val::Px(12.0)),
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.9)),
-                        BorderRadius::all(Val::Px(4.0)),
                         LoginPasswordInput,
                     ));
 
@@ -226,11 +226,11 @@ pub fn setup_login_panel(
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             border: UiRect::all(Val::Px(2.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.5, 0.65, 0.45)),
                         BackgroundColor(Color::srgb(0.35, 0.5, 0.3)),
-                        BorderRadius::all(Val::Px(4.0)),
                         LoginSubmitButton,
                     ))
                     .with_children(|button| {
@@ -265,11 +265,11 @@ pub fn setup_login_panel(
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             border: UiRect::all(Val::Px(1.0)),
+                            border_radius: BorderRadius::all(Val::Px(4.0)),
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.4, 0.4, 0.45)),
                         BackgroundColor(Color::srgba(0.15, 0.15, 0.18, 0.8)),
-                        BorderRadius::all(Val::Px(4.0)),
                         LoginToRegisterButton,
                     ))
                     .with_children(|button| {
@@ -329,11 +329,11 @@ pub fn setup_login_panel(
                                 justify_content: JustifyContent::Center,
                                 align_items: AlignItems::Center,
                                 border: UiRect::all(Val::Px(1.0)),
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 ..default()
                             },
                             BorderColor::all(Color::srgba(0.6, 0.50, 0.30, 0.5)),
                             BackgroundColor(Color::srgba(0.25, 0.20, 0.12, 0.8)),
-                            BorderRadius::all(Val::Px(3.0)),
                             TestCharacterCreationButton,
                         ))
                         .with_children(|button| {
@@ -357,11 +357,11 @@ pub fn setup_login_panel(
                                 justify_content: JustifyContent::Center,
                                 align_items: AlignItems::Center,
                                 border: UiRect::all(Val::Px(1.0)),
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 ..default()
                             },
                             BorderColor::all(Color::srgba(0.6, 0.50, 0.30, 0.5)),
                             BackgroundColor(Color::srgba(0.25, 0.20, 0.12, 0.8)),
-                            BorderRadius::all(Val::Px(3.0)),
                             TestCoatOfArmsButton,
                         ))
                         .with_children(|button| {
