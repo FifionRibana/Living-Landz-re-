@@ -1,5 +1,6 @@
 mod biomes;
 mod contour_segment;
+mod exploration_data;
 mod lake_data;
 mod ocean_data;
 mod terrain_chunk_data;
@@ -17,6 +18,7 @@ pub use lookups::*;
 
 pub use biomes::*;
 pub use contour_segment::*;
+pub use exploration_data::*;
 pub use lake_data::LakeData;
 pub use ocean_data::OceanData;
 pub use terrain_chunk_data::TerrainChunkData;
