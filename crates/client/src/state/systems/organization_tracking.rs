@@ -64,7 +64,15 @@ pub fn track_camera_center_organization(
     grid_config: Res<GridConfig>,
     mut current_organization: ResMut<CurrentOrganization>,
     mut network_client: ResMut<NetworkClient>,
+    time: Res<Time>,
+    mut last_check: Local<f64>
 ) -> Result {
+    // Check only every 2 seconds, not every frame
+    if time.elapsed_secs_f64() - *last_check < 2.0 {
+        return Ok(());
+    }
+    *last_check = time.elapsed_secs_f64();
+
     let window = windows.single()?;
     let (camera, camera_transform) = cameras.single()?;
 

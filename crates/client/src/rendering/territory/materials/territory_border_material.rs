@@ -12,9 +12,6 @@ pub struct TerritoryBorderMaterial {
 
     #[uniform(2)]
     pub border_params: BorderParams,
-
-    #[uniform(3)]
-    pub time: f32,
 }
 
 /// Parameters for border rendering

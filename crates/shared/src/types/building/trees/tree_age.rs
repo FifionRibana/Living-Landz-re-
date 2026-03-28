@@ -37,4 +37,16 @@ impl TreeAge {
         ]
         .into_iter()
     }
+
+    pub fn to_index(&self) -> usize {
+        match self {
+            TreeAge::Sapling => 0,
+            TreeAge::Young => 1,
+            TreeAge::Adult => 2,
+            TreeAge::Mature => 3,
+            TreeAge::Ancient => 4,
+            _ => 4,
+            // TreeAge::Secular => 5,
+        }
+    }
 }
