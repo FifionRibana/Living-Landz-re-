@@ -28,6 +28,7 @@ pub struct DatabaseTables {
     pub organizations: tables::OrganizationsTable,
     pub voronoi_zones: tables::VoronoiZonesTable,
     pub territory_contours: tables::TerritoryContoursTable,
+    pub exploration: tables::ExplorationTable,
 }
 
 impl DatabaseClient {
@@ -91,6 +92,7 @@ impl DatabaseClient {
                 organizations: tables::OrganizationsTable::new(pool.clone()),
                 voronoi_zones: tables::VoronoiZonesTable::new(pool.clone()),
                 territory_contours: tables::TerritoryContoursTable::new(pool.clone()),
+                exploration: tables::ExplorationTable::new(pool.clone()),
             },
             game_state,
         )
