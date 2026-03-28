@@ -54,6 +54,10 @@ pub fn request_chunks_around_camera(
                 x: terrain_chunk_id.x + dx,
                 y: terrain_chunk_id.y + dy,
             };
+   
+            if !world_cache.is_chunk_explored(&id) {
+                continue;
+            }
 
             if !world_cache.is_terrain_loaded("Gaulyia", &id) {
                 let should_request = match world_cache.get_terrain_requested_time("Gaulyia", &id) {
