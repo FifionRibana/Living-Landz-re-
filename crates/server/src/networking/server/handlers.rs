@@ -1,10 +1,7 @@
 use futures::{SinkExt, StreamExt};
 use shared::grid::{GridCell, GridConfig};
 use shared::{
-    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
-    ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction,
-    HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData,
-    TerrainChunkData, TerrainChunkId, TrainUnitAction,
+    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData, TerrainChunkId, TrainUnitAction, UnitData, constants
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
@@ -219,6 +216,21 @@ async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_i
     matches!(result, Ok(Some(_)))
 }
 
+async fn ensure_spawn_explored(lord: Option<UnitData>, db_tables: &DatabaseTables, player_id: i64) {
+    if let Some(ref lord) = lord {
+        let mut spawn_chunks = Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                spawn_chunks.push(TerrainChunkId {
+                    x: lord.current_chunk.x + dx,
+                    y: lord.current_chunk.y + dy,
+                });
+            }
+        }
+        let _ = db_tables.exploration.mark_explored(&spawn_chunks, player_id).await;
+    }
+}
+
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
@@ -366,6 +378,8 @@ pub async fn handle_connection(
                     ServerMessage::InventoryData { .. } => "InventoryData",
                     ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
                     ServerMessage::GameData { .. } => "GameData",
+                    ServerMessage::ExplorationMap { .. } => "ExplorationMap",
+                    ServerMessage::ExplorationUpdate { .. } => "ExplorationUpdate",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -478,6 +492,8 @@ async fn handle_client_message(
                         player_id_u64,
                         lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                     );
+
+                    ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
 
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::LordData { lord })
@@ -712,6 +728,8 @@ async fn handle_client_message(
                                 player_id_u64,
                                 lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                             );
+
+                            ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
 
                             let _ = sessions
                                 .send_to_player(
@@ -3247,6 +3265,73 @@ async fn handle_client_message(
                         vec![ServerMessage::ActionError {
                             reason: format!("Failed to load inventory: {}", e),
                         }], vec![], None)
+                }
+            }
+        }
+
+        ClientMessage::RequestExplorationMap { terrain_name } => {
+            let n_chunk_x = world_global_state.n_chunk_x;
+            let n_chunk_y = world_global_state.n_chunk_y;
+
+            match db_tables.exploration.load_exploration_map(n_chunk_x, n_chunk_y).await {
+                Ok(data) => {
+                    tracing::info!(
+                        "Sending exploration map {}x{} ({} explored chunks)",
+                        n_chunk_x, n_chunk_y,
+                        data.iter().filter(|&&v| v > 0).count()
+                    );
+                    (vec![ServerMessage::ExplorationMap {
+                        width: n_chunk_x,
+                        height: n_chunk_y,
+                        data,
+                    }], vec![], None)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load exploration map: {}", e);
+                    (vec![], vec![], None)
+                }
+            }
+        }
+
+        ClientMessage::ActionExplore { player_id, cell, radius } => {
+            let chunk_id = cell.to_chunk_id(&grid_config.layout);
+
+            // Collect chunks in radius
+            let mut chunks_to_explore = Vec::new();
+            for dx in -radius..=radius {
+                for dy in -radius..=radius {
+                    let candidate = TerrainChunkId {
+                        x: chunk_id.x + dx,
+                        y: chunk_id.y + dy,
+                    };
+                    if candidate.x >= 0 && candidate.y >= 0
+                        && candidate.x < world_global_state.n_chunk_x
+                        && candidate.y < world_global_state.n_chunk_y
+                    {
+                        chunks_to_explore.push(candidate);
+                    }
+                }
+            }
+
+            match db_tables.exploration.mark_explored(&chunks_to_explore, player_id).await {
+                Ok(newly_explored) => {
+                    if !newly_explored.is_empty() {
+                        tracing::info!(
+                            "Player {} explored {} new chunks around ({},{})",
+                            player_id, newly_explored.len(), chunk_id.x, chunk_id.y
+                        );
+
+                        // Broadcast to all connected clients
+                        let update = ServerMessage::ExplorationUpdate {
+                            chunks: newly_explored.clone(),
+                        };
+                        sessions.broadcast(update).await;
+                    }
+                    (vec![], vec![], None)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to mark exploration: {}", e);
+                    (vec![], vec![], None)
                 }
             }
         }

@@ -305,6 +305,15 @@ pub enum ClientMessage {
         unit_id: u64,
     },
 
+    RequestExplorationMap {
+        terrain_name: String,
+    },
+    ActionExplore {
+        player_id: i64,
+        cell: GridCell,
+        radius: i32,
+    },
+
     /// Ping (keep alive)
     Ping,
 }
@@ -531,6 +540,15 @@ pub enum ServerMessage {
     /// Données statiques du jeu (envoyées une fois au login)
     GameData {
         payload: GameDataPayload,
+    },
+    
+    ExplorationMap {
+        width: i32,
+        height: i32,
+        data: Vec<u8>,
+    },
+    ExplorationUpdate {
+        chunks: Vec<TerrainChunkId>,
     },
 
     /// Pong (ping answer)

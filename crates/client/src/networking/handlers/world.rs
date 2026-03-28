@@ -164,6 +164,27 @@ pub fn handle_world_events(
                 }
             }
 
+            ServerMessage::ExplorationMap {
+                width,
+                height,
+                data,
+            } => {
+                let Some(ref mut cache) = cache else { continue };
+                info!(
+                    "✓ Received exploration map {}x{} ({} explored)",
+                    width,
+                    height,
+                    data.iter().filter(|&&v| v > 0).count()
+                );
+                cache.set_exploration_map(*width, *height, data.to_vec());
+            }
+
+            ServerMessage::ExplorationUpdate { chunks } => {
+                let Some(ref mut cache) = cache else { continue };
+                info!("✓ Exploration update: {} new chunks", chunks.len());
+                cache.update_exploration(chunks);
+            }
+
             _ => {}
         }
     }

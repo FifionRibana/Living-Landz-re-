@@ -2047,6 +2047,8 @@ impl ActionProcessor {
             ServerMessage::InventoryData { .. } => "InventoryData",
             ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
             ServerMessage::GameData { .. } => "GameData",
+            ServerMessage::ExplorationMap { .. } => "ExplorationMap",
+            ServerMessage::ExplorationUpdate { .. } => "ExplorationUpdate",
             ServerMessage::Pong => "Pong",
         };
 

@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use shared::{
-    BiomeChunkData, BiomeChunkId, BuildingData, LakeData, OceanData, TerrainChunkData, TerrainChunkId, TerrainGlobalData, grid::{CellData, GridCell}
+    BiomeChunkData, BiomeChunkId, BuildingData, LakeData, OceanData, TerrainChunkData,
+    TerrainChunkId, TerrainGlobalData,
+    grid::{CellData, GridCell},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -13,6 +15,7 @@ pub struct WorldCache {
     ocean: OceanCache,
     lake: LakeCache,
     terrain_global: TerrainGlobalCache,
+    exploration: ExplorationCache,
 }
 
 #[derive(Default, Clone)]
@@ -32,7 +35,9 @@ impl TerrainCache {
         if is_update {
             info!(
                 "Updating chunk ({},{}) in terrain {} (has roads: {})",
-                terrain_data.id.x, terrain_data.id.y, terrain_data.name,
+                terrain_data.id.x,
+                terrain_data.id.y,
+                terrain_data.name,
                 terrain_data.road_sdf_data.is_some()
             );
         } else {
@@ -67,13 +72,20 @@ impl TerrainCache {
         self.requested_at.insert(key, time);
     }
 
-    pub fn is_requested_recently(&self, name: &str, id: &TerrainChunkId, timeout: f32, now: f32) -> bool {
+    pub fn is_requested_recently(
+        &self,
+        name: &str,
+        id: &TerrainChunkId,
+        timeout: f32,
+        now: f32,
+    ) -> bool {
         let key = TerrainChunkData::storage_key(name, *id);
-        self.requested_at.get(&key)
+        self.requested_at
+            .get(&key)
             .map(|&t| now - t < timeout)
             .unwrap_or(false)
     }
-    
+
     pub fn get_requested_time(&self, name: &str, id: &TerrainChunkId) -> Option<f32> {
         let key = TerrainChunkData::storage_key(name, *id);
         self.requested_at.get(&key).copied()
@@ -134,14 +146,15 @@ impl CellCache {
 pub struct BuildingCache {
     loaded: HashMap<GridCell, BuildingData>,
     pub dirty: bool,
-    pub dirty_since: f64
+    pub dirty_since: f64,
 }
 
 impl BuildingCache {
     pub fn insert_buildings(&mut self, buildings: &[BuildingData]) {
         info!("Inserting {} buildings into cache", buildings.len());
         buildings.iter().for_each(|building_data| {
-            self.loaded.insert(building_data.base_data.cell, *building_data);
+            self.loaded
+                .insert(building_data.base_data.cell, *building_data);
         });
         if !self.dirty {
             self.dirty_since = 0.0; // will be set by rebuild system
@@ -152,7 +165,7 @@ impl BuildingCache {
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
         self.loaded.get(cell)
     }
-    
+
     pub fn unload_distant(
         &mut self,
         center: &TerrainChunkId,
@@ -162,8 +175,7 @@ impl BuildingCache {
         let mut removed = Vec::new();
 
         self.loaded.retain(|_cell, data| {
-            let keep =
-                (data.base_data.chunk.x - center.x).abs() <= max_distance 
+            let keep = (data.base_data.chunk.x - center.x).abs() <= max_distance
                 && (data.base_data.chunk.y - center.y).abs() <= max_distance;
 
             if !keep {
@@ -410,6 +422,56 @@ impl TerrainGlobalCache {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct ExplorationCache {
+    pub width: i32,
+    pub height: i32,
+    pub data: Vec<u8>,
+    loaded: bool,
+    requested: bool,
+    pub dirty: bool,
+    pub texture_handle: Option<Handle<Image>>,
+}
+
+impl ExplorationCache {
+    pub fn is_loaded(&self) -> bool {
+        self.loaded
+    }
+    pub fn is_requested(&self) -> bool {
+        self.requested
+    }
+    pub fn mark_requested(&mut self) {
+        self.requested = true;
+    }
+
+    pub fn set_map(&mut self, width: i32, height: i32, data: Vec<u8>) {
+        self.width = width;
+        self.height = height;
+        self.data = data;
+        self.loaded = true;
+        self.dirty = true;
+    }
+
+    pub fn update_chunks(&mut self, chunks: &[shared::TerrainChunkId]) {
+        for chunk in chunks {
+            if chunk.x >= 0 && chunk.x < self.width && chunk.y >= 0 && chunk.y < self.height {
+                self.data[(chunk.y * self.width + chunk.x) as usize] = 255;
+            }
+        }
+        self.dirty = true;
+    }
+
+    pub fn is_chunk_explored(&self, chunk: &shared::TerrainChunkId) -> bool {
+        if !self.loaded {
+            return false;
+        }
+        if chunk.x < 0 || chunk.x >= self.width || chunk.y < 0 || chunk.y >= self.height {
+            return false;
+        }
+        self.data[(chunk.y * self.width + chunk.x) as usize] > 0
+    }
+}
+
 impl WorldCache {
     // TERRAIN
     /// Inserts or updates a terrain chunk.
@@ -433,12 +495,18 @@ impl WorldCache {
     pub fn mark_terrain_requested(&mut self, name: &str, id: &TerrainChunkId) {
         self.terrains.mark_requested(name, id);
     }
-    
+
     pub fn mark_terrain_requested_at(&mut self, name: &str, id: &TerrainChunkId, time: f32) {
-       self.terrains.mark_requested_at(name, id, time)
+        self.terrains.mark_requested_at(name, id, time)
     }
 
-    pub fn is_terrain_requested_recently(&self, name: &str, id: &TerrainChunkId, timeout: f32, now: f32) -> bool {
+    pub fn is_terrain_requested_recently(
+        &self,
+        name: &str,
+        id: &TerrainChunkId,
+        timeout: f32,
+        now: f32,
+    ) -> bool {
         self.terrains.is_requested_recently(name, id, timeout, now)
     }
 
@@ -504,7 +572,7 @@ impl WorldCache {
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
         self.buildings.get_building(cell)
     }
-    
+
     pub fn unload_distant_building(
         &mut self,
         center: &TerrainChunkId,
@@ -607,7 +675,7 @@ impl WorldCache {
     pub fn has_terrain_global_handles(&self) -> bool {
         self.terrain_global.has_handles()
     }
-    
+
     pub fn set_terrain_global_handles(&mut self, biome: Handle<Image>, heightmap: Handle<Image>) {
         self.terrain_global.set_handles(biome, heightmap);
     }
@@ -626,5 +694,31 @@ impl WorldCache {
 
     pub fn mark_terrain_global_requested(&mut self) {
         self.terrain_global.mark_requested();
+    }
+
+    // EXPLORATION
+    pub fn is_chunk_explored(&self, chunk: &TerrainChunkId) -> bool {
+        self.exploration.is_chunk_explored(chunk)
+    }
+    pub fn is_exploration_loaded(&self) -> bool {
+        self.exploration.is_loaded()
+    }
+    pub fn is_exploration_requested(&self) -> bool {
+        self.exploration.is_requested()
+    }
+    pub fn mark_exploration_requested(&mut self) {
+        self.exploration.mark_requested();
+    }
+    pub fn set_exploration_map(&mut self, width: i32, height: i32, data: Vec<u8>) {
+        self.exploration.set_map(width, height, data);
+    }
+    pub fn update_exploration(&mut self, chunks: &[TerrainChunkId]) {
+        self.exploration.update_chunks(chunks);
+    }
+    pub fn exploration_cache(&self) -> &ExplorationCache {
+        &self.exploration
+    }
+    pub fn exploration_cache_mut(&mut self) -> &mut ExplorationCache {
+        &mut self.exploration
     }
 }
