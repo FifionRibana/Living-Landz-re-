@@ -216,6 +216,21 @@ async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_i
     matches!(result, Ok(Some(_)))
 }
 
+async fn ensure_spawn_explored(lord: Option<UnitData>, db_tables: &DatabaseTables, player_id: i64) {
+    if let Some(ref lord) = lord {
+        let mut spawn_chunks = Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                spawn_chunks.push(TerrainChunkId {
+                    x: lord.current_chunk.x + dx,
+                    y: lord.current_chunk.y + dy,
+                });
+            }
+        }
+        let _ = db_tables.exploration.mark_explored(&spawn_chunks, player_id).await;
+    }
+}
+
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
@@ -478,6 +493,8 @@ async fn handle_client_message(
                         lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                     );
 
+                    ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
+
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::LordData { lord })
                         .await;
@@ -711,6 +728,8 @@ async fn handle_client_message(
                                 player_id_u64,
                                 lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                             );
+
+                            ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
 
                             let _ = sessions
                                 .send_to_player(

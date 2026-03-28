@@ -39,6 +39,18 @@ pub fn request_chunks_around_camera(
         return;
     }
 
+    if !world_cache.is_exploration_loaded() {
+        if !world_cache.is_exploration_requested() {
+            network_client.send_message(
+                shared::protocol::ClientMessage::RequestExplorationMap {
+                    terrain_name: "Gaulyia".to_string(),
+                }
+            );
+            world_cache.mark_exploration_requested();
+        }
+        return; // Don't request any chunks until we know what's explored
+    }
+
     let position = &transform.translation.truncate();
 
     let terrain_chunk_id = &TerrainChunkId {
