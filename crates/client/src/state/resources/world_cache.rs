@@ -16,6 +16,9 @@ pub struct WorldCache {
     lake: LakeCache,
     terrain_global: TerrainGlobalCache,
     exploration: ExplorationCache,
+    /// Precomputed set of chunk coords that touch the coastline.
+    /// Computed when ocean SDF data arrives.
+    coastal_chunks: HashSet<(i32, i32)>,
 }
 
 #[derive(Default, Clone)]
@@ -591,7 +594,18 @@ impl WorldCache {
 
     // OCEAN
     pub fn insert_ocean(&mut self, ocean_data: OceanData) {
+        // Precompute coastal chunks from the SDF before storing.
+        self.coastal_chunks = Self::compute_coastal_chunks(&ocean_data);
+        info!(
+            "🏖️ Computed {} coastal chunks from ocean SDF",
+            self.coastal_chunks.len()
+        );
         self.ocean.insert_ocean(ocean_data);
+    }
+
+    /// Returns true if the chunk contains or borders the coastline.
+    pub fn is_chunk_coastal(&self, chunk: &TerrainChunkId) -> bool {
+        self.coastal_chunks.contains(&(chunk.x, chunk.y))
     }
 
     pub fn get_ocean(&self) -> Option<&OceanData> {
@@ -720,5 +734,63 @@ impl WorldCache {
     }
     pub fn exploration_cache_mut(&mut self) -> &mut ExplorationCache {
         &mut self.exploration
+    }
+
+    /// Scan the ocean SDF and mark every chunk that contains or borders coastline.
+    /// A chunk is coastal if any sample point within it has an SDF raw value < 148
+    /// (sdf_signed < ~0.16, i.e. water or very near the shore on the land side).
+    fn compute_coastal_chunks(ocean: &OceanData) -> HashSet<(i32, i32)> {
+        use shared::constants;
+
+        let chunk_w = constants::CHUNK_SIZE.x;
+        let chunk_h = constants::CHUNK_SIZE.y;
+        let num_cx = (ocean.world_width / chunk_w).ceil() as i32;
+        let num_cy = (ocean.world_height / chunk_h).ceil() as i32;
+        let sdf_w = ocean.width as f32;
+        let sdf_h = ocean.height as f32;
+
+        // SDF threshold: 128 = coast.  We include anything up to ~148 ≈ slightly inland.
+        const COASTAL_THRESHOLD: u8 = 148;
+        // Number of sample points per chunk axis (3×3 grid)
+        const SAMPLES: i32 = 3;
+
+        let mut result = HashSet::new();
+
+        for cy in 0..num_cy {
+            for cx in 0..num_cx {
+                let mut is_coastal = false;
+
+                'samples: for sy in 0..SAMPLES {
+                    for sx in 0..SAMPLES {
+                        // Sample position within the chunk (0..1 range on each axis)
+                        let fx = (sx as f32 + 0.5) / SAMPLES as f32;
+                        let fy = (sy as f32 + 0.5) / SAMPLES as f32;
+
+                        let world_x = (cx as f32 + fx) * chunk_w;
+                        let world_y = (cy as f32 + fy) * chunk_h;
+
+                        // Map to SDF pixel coordinates
+                        let u = world_x / ocean.world_width;
+                        let v = world_y / ocean.world_height;
+                        let px = (u * sdf_w).min(sdf_w - 1.0) as usize;
+                        let py = (v * sdf_h).min(sdf_h - 1.0) as usize;
+
+                        let idx = py * ocean.width + px;
+                        if idx < ocean.sdf_values.len()
+                            && ocean.sdf_values[idx] < COASTAL_THRESHOLD
+                        {
+                            is_coastal = true;
+                            break 'samples;
+                        }
+                    }
+                }
+
+                if is_coastal {
+                    result.insert((cx, cy));
+                }
+            }
+        }
+
+        result
     }
 }
