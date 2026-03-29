@@ -67,7 +67,7 @@ pub fn request_chunks_around_camera(
                 y: terrain_chunk_id.y + dy,
             };
    
-            if !world_cache.is_chunk_explored(&id) {
+            if !world_cache.is_chunk_explored(&id) && !world_cache.is_chunk_coastal(&id) {
                 continue;
             }
 
