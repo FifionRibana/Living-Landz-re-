@@ -4,15 +4,14 @@ use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d};
 
 #[derive(Clone, Copy, ShaderType)]
-pub struct MistParams {
+pub struct GroundFogParams {
     pub world_width: f32,
     pub world_height: f32,
-    /// Camera world position — updated each frame for parallax offset.
     pub camera_x: f32,
     pub camera_y: f32,
 }
 
-impl Default for MistParams {
+impl Default for GroundFogParams {
     fn default() -> Self {
         Self {
             world_width: 192000.0,
@@ -24,24 +23,18 @@ impl Default for MistParams {
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
-pub struct MistMaterial {
+pub struct GroundFogMaterial {
     #[texture(0)]
     #[sampler(1)]
     pub mist_texture: Handle<Image>,
 
     #[uniform(2)]
-    pub params: MistParams,
-
-    /// Ocean SDF texture — used to reveal coastlines through the fog.
-    /// sdf_raw: 0 = deep water, 0.5 = coast, 1.0 = deep inland.
-    #[texture(3)]
-    #[sampler(4, sampler_type = "filtering")]
-    pub sdf_texture: Handle<Image>,
+    pub params: GroundFogParams,
 }
 
-impl Material2d for MistMaterial {
+impl Material2d for GroundFogMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/mist.wgsl".into()
+        "shaders/ground_fog.wgsl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {
