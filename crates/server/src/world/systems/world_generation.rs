@@ -583,6 +583,9 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
         Err(e) => tracing::error!("Failed to generate Voronoi zones: {}", e),
     }
 
+    // NOTE: Exploration Voronoi seeds are deterministic and computed on-demand.
+    // No pre-generation needed — see exploration_voronoi_gen.rs.
+
     tracing::info!(
         "✓ Full world generated in {:?} ({} land chunks out of {})",
         start.elapsed(),
@@ -656,6 +659,13 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         "  🗑️  terrain.voronoi_zones: {} rows",
         vz_deleted.rows_affected()
     );
+
+    // 3b. Exploration Voronoi (only explored state — seeds are deterministic)
+    let ev_deleted = sqlx::query("DELETE FROM terrain.explored_voronoi")
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to clear explored voronoi");
+    tracing::info!("  🗑️  terrain.explored_voronoi: {} rows", ev_deleted.rows_affected());
 
     // 4. Cells
     let cells_deleted = sqlx::query("DELETE FROM terrain.cells")

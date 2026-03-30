@@ -427,13 +427,19 @@ impl TerrainGlobalCache {
 
 #[derive(Default, Clone)]
 pub struct ExplorationCache {
+    /// Texture dimensions (high-res, e.g. 32× chunk grid)
     pub width: i32,
     pub height: i32,
+    /// Exploration bitmap: 0 = fog, 255 = explored
     pub data: Vec<u8>,
+    /// Chunk grid dimensions (for streaming is_chunk_explored check)
+    pub n_chunk_x: i32,
+    pub n_chunk_y: i32,
+    /// Texels per chunk axis (width / n_chunk_x)
+    pub resolution: i32,
     loaded: bool,
     requested: bool,
     pub dirty: bool,
-    pub texture_handle: Option<Handle<Image>>,
 }
 
 impl ExplorationCache {
@@ -447,31 +453,84 @@ impl ExplorationCache {
         self.requested = true;
     }
 
-    pub fn set_map(&mut self, width: i32, height: i32, data: Vec<u8>) {
+    pub fn set_map(&mut self, width: i32, height: i32, data: Vec<u8>, n_chunk_x: i32, n_chunk_y: i32) {
         self.width = width;
         self.height = height;
         self.data = data;
+        self.n_chunk_x = n_chunk_x;
+        self.n_chunk_y = n_chunk_y;
+        self.resolution = if n_chunk_x > 0 { width / n_chunk_x } else { 1 };
         self.loaded = true;
         self.dirty = true;
     }
 
-    pub fn update_chunks(&mut self, chunks: &[shared::TerrainChunkId]) {
-        for chunk in chunks {
-            if chunk.x >= 0 && chunk.x < self.width && chunk.y >= 0 && chunk.y < self.height {
-                self.data[(chunk.y * self.width + chunk.x) as usize] = 255;
+    /// Apply a rectangular patch from an ExplorationPatch message.
+    pub fn apply_patch(&mut self, px: i32, py: i32, pw: i32, ph: i32, patch_data: &[u8]) {
+        for row in 0..ph {
+            let ty = py + row;
+            if ty < 0 || ty >= self.height {
+                continue;
+            }
+            for col in 0..pw {
+                let tx = px + col;
+                if tx < 0 || tx >= self.width {
+                    continue;
+                }
+                let src_idx = (row * pw + col) as usize;
+                let dst_idx = (ty * self.width + tx) as usize;
+                if src_idx < patch_data.len() && dst_idx < self.data.len() {
+                    self.data[dst_idx] = patch_data[src_idx];
+                }
             }
         }
         self.dirty = true;
     }
 
+    /// Check if a chunk has any explored texels (for streaming).
+    /// Samples a 3×3 grid within the chunk — if ANY point is explored, chunk loads.
     pub fn is_chunk_explored(&self, chunk: &shared::TerrainChunkId) -> bool {
-        if !self.loaded {
+        if !self.loaded || self.resolution <= 0 {
             return false;
         }
-        if chunk.x < 0 || chunk.x >= self.width || chunk.y < 0 || chunk.y >= self.height {
+        if chunk.x < 0 || chunk.x >= self.n_chunk_x || chunk.y < 0 || chunk.y >= self.n_chunk_y {
             return false;
         }
-        self.data[(chunk.y * self.width + chunk.x) as usize] > 0
+
+        let base_tx = chunk.x * self.resolution;
+        let base_ty = chunk.y * self.resolution;
+        let step = self.resolution / 3;
+
+        for sy in 0..3 {
+            for sx in 0..3 {
+                let tx = base_tx + step / 2 + sx * step;
+                let ty = base_ty + step / 2 + sy * step;
+                if tx < self.width && ty < self.height {
+                    if self.data[(ty * self.width + tx) as usize] > 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a chunk OR any of its 8 neighbors is explored.
+    /// This gives a 1-chunk buffer zone around explored territory,
+    /// so fog animation has room to breathe without revealing unloaded chunks.
+    pub fn is_chunk_near_explored(&self, chunk: &shared::TerrainChunkId) -> bool {
+        for dy in -1..=1i32 {
+            for dx in -1..=1i32 {
+                let neighbor = shared::TerrainChunkId {
+                    x: chunk.x + dx,
+                    y: chunk.y + dy,
+                };
+                if self.is_chunk_explored(&neighbor) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -714,6 +773,9 @@ impl WorldCache {
     pub fn is_chunk_explored(&self, chunk: &TerrainChunkId) -> bool {
         self.exploration.is_chunk_explored(chunk)
     }
+    pub fn is_chunk_near_explored(&self, chunk: &TerrainChunkId) -> bool {
+        self.exploration.is_chunk_near_explored(chunk)
+    }
     pub fn is_exploration_loaded(&self) -> bool {
         self.exploration.is_loaded()
     }
@@ -723,11 +785,11 @@ impl WorldCache {
     pub fn mark_exploration_requested(&mut self) {
         self.exploration.mark_requested();
     }
-    pub fn set_exploration_map(&mut self, width: i32, height: i32, data: Vec<u8>) {
-        self.exploration.set_map(width, height, data);
+    pub fn set_exploration_map(&mut self, width: i32, height: i32, data: Vec<u8>, n_chunk_x: i32, n_chunk_y: i32) {
+        self.exploration.set_map(width, height, data, n_chunk_x, n_chunk_y);
     }
-    pub fn update_exploration(&mut self, chunks: &[TerrainChunkId]) {
-        self.exploration.update_chunks(chunks);
+    pub fn apply_exploration_patch(&mut self, px: i32, py: i32, pw: i32, ph: i32, data: &[u8]) {
+        self.exploration.apply_patch(px, py, pw, ph, data);
     }
     pub fn exploration_cache(&self) -> &ExplorationCache {
         &self.exploration
