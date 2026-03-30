@@ -1,6 +1,6 @@
 // assets/shaders/mist.wgsl
 // Issue #115 — Dynamic mist animated texture
-// Adds painterly animated texture to the original mist logic.
+// Issue #116 — Voronoi exploration boundary + threatening atmosphere
 
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 #import bevy_render::globals::Globals
@@ -21,7 +21,7 @@ struct MistParams {
 }
 
 // ============================================================================
-// GRADIENT NOISE — Perlin-style, no grid artifacts
+// NOISE TOOLKIT
 // ============================================================================
 
 fn hash_grad(p: vec2<f32>) -> vec2<f32> {
@@ -60,74 +60,134 @@ fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
     return value;
 }
 
+fn warp(p: vec2<f32>, t: f32) -> vec2<f32> {
+    let q = vec2<f32>(
+        fbm(p + vec2<f32>(t * 0.8, -t * 0.6), 3),
+        fbm(p + vec2<f32>(5.2, 1.3) + vec2<f32>(-t * 0.6, t * 0.8), 3)
+    );
+    return p + q * 3.5; 
+}
+
 // ============================================================================
 // FRAGMENT
 // ============================================================================
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // ── Original exploration logic, untouched ──
-    let explored_raw = textureSample(mist_texture, mist_sampler, in.uv).r;
-    let explored = smoothstep(0.7, 0.98, explored_raw);
-    let mist_alpha = 1.0 - explored;
+    let time = globals.time;
+    let world_pos = in.uv * vec2<f32>(mist_params.world_width, mist_params.world_height);
+
+    // --- 1. FRONTIÈRE VIVANTE ET TENTACULAIRE ---
+    let tentacle_scale = 0.012; 
+    let t_edge = time * 0.08;
+    let edge_coords = warp(world_pos * tentacle_scale, t_edge * 0.5);
+    
+    let dx = fbm(edge_coords + vec2<f32>(t_edge, 0.0), 3) - 0.5;
+    let dy = fbm(edge_coords + vec2<f32>(0.0, t_edge), 3) - 0.5;
+
+    let uv_scale = vec2<f32>(1.0 / mist_params.world_width, 1.0 / mist_params.world_height);
+    
+    let distortion = vec2<f32>(dx, dy) * 180.0 * uv_scale; 
+    let distorted_uv = in.uv + distortion;
+
+    let explored_raw = textureSample(mist_texture, mist_sampler, distorted_uv).r;
+
+    let bp = world_pos * 0.01;
+    let breath = sin(time * 0.1 + bp.x) * 0.5 + cos(time * 0.1 + bp.y) * 0.5;
+    
+    let breath_mask = smoothstep(0.0, 0.1, explored_raw);
+    let explored_animated = explored_raw + (breath * 0.06 * breath_mask);
+
+    let edge_variance = fbm(world_pos * 0.02 + vec2<f32>(time * 0.05, 0.0), 3);
+    
+    let softness = mix(0.4, 1.4, smoothstep(0.3, 0.7, edge_variance)); 
+    let explored = clamp(smoothstep(0.0, softness, max(0.0, explored_animated)), 0.0, 1.0);
+    
+    let mist_alpha = pow(1.0 - explored, 1.8);
 
     if mist_alpha < 0.01 {
         discard;
     }
 
-    // ── Coast masking ──
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, in.uv).r;
+    let in_transition = explored; 
+
+    // --- FRONTIÈRE AVEC L'OCÉAN TENTACULAIRE ---
+    let coast_distortion = vec2<f32>(dx, dy) * 150.0 * uv_scale; 
+    let coast_uv = in.uv + coast_distortion;
+    
+    let sdf_raw = textureSample(sdf_texture, sdf_sampler, coast_uv).r;
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
-    let coast_mask = smoothstep(-0.02, 0.15, sdf_signed);
+    
+    let coast_animated = sdf_signed + (breath * 0.03);
+
+    let coast_mask = smoothstep(-0.02, 0.15, coast_animated);
     if coast_mask < 0.01 {
         discard;
     }
 
-    let time = globals.time;
-    let world_pos = in.uv * vec2<f32>(mist_params.world_width, mist_params.world_height);
+    // --- 2. TRAÎNÉES D'AQUARELLE ET DÉRIVE ---
     let ref_pos = world_pos * (9600.0 / mist_params.world_width);
-
-    // ── Parallax — each layer shifts at a different rate with camera ──
-    // Higher layers (large shapes) shift less → appear far away.
-    // Lower layers (fine detail) shift more → appear close/low.
     let cam = vec2<f32>(mist_params.camera_x, mist_params.camera_y) * (9600.0 / mist_params.world_width);
-    let parallax_high = cam * 0.3;    // Large distant clouds — slow shift
-    let parallax_mid  = cam * 0.7;    // Mid-level fog
-    let parallax_low  = cam * 1.2;    // Close wisps — fast shift
+    
+    let t_fluid = time * 0.0025;
+    let scale = 0.018; 
 
-    // ── Animated fog texture ──
-    let t1 = time * 0.006;
-    let n1 = fbm((ref_pos + parallax_high) * 0.004 + vec2<f32>(t1 * 0.3, -t1 * 0.2), 6);
-    let n2 = fbm((ref_pos + parallax_mid) * 0.009 + vec2<f32>(-t1 * 0.4, t1 * 0.35) + vec2<f32>(42.0, 17.0), 5);
-    let n3 = fbm((ref_pos + parallax_low) * 0.025 + vec2<f32>(time * 0.012, -time * 0.009), 4);
-    let n4 = fbm((ref_pos + parallax_low) * 0.06 + vec2<f32>(-time * 0.015, time * 0.011), 3);
-    let density = n1 * 0.4 + n2 * 0.3 + n3 * 0.2 + n4 * 0.1;
-    let shaped = smoothstep(0.25, 0.75, density);
+    let base_coords = (ref_pos + cam * 0.07) * scale + vec2<f32>(time * 0.01, 0.0);
+    let warped_pos = warp(base_coords, t_fluid);
+    let base_noise = fbm(warped_pos, 5);
+    let shaped = smoothstep(0.1, 0.8, base_noise);
 
-    // ── Color ──
-    let fog_dark  = vec3<f32>(0.52, 0.54, 0.55);
-    let fog_light = vec3<f32>(0.82, 0.83, 0.82);
-    var fog_color = mix(fog_dark, fog_light, shaped);
+    let dark_coords = (ref_pos + cam * 0.03) * (scale * 1.3) + vec2<f32>(time * 0.03, -time * 0.02);
+    let warped_dark = warp(dark_coords, t_fluid * 1.4);
+    let dark_noise = fbm(warped_dark, 4);
+    let dark_patch = 1.0 - smoothstep(0.15, 0.65, dark_noise); 
 
-    // Subtle hue drift (also parallaxed at mid rate)
-    let hue_n = fbm((ref_pos + parallax_mid) * 0.003 + vec2<f32>(time * 0.002, -time * 0.0015), 3);
-    fog_color += vec3<f32>(
-        (hue_n - 0.5) * -0.02,
-        (hue_n - 0.5) *  0.01,
-        (hue_n - 0.5) *  0.025
-    );
+    let shadow_coords = (ref_pos + cam * 0.12) * (scale * 2.0) + vec2<f32>(-time * 0.025, time * 0.03);
+    let warped_shadow = warp(shadow_coords, t_fluid * 1.8);
+    let shadow_noise = fbm(warped_shadow, 4);
+    let shadow_patch = 1.0 - smoothstep(0.2, 0.7, shadow_noise);
 
-    // ── Wisp modulation in the transition zone ──
+    // --- 3. COULEURS NATURELLES ET HOSTILES ---
+    let fog_light  = vec3<f32>(0.83, 0.84, 0.90);   
+    let fog_mid    = vec3<f32>(0.63, 0.64, 0.76);   
+    let fog_dark   = vec3<f32>(0.20, 0.22, 0.28);   
+    
+    var fog_color = mix(fog_mid, fog_light, shaped);
+
+    let patch_intensity = clamp(dark_patch * 0.75 + shadow_patch * 0.45, 0.0, 1.0);
+    fog_color = mix(fog_color, fog_dark, patch_intensity * 0.85); 
+
+    let bruised_violet = vec3<f32>(0.35, 0.15, 0.55); 
+    let rust_red       = vec3<f32>(0.65, 0.30, 0.25); 
+
+    let v_coords = warped_pos * 1.5 + vec2<f32>(dx, dy) * 0.15 + vec2<f32>(time * 0.015, time * 0.01);
+    let r_coords = warped_dark * 1.5 - vec2<f32>(dx, dy) * 0.15 + vec2<f32>(-time * 0.02, time * 0.01);
+
+    let violet_mask = smoothstep(0.45, 0.75, fbm(v_coords, 3));
+    let red_mask    = smoothstep(0.65, 0.85, fbm(r_coords, 3));
+
+    fog_color = mix(fog_color, bruised_violet, violet_mask * 0.30);
+    fog_color = mix(fog_color, rust_red, red_mask * 0.60); 
+
+    // --- 4. PULSATION MALSAINE ---
+    let pulse_noise = fbm(warped_pos * 1.2 + vec2<f32>(time * 0.004, 0.0), 3);
+    let pulse_time = time * 1.2;
+    let raw_pulse = sin(pulse_time + pulse_noise * 5.0);
+    let glow_pulse = pow(max(0.0, raw_pulse), 3.0); 
+    
+    let blood_amber = vec3<f32>(0.45, 0.35, 0.32);
+    let glow_strength = (0.05 + patch_intensity * 0.2) * glow_pulse;
+    fog_color = mix(fog_color, blood_amber, glow_strength);
+
+    // Volutes de bordures
     let wt = time * 0.015;
-    let w1 = fbm((ref_pos + parallax_low) * 0.012 + vec2<f32>(wt * 0.3, wt * 0.2), 5);
-    let w2 = fbm((ref_pos + parallax_low) * 0.02 + vec2<f32>(-wt * 0.25, wt * 0.3) + vec2<f32>(53.0, 29.0), 4);
+    let w1 = fbm((ref_pos + cam * 0.12) * 0.015 + vec2<f32>(wt * 0.3, wt * 0.2), 5);
+    let w2 = fbm((ref_pos + cam * 0.12) * 0.020 + vec2<f32>(-wt * 0.25, wt * 0.3) + vec2<f32>(53.0, 29.0), 4);
     let wisp = w1 * 0.6 + w2 * 0.4;
-    let wisp_mask = smoothstep(0.3, 0.6, wisp);
+    let wisp_mask = smoothstep(0.2, 0.7, wisp);
 
-    // Wisps only affect the transition zone (where mist_alpha < 1)
-    let in_transition = 1.0 - mist_alpha; // 0 in core, 1 at fully explored
-    let wisp_effect = in_transition * (0.5 + wisp_mask * 0.5);
-    let final_alpha = mist_alpha * (1.0 - wisp_effect * 0.4);
+    let wisp_effect = in_transition * (0.3 + wisp_mask * 0.7);
+    let final_alpha = mist_alpha * (1.0 - wisp_effect * 0.5);
 
     let alpha = final_alpha * coast_mask;
 
@@ -135,8 +195,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Lighten fog at the edges
-    fog_color = mix(fog_color, fog_light, in_transition * 0.3);
+    fog_color = mix(fog_color, fog_light, in_transition * 0.30);
 
     return vec4<f32>(fog_color, alpha);
 }

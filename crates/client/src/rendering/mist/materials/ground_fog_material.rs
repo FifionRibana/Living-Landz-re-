@@ -30,6 +30,11 @@ pub struct GroundFogMaterial {
 
     #[uniform(2)]
     pub params: GroundFogParams,
+
+    /// Ocean SDF texture — used to mask ground fog over water.
+    #[texture(3)]
+    #[sampler(4, sampler_type = "filtering")]
+    pub sdf_texture: Handle<Image>,
 }
 
 impl Material2d for GroundFogMaterial {

@@ -18,7 +18,6 @@ impl Plugin for MistPlugin {
                     systems::spawn_mist,
                     systems::spawn_ground_fog,
                     systems::update_mist_texture,
-                    systems::update_ground_fog_texture,
                     systems::update_mist_sdf,
                     systems::update_mist_camera,
                 )
