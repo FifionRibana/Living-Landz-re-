@@ -7,6 +7,7 @@ mod action_processor;
 mod auth;
 mod database;
 mod dev;
+mod exploration;
 mod networking;
 mod population;
 mod road;

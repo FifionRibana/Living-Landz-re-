@@ -168,21 +168,36 @@ pub fn handle_world_events(
                 width,
                 height,
                 data,
+                n_chunk_x,
+                n_chunk_y,
             } => {
                 let Some(ref mut cache) = cache else { continue };
                 info!(
-                    "✓ Received exploration map {}x{} ({} explored)",
+                    "✓ Received exploration map {}×{} ({} explored texels, chunks {}×{})",
                     width,
                     height,
-                    data.iter().filter(|&&v| v > 0).count()
+                    data.iter().filter(|&&v| v > 0).count(),
+                    n_chunk_x,
+                    n_chunk_y,
                 );
-                cache.set_exploration_map(*width, *height, data.to_vec());
+                cache.set_exploration_map(*width, *height, data.to_vec(), *n_chunk_x, *n_chunk_y);
             }
 
-            ServerMessage::ExplorationUpdate { chunks } => {
+            ServerMessage::ExplorationPatch {
+                patch_x,
+                patch_y,
+                patch_width,
+                patch_height,
+                patch_data,
+            } => {
                 let Some(ref mut cache) = cache else { continue };
-                info!("✓ Exploration update: {} new chunks", chunks.len());
-                cache.update_exploration(chunks);
+                info!(
+                    "✓ Exploration patch at ({},{}) size {}×{}",
+                    patch_x, patch_y, patch_width, patch_height
+                );
+                cache.apply_exploration_patch(
+                    *patch_x, *patch_y, *patch_width, *patch_height, patch_data,
+                );
             }
 
             _ => {}
