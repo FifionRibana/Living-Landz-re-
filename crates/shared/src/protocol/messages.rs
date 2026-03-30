@@ -546,9 +546,17 @@ pub enum ServerMessage {
         width: i32,
         height: i32,
         data: Vec<u8>,
+        /// Chunk grid dimensions — used by client to derive chunk exploration status
+        n_chunk_x: i32,
+        n_chunk_y: i32,
     },
-    ExplorationUpdate {
-        chunks: Vec<TerrainChunkId>,
+    /// Incremental exploration update: a rectangular patch of the exploration texture.
+    ExplorationPatch {
+        patch_x: i32,
+        patch_y: i32,
+        patch_width: i32,
+        patch_height: i32,
+        patch_data: Vec<u8>,
     },
 
     /// Pong (ping answer)

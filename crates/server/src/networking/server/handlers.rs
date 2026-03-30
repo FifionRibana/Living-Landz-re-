@@ -1,7 +1,10 @@
 use futures::{SinkExt, StreamExt};
 use shared::grid::{GridCell, GridConfig};
 use shared::{
-    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum, ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction, HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData, TerrainChunkData, TerrainChunkId, TrainUnitAction, UnitData, constants
+    ActionBaseData, ActionContext, ActionData, ActionSpecificTypeEnum, ActionStatusEnum,
+    ActionTypeEnum, BuildBuildingAction, BuildRoadAction, ContourSegmentData, CraftResourceAction,
+    HarvestResourceAction, MoveUnitAction, SendMessageAction, SpecificAction, SpecificActionData,
+    TerrainChunkData, TerrainChunkId, TrainUnitAction, UnitData, constants,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
@@ -216,18 +219,52 @@ async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_i
     matches!(result, Ok(Some(_)))
 }
 
-async fn ensure_spawn_explored(lord: Option<UnitData>, db_tables: &DatabaseTables, player_id: i64) {
+async fn ensure_spawn_explored(
+    lord: Option<UnitData>,
+    db_tables: &DatabaseTables,
+    player_id: i64,
+    grid_config: &GridConfig,
+) {
     if let Some(ref lord) = lord {
-        let mut spawn_chunks = Vec::new();
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                spawn_chunks.push(TerrainChunkId {
-                    x: lord.current_chunk.x + dx,
-                    y: lord.current_chunk.y + dy,
-                });
+        let spawn_cell = GridCell {
+            q: lord.current_cell.q,
+            r: lord.current_cell.r,
+        };
+        let world_seed = crate::exploration::EXPLORATION_WORLD_SEED;
+
+        tracing::info!(
+            "🔍 ensure_spawn_explored: cell=({},{}), world_seed={}",
+            spawn_cell.q,
+            spawn_cell.r,
+            world_seed
+        );
+
+        let zone_ids =
+            crate::exploration::zones_in_radius(&spawn_cell, 20, &grid_config.layout, world_seed);
+
+        tracing::info!(
+            "🔍 Found {} zone_ids in radius 20. Sample: {:?}",
+            zone_ids.len(),
+            &zone_ids[..zone_ids.len().min(5)]
+        );
+
+        match db_tables
+            .exploration_voronoi
+            .mark_explored(&zone_ids, player_id)
+            .await
+        {
+            Ok(newly) => {
+                if !newly.is_empty() {
+                    tracing::info!(
+                        "Explored {} voronoi zones around spawn ({},{})",
+                        newly.len(),
+                        spawn_cell.q,
+                        spawn_cell.r
+                    );
+                }
             }
+            Err(e) => tracing::error!("Failed to explore spawn area: {}", e),
         }
-        let _ = db_tables.exploration.mark_explored(&spawn_chunks, player_id).await;
     }
 }
 
@@ -266,7 +303,9 @@ pub async fn handle_connection(
     sessions.insert(session_id, addr, tx).await;
 
     let generation_semaphore = Arc::new(tokio::sync::Semaphore::new(1));
-    let active_prefetch = Arc::new(std::sync::Mutex::new(std::collections::HashSet::<TerrainChunkId>::new()));
+    let active_prefetch = Arc::new(std::sync::Mutex::new(std::collections::HashSet::<
+        TerrainChunkId,
+    >::new()));
 
     // Traiter les messages entrants et sortants
     loop {
@@ -379,7 +418,7 @@ pub async fn handle_connection(
                     ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
                     ServerMessage::GameData { .. } => "GameData",
                     ServerMessage::ExplorationMap { .. } => "ExplorationMap",
-                    ServerMessage::ExplorationUpdate { .. } => "ExplorationUpdate",
+                    ServerMessage::ExplorationPatch { .. } => "ExplorationPatch",
                     ServerMessage::Pong => "Pong",
                 };
 
@@ -493,7 +532,7 @@ async fn handle_client_message(
                         lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                     );
 
-                    ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
+                    ensure_spawn_explored(lord.clone(), db_tables, player.id, &grid_config).await;
 
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::LordData { lord })
@@ -512,7 +551,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::LoginError {
                             reason: format!("Database error: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -563,7 +605,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::RegisterError {
                             reason: "Ce nom de famille est déjà utilisé".to_string(),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
                 Ok(None) => {
                     // 4. Hash the password
@@ -574,7 +619,10 @@ async fn handle_client_message(
                             return (
                                 vec![ServerMessage::RegisterError {
                                     reason: "Erreur lors du traitement du mot de passe".to_string(),
-                                }], vec![], None);
+                                }],
+                                vec![],
+                                None,
+                            );
                         }
                     };
 
@@ -604,7 +652,10 @@ async fn handle_client_message(
                             (
                                 vec![ServerMessage::RegisterError {
                                     reason: format!("Erreur lors de la création du compte: {}", e),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                     }
                 }
@@ -613,7 +664,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::RegisterError {
                             reason: "Erreur de base de données".to_string(),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -729,7 +783,8 @@ async fn handle_client_message(
                                 lord.as_ref().map_or("None".to_string(), |l| l.full_name())
                             );
 
-                            ensure_spawn_explored(lord.clone(), db_tables, player.id).await;
+                            ensure_spawn_explored(lord.clone(), db_tables, player.id, &grid_config)
+                                .await;
 
                             let _ = sessions
                                 .send_to_player(
@@ -794,7 +849,10 @@ async fn handle_client_message(
                             (
                                 vec![ServerMessage::LoginError {
                                     reason: "Identifiants invalides".to_string(),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                         Err(e) => {
                             tracing::error!(
@@ -805,7 +863,10 @@ async fn handle_client_message(
                             (
                                 vec![ServerMessage::LoginError {
                                     reason: "Erreur lors de l'authentification".to_string(),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                     }
                 }
@@ -818,14 +879,20 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::LoginError {
                             reason: "Identifiants invalides".to_string(),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
                 Err(e) => {
                     tracing::error!("Database error during login for {}: {}", family_name, e);
                     (
                         vec![ServerMessage::LoginError {
                             reason: "Erreur de base de données".to_string(),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -1009,7 +1076,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: "Aucun seigneur trouvé".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Err(e) => {
                     tracing::error!("Failed to load lord: {}", e);
@@ -1040,7 +1110,10 @@ async fn handle_client_message(
                             return (
                                 vec![ServerMessage::ActionError {
                                     reason: "Erreur de chargement de l'inventaire".to_string(),
-                                }], vec![], None);
+                                }],
+                                vec![],
+                                None,
+                            );
                         }
                     };
 
@@ -1063,7 +1136,10 @@ async fn handle_client_message(
                                     "Matériaux de construction manquants : {}",
                                     missing.join(", ")
                                 ),
-                            }], vec![], None);
+                            }],
+                            vec![],
+                            None,
+                        );
                     }
                 }
             }
@@ -1241,7 +1317,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: format!("Recette inconnue : {}", recipe_id),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -1252,14 +1331,20 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: "Aucun seigneur trouvé".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Err(e) => {
                     tracing::error!("Failed to load lord for player {}: {}", player_id, e);
                     return (
                         vec![ServerMessage::ActionError {
                             reason: "Erreur serveur".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -1276,7 +1361,10 @@ async fn handle_client_message(
                         return (
                             vec![ServerMessage::ActionError {
                                 reason: "Erreur de chargement de l'inventaire".to_string(),
-                            }], vec![], None);
+                            }],
+                            vec![],
+                            None,
+                        );
                     }
                 };
 
@@ -1297,7 +1385,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: format!("Ressources manquantes : {}", missing.join(", ")),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1321,7 +1412,10 @@ async fn handle_client_message(
                                 "Toutes les lignes de production sont occupées ({}/{})",
                                 active_count, max_lines
                             ),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1336,7 +1430,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: format!("Certaines unités sont déjà occupées : {:?}", busy),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1459,7 +1556,10 @@ async fn handle_client_message(
                             "Aucun rendement de récolte défini pour ce type de ressource ({:?})",
                             resource_specific_type
                         ),
-                    }], vec![], None);
+                    }],
+                    vec![],
+                    None,
+                );
             }
 
             // 2. Find the lord
@@ -1469,14 +1569,20 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: "Aucun seigneur trouvé".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Err(e) => {
                     tracing::error!("Failed to load lord: {}", e);
                     return (
                         vec![ServerMessage::ActionError {
                             reason: "Erreur serveur".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1500,7 +1606,10 @@ async fn handle_client_message(
                                 "Toutes les lignes de production sont occupées ({}/{})",
                                 active_count, max_lines
                             ),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1515,7 +1624,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: format!("Certaines unités sont déjà occupées : {:?}", busy),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -1622,7 +1734,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::ActionError {
                             reason: format!("Unité introuvable: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -1631,7 +1746,10 @@ async fn handle_client_message(
                 return (
                     vec![ServerMessage::ActionError {
                         reason: "Cette unité ne vous appartient pas".to_string(),
-                    }], vec![], None);
+                    }],
+                    vec![],
+                    None,
+                );
             }
 
             // TODO : Compute properly the path using A* pathfinding algorithm
@@ -1645,7 +1763,10 @@ async fn handle_client_message(
                 return (
                     vec![ServerMessage::ActionError {
                         reason: "L'unité est déjà sur cette cellule".to_string(),
-                    }], vec![], None);
+                    }],
+                    vec![],
+                    None,
+                );
             }
 
             // Durée : 2 secondes par hex de distance
@@ -1749,7 +1870,10 @@ async fn handle_client_message(
                                 "Toutes les lignes de production sont occupées ({}/{})",
                                 active_count, max_lines
                             ),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -2072,7 +2196,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::TerrainGlobalData {
                             terrain_global_data: data,
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
                 Ok(None) => {
                     tracing::warn!("No terrain global data found for {}", world_name);
@@ -2108,7 +2235,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::LordCreateError {
                             reason: "Non authentifié".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -2123,14 +2253,20 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::LordCreateError {
                             reason: "Vous avez déjà un Lord/Lady".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Ok(None) => { /* OK, pas de lord existant */ }
                 Err(e) => {
                     return (
                         vec![ServerMessage::LordCreateError {
                             reason: format!("Erreur: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -2146,13 +2282,19 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::LordCreateError {
                             reason: "Joueur introuvable".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Err(e) => {
                     return (
                         vec![ServerMessage::LordCreateError {
                             reason: format!("Erreur DB: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -2218,7 +2360,10 @@ async fn handle_client_message(
                             (
                                 vec![ServerMessage::LordCreateError {
                                     reason: format!("Lord créé mais erreur au chargement: {}", e),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                     }
                 }
@@ -2227,7 +2372,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::LordCreateError {
                             reason: format!("Erreur lors de la création: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -2259,13 +2407,19 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::HamletFoundError {
                             reason: "Vous n'avez pas de Lord/Lady".to_string(),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Err(e) => {
                     return (
                         vec![ServerMessage::HamletFoundError {
                             reason: format!("Erreur: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -2309,14 +2463,20 @@ async fn handle_client_message(
                                 "Vous avez déjà une organisation (ID: {})",
                                 existing_org_id
                             ),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
                 Ok(None) => { /* OK */ }
                 Err(e) => {
                     return (
                         vec![ServerMessage::HamletFoundError {
                             reason: format!("Erreur DB: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             }
 
@@ -2349,7 +2509,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::HamletFoundError {
                             reason: format!("Échec de la création: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -2876,7 +3039,10 @@ async fn handle_client_message(
                             (
                                 vec![ServerMessage::DebugError {
                                     reason: format!("Failed to create organization: {}", e),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                     }
                 }
@@ -2885,7 +3051,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::DebugError {
                             reason: format!("Failed to create leader unit: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -2901,14 +3070,20 @@ async fn handle_client_message(
                 Ok(_) => {
                     tracing::info!("✓ Organization {} deleted", organization_id);
                     (
-                        vec![ServerMessage::DebugOrganizationDeleted { organization_id }], vec![], None)
+                        vec![ServerMessage::DebugOrganizationDeleted { organization_id }],
+                        vec![],
+                        None,
+                    )
                 }
                 Err(e) => {
                     tracing::error!("✗ Failed to delete organization: {}", e);
                     (
                         vec![ServerMessage::DebugError {
                             reason: format!("Failed to delete organization: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -2931,7 +3106,10 @@ async fn handle_client_message(
                     return (
                         vec![ServerMessage::DebugError {
                             reason: format!("Failed to get occupied slots: {}", e),
-                        }], vec![], None);
+                        }],
+                        vec![],
+                        None,
+                    );
                 }
             };
 
@@ -3020,7 +3198,10 @@ async fn handle_client_message(
                             occupied_slots.len(),
                             total_slots
                         ),
-                    }], vec![], None);
+                    }],
+                    vec![],
+                    None,
+                );
             }
 
             tracing::info!(
@@ -3134,7 +3315,10 @@ async fn handle_client_message(
                                                 "Unit created but failed to load data: {}",
                                                 e
                                             ),
-                                        }], vec![], None)
+                                        }],
+                                        vec![],
+                                        None,
+                                    )
                                 }
                             }
                         }
@@ -3148,7 +3332,10 @@ async fn handle_client_message(
                                         "Unit created but slot assignment failed: {}",
                                         e
                                     ),
-                                }], vec![], None)
+                                }],
+                                vec![],
+                                None,
+                            )
                         }
                     }
                 }
@@ -3157,7 +3344,10 @@ async fn handle_client_message(
                     (
                         vec![ServerMessage::DebugError {
                             reason: format!("Failed to spawn unit: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -3257,14 +3447,20 @@ async fn handle_client_message(
                         .collect();
 
                     (
-                        vec![ServerMessage::InventoryData { unit_id, items }], vec![], None)
+                        vec![ServerMessage::InventoryData { unit_id, items }],
+                        vec![],
+                        None,
+                    )
                 }
                 Err(e) => {
                     tracing::error!("Failed to load inventory for unit {}: {}", unit_id, e);
                     (
                         vec![ServerMessage::ActionError {
                             reason: format!("Failed to load inventory: {}", e),
-                        }], vec![], None)
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
             }
         }
@@ -3272,65 +3468,124 @@ async fn handle_client_message(
         ClientMessage::RequestExplorationMap { terrain_name } => {
             let n_chunk_x = world_global_state.n_chunk_x;
             let n_chunk_y = world_global_state.n_chunk_y;
+            let chunk_w = constants::CHUNK_SIZE.x;
+            let chunk_h = constants::CHUNK_SIZE.y;
+            let layout = &grid_config.layout;
+            let world_seed = crate::exploration::EXPLORATION_WORLD_SEED;
 
-            match db_tables.exploration.load_exploration_map(n_chunk_x, n_chunk_y).await {
-                Ok(data) => {
-                    tracing::info!(
-                        "Sending exploration map {}x{} ({} explored chunks)",
-                        n_chunk_x, n_chunk_y,
-                        data.iter().filter(|&&v| v > 0).count()
+            // Compute seeds deterministically — no DB read for seeds
+            let seeds =
+                crate::exploration::compute_all_seeds(n_chunk_x, n_chunk_y, layout, world_seed);
+
+            match db_tables.exploration_voronoi.load_explored_set().await {
+                Ok(explored) => {
+                    let (width, height, data) = crate::exploration::rasterize_exploration(
+                        &seeds, &explored, n_chunk_x, n_chunk_y, chunk_w, chunk_h,
                     );
-                    (vec![ServerMessage::ExplorationMap {
-                        width: n_chunk_x,
-                        height: n_chunk_y,
-                        data,
-                    }], vec![], None)
+                    tracing::info!(
+                        "Sending voronoi exploration map {}×{} ({} seeds, {} explored)",
+                        width,
+                        height,
+                        seeds.len(),
+                        explored.len()
+                    );
+                    (
+                        vec![ServerMessage::ExplorationMap {
+                            width,
+                            height,
+                            data,
+                            n_chunk_x,
+                            n_chunk_y,
+                        }],
+                        vec![],
+                        None,
+                    )
                 }
                 Err(e) => {
-                    tracing::error!("Failed to load exploration map: {}", e);
+                    tracing::error!("Failed to load explored set: {}", e);
                     (vec![], vec![], None)
                 }
             }
         }
 
-        ClientMessage::ActionExplore { player_id, cell, radius } => {
-            let chunk_id = cell.to_chunk_id(&grid_config.layout);
+        ClientMessage::ActionExplore {
+            player_id,
+            cell,
+            radius,
+        } => {
+            let n_chunk_x = world_global_state.n_chunk_x;
+            let n_chunk_y = world_global_state.n_chunk_y;
+            let chunk_w = constants::CHUNK_SIZE.x;
+            let chunk_h = constants::CHUNK_SIZE.y;
+            let layout = &grid_config.layout;
+            let world_seed = crate::exploration::EXPLORATION_WORLD_SEED;
 
-            // Collect chunks in radius
-            let mut chunks_to_explore = Vec::new();
-            for dx in -radius..=radius {
-                for dy in -radius..=radius {
-                    let candidate = TerrainChunkId {
-                        x: chunk_id.x + dx,
-                        y: chunk_id.y + dy,
-                    };
-                    if candidate.x >= 0 && candidate.y >= 0
-                        && candidate.x < world_global_state.n_chunk_x
-                        && candidate.y < world_global_state.n_chunk_y
-                    {
-                        chunks_to_explore.push(candidate);
-                    }
-                }
-            }
+            // Compute zone IDs in radius — pure deterministic, no DB
+            let zone_ids = crate::exploration::zones_in_radius(&cell, radius, layout, world_seed);
 
-            match db_tables.exploration.mark_explored(&chunks_to_explore, player_id).await {
+            match db_tables
+                .exploration_voronoi
+                .mark_explored(&zone_ids, player_id)
+                .await
+            {
                 Ok(newly_explored) => {
                     if !newly_explored.is_empty() {
                         tracing::info!(
-                            "Player {} explored {} new chunks around ({},{})",
-                            player_id, newly_explored.len(), chunk_id.x, chunk_id.y
+                            "Player {} explored {} new voronoi zones around ({},{})",
+                            player_id,
+                            newly_explored.len(),
+                            cell.q,
+                            cell.r
                         );
 
-                        // Broadcast to all connected clients
-                        let update = ServerMessage::ExplorationUpdate {
-                            chunks: newly_explored.clone(),
+                        // Compute all seeds for rasterization
+                        let all_seeds = crate::exploration::compute_all_seeds(
+                            n_chunk_x, n_chunk_y, layout, world_seed,
+                        );
+
+                        // Get seeds for newly explored zones to compute patch bounds
+                        let new_seeds: Vec<_> = all_seeds
+                            .iter()
+                            .filter(|s| newly_explored.contains(&s.zone_id))
+                            .cloned()
+                            .collect();
+
+                        let explored_set = db_tables
+                            .exploration_voronoi
+                            .load_explored_set()
+                            .await
+                            .unwrap_or_default();
+
+                        let (px, py, pw, ph) = crate::exploration::compute_patch_bounds(
+                            &new_seeds, n_chunk_x, n_chunk_y, chunk_w, chunk_h, 5,
+                        );
+
+                        let patch_data = crate::exploration::rasterize_patch(
+                            &all_seeds,
+                            &explored_set,
+                            n_chunk_x,
+                            n_chunk_y,
+                            chunk_w,
+                            chunk_h,
+                            px,
+                            py,
+                            pw,
+                            ph,
+                        );
+
+                        let update = ServerMessage::ExplorationPatch {
+                            patch_x: px,
+                            patch_y: py,
+                            patch_width: pw,
+                            patch_height: ph,
+                            patch_data,
                         };
                         sessions.broadcast(update).await;
                     }
                     (vec![], vec![], None)
                 }
                 Err(e) => {
-                    tracing::error!("Failed to mark exploration: {}", e);
+                    tracing::error!("Failed to mark voronoi exploration: {}", e);
                     (vec![], vec![], None)
                 }
             }
@@ -3365,17 +3620,34 @@ fn spawn_generate_and_send(
 
     let mut generated = 0;
     tokio::spawn(async move {
-
         for chunk_id in &missing_chunks {
             // Skip if already in DB (another task may have generated it)
-            match db_tables.terrains.load_terrain(&terrain_name, chunk_id).await {
+            match db_tables
+                .terrains
+                .load_terrain(&terrain_name, chunk_id)
+                .await
+            {
                 Ok((Some(_), _)) => {
                     // Already in DB — load and send without generation
-                    let cell_data = db_tables.cells.load_chunk_cells(chunk_id).await.unwrap_or_default();
-                    let building_data = db_tables.buildings.load_chunk_buildings(chunk_id).await.unwrap_or_default();
-                    let unit_data = db_tables.units.load_chunk_units(*chunk_id).await.unwrap_or_default();
-                    let (terrain_data, biome_data) = db_tables.terrains
-                        .load_terrain(&terrain_name, chunk_id).await
+                    let cell_data = db_tables
+                        .cells
+                        .load_chunk_cells(chunk_id)
+                        .await
+                        .unwrap_or_default();
+                    let building_data = db_tables
+                        .buildings
+                        .load_chunk_buildings(chunk_id)
+                        .await
+                        .unwrap_or_default();
+                    let unit_data = db_tables
+                        .units
+                        .load_chunk_units(*chunk_id)
+                        .await
+                        .unwrap_or_default();
+                    let (terrain_data, biome_data) = db_tables
+                        .terrains
+                        .load_terrain(&terrain_name, chunk_id)
+                        .await
                         .map(|(t, b)| (t.unwrap_or_default(), b.unwrap_or_default()))
                         .unwrap_or_default();
 
@@ -3398,7 +3670,11 @@ fn spawn_generate_and_send(
             };
 
             // Double-check after acquiring permit (another task might have generated it)
-            match db_tables.terrains.load_terrain(&terrain_name, chunk_id).await {
+            match db_tables
+                .terrains
+                .load_terrain(&terrain_name, chunk_id)
+                .await
+            {
                 Ok((Some(_), _)) => continue,
                 _ => {}
             }
@@ -3412,17 +3688,22 @@ fn spawn_generate_and_send(
                 )
                 .await;
 
-            let unit_data = db_tables.units
-                .load_chunk_units(*chunk_id).await
+            let unit_data = db_tables
+                .units
+                .load_chunk_units(*chunk_id)
+                .await
                 .unwrap_or_default();
 
-            if tx.send(ServerMessage::TerrainChunkData {
-                terrain_chunk_data: terrain_data,
-                biome_chunk_data: vec![],
-                cell_data,
-                building_data,
-                unit_data,
-            }).is_err() {
+            if tx
+                .send(ServerMessage::TerrainChunkData {
+                    terrain_chunk_data: terrain_data,
+                    biome_chunk_data: vec![],
+                    cell_data,
+                    building_data,
+                    unit_data,
+                })
+                .is_err()
+            {
                 tracing::debug!("Client disconnected");
                 return;
             }
@@ -3432,7 +3713,11 @@ fn spawn_generate_and_send(
         }
 
         if generated > 0 {
-            tracing::info!("🔮 Background complete: {}/{} chunks generated", generated, count);
+            tracing::info!(
+                "🔮 Background complete: {}/{} chunks generated",
+                generated,
+                count
+            );
         }
     });
 }

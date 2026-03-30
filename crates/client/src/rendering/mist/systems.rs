@@ -23,6 +23,9 @@ pub struct MistSdfLoaded;
 #[derive(Component)]
 pub struct GroundFogEntity;
 
+#[derive(Component)]
+pub struct GroundFogSdfLoaded;
+
 fn create_mist_mesh(width: f32, height: f32) -> Mesh {
     let vertices = vec![
         [0.0, 0.0, 0.0],
@@ -87,16 +90,18 @@ pub fn spawn_mist(
     if existing.iter().count() > 0 { return; }
 
     let exploration = world_cache.exploration_cache();
-    let width = exploration.width;
-    let height = exploration.height;
+    let tex_width = exploration.width;
+    let tex_height = exploration.height;
+    let n_chunk_x = exploration.n_chunk_x;
+    let n_chunk_y = exploration.n_chunk_y;
 
-    if width == 0 || height == 0 { return; }
+    if tex_width == 0 || tex_height == 0 { return; }
 
     // Use raw exploration data — bilinear GPU filtering + shader smoothstep handles transition
     let mut mist_image = Image::new(
         Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width: tex_width as u32,
+            height: tex_height as u32,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -107,8 +112,9 @@ pub fn spawn_mist(
     mist_image.sampler = bevy::image::ImageSampler::linear();
     let mist_texture = images.add(mist_image);
 
-    let world_width = width as f32 * constants::CHUNK_SIZE.x;
-    let world_height = height as f32 * constants::CHUNK_SIZE.y;
+    // World dimensions derived from chunk grid, not texture resolution
+    let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    let world_height = n_chunk_y as f32 * constants::CHUNK_SIZE.y;
 
     let mesh = create_mist_mesh(world_width, world_height);
 
@@ -142,8 +148,8 @@ pub fn spawn_mist(
     });
 
     info!(
-        "🌫️ Spawning mist mesh: {}x{} ({}x{} chunks, sdf={})",
-        world_width, world_height, width, height,
+        "🌫️ Spawning mist mesh: {}×{} world, {}×{} texture ({}×{} chunks, sdf={})",
+        world_width, world_height, tex_width, tex_height, n_chunk_x, n_chunk_y,
         if world_cache.get_ocean().is_some() { "real" } else { "fallback" }
     );
 
@@ -166,12 +172,15 @@ pub fn update_mist_sdf(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut mist_materials: ResMut<Assets<MistMaterial>>,
+    mut gf_materials: ResMut<Assets<GroundFogMaterial>>,
     world_cache: Option<Res<WorldCache>>,
     mist_query: Query<(Entity, &MeshMaterial2d<MistMaterial>), (With<MistEntity>, Without<MistSdfLoaded>)>,
+    gf_query: Query<(Entity, &MeshMaterial2d<GroundFogMaterial>), (With<GroundFogEntity>, Without<GroundFogSdfLoaded>)>,
 ) {
     let Some(world_cache) = world_cache else { return; };
     let Some(ocean_data) = world_cache.get_ocean() else { return; };
 
+    // Update mist SDF
     for (entity, mat_handle) in mist_query.iter() {
         let Some(material) = mist_materials.get_mut(&mat_handle.0) else { continue; };
 
@@ -193,23 +202,65 @@ pub fn update_mist_sdf(
 
         info!("🌫️ Mist SDF updated with real ocean data");
     }
+
+    // Update ground fog SDF
+    for (entity, mat_handle) in gf_query.iter() {
+        let Some(material) = gf_materials.get_mut(&mat_handle.0) else { continue; };
+
+        let mut sdf_image = Image::new(
+            Extent3d {
+                width: ocean_data.width as u32,
+                height: ocean_data.height as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            ocean_data.sdf_values.clone(),
+            TextureFormat::R8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        sdf_image.sampler = bevy::image::ImageSampler::linear();
+
+        material.sdf_texture = images.add(sdf_image);
+        commands.entity(entity).insert(GroundFogSdfLoaded);
+
+        info!("🌁 Ground fog SDF updated with real ocean data");
+    }
 }
 
+/// When exploration data changes (ExplorationPatch received), update the GPU textures
+/// for both the main mist and ground fog materials.
 pub fn update_mist_texture(
     mut world_cache: Option<ResMut<WorldCache>>,
     mut images: ResMut<Assets<Image>>,
+    mist_materials: Res<Assets<MistMaterial>>,
+    gf_materials: Res<Assets<GroundFogMaterial>>,
+    mist_query: Query<&MeshMaterial2d<MistMaterial>, With<MistEntity>>,
+    gf_query: Query<&MeshMaterial2d<GroundFogMaterial>, With<GroundFogEntity>>,
 ) {
     let Some(ref mut world_cache) = world_cache else { return; };
 
     let exploration = world_cache.exploration_cache_mut();
     if !exploration.dirty || !exploration.is_loaded() { return; }
 
-    if let Some(ref handle) = exploration.texture_handle {
-        if let Some(image) = images.get_mut(handle) {
-            image.data = Some(exploration.data.clone());
-            exploration.dirty = false;
+    // Update main mist texture
+    for mat_handle in mist_query.iter() {
+        if let Some(material) = mist_materials.get(&mat_handle.0) {
+            if let Some(image) = images.get_mut(&material.mist_texture) {
+                image.data = Some(exploration.data.clone());
+            }
         }
     }
+
+    // Update ground fog texture
+    for mat_handle in gf_query.iter() {
+        if let Some(material) = gf_materials.get(&mat_handle.0) {
+            if let Some(image) = images.get_mut(&material.mist_texture) {
+                image.data = Some(exploration.data.clone());
+            }
+        }
+    }
+
+    exploration.dirty = false;
 }
 
 /// Push camera world position into the mist material each frame for parallax.
@@ -253,14 +304,14 @@ pub fn spawn_ground_fog(
     if existing.iter().count() > 0 { return; }
 
     let exploration = world_cache.exploration_cache();
-    let width = exploration.width;
-    let height = exploration.height;
-    if width == 0 || height == 0 { return; }
+    let tex_width = exploration.width;
+    let tex_height = exploration.height;
+    if tex_width == 0 || tex_height == 0 { return; }
 
     let mut mist_image = Image::new(
         Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width: tex_width as u32,
+            height: tex_height as u32,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -271,10 +322,29 @@ pub fn spawn_ground_fog(
     mist_image.sampler = bevy::image::ImageSampler::linear();
     let mist_texture = images.add(mist_image);
 
-    let world_width = width as f32 * constants::CHUNK_SIZE.x;
-    let world_height = height as f32 * constants::CHUNK_SIZE.y;
+    let world_width = exploration.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    let world_height = exploration.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
 
     let mesh = create_mist_mesh(world_width, world_height);
+
+    // Use real ocean SDF if available, otherwise fallback
+    let sdf_texture = if let Some(ocean_data) = world_cache.get_ocean() {
+        let mut sdf_image = Image::new(
+            Extent3d {
+                width: ocean_data.width as u32,
+                height: ocean_data.height as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            ocean_data.sdf_values.clone(),
+            TextureFormat::R8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        sdf_image.sampler = bevy::image::ImageSampler::linear();
+        images.add(sdf_image)
+    } else {
+        create_fallback_sdf(&mut images)
+    };
 
     let material = gf_materials.add(GroundFogMaterial {
         mist_texture,
@@ -283,36 +353,22 @@ pub fn spawn_ground_fog(
             world_height,
             ..default()
         },
+        sdf_texture,
     });
 
     info!("🌁 Spawning ground fog layer");
 
-    commands.spawn((
+    let mut entity = commands.spawn((
         Name::new("GroundFog"),
         Mesh2d(meshes.add(mesh)),
         MeshMaterial2d(material),
-        // Below all trees (-0.5 + 0.00001*id), above terrain (-0.5)
         Transform::from_translation(Vec3::new(0.0, 0.0, -0.499995)),
         GroundFogEntity,
     ));
-}
 
-/// Update ground fog exploration texture when new chunks are explored.
-pub fn update_ground_fog_texture(
-    world_cache: Option<Res<WorldCache>>,
-    gf_materials: Res<Assets<GroundFogMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    gf_query: Query<&MeshMaterial2d<GroundFogMaterial>, With<GroundFogEntity>>,
-) {
-    let Some(world_cache) = world_cache else { return; };
-    let exploration = world_cache.exploration_cache();
-    if !exploration.dirty || !exploration.is_loaded() { return; }
-
-    for mat_handle in gf_query.iter() {
-        if let Some(material) = gf_materials.get(&mat_handle.0) {
-            if let Some(image) = images.get_mut(&material.mist_texture) {
-                image.data = Some(exploration.data.clone());
-            }
-        }
+    if world_cache.get_ocean().is_some() {
+        entity.insert(GroundFogSdfLoaded);
     }
 }
+
+// Ground fog texture update is handled by update_mist_texture (unified).
