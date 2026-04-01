@@ -1,6 +1,8 @@
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use std::time::Duration;
+
 mod camera;
 mod grid;
 // mod input;
@@ -53,6 +55,13 @@ fn main() {
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
         ))
+        // 🔧 LIGHTYEAR: Client plugins + protocol
+        .add_plugins(lightyear::prelude::client::ClientPlugins {
+            tick_duration: Duration::from_millis(50), // 20Hz, must match server
+        })
+        .add_plugins(shared::protocol::plugin::ProtocolPlugin)
+        .add_plugins(networking::client::lightyear_client::LightyearClientPlugin)
+        //
         .add_plugins((
             // LogDiagnosticsPlugin::default(),
             FrameTimeDiagnosticsPlugin::default(),

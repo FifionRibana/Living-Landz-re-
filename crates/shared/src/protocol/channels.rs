@@ -1,0 +1,2 @@
+// === Channels ===
+pub struct ReliableGameChannel;
