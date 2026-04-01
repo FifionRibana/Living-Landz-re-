@@ -2129,6 +2129,35 @@ impl ActionProcessor {
             })
             .count()
     }
+    /// Add an action from a lightyear RPC: insert in DB + add to in-memory cache.
+    /// Equivalent to the `add_action_and_cache` helper in handlers.rs.
+    pub async fn add_action_from_rpc(
+        &self,
+        action_table: &crate::database::tables::ScheduledActionsTable,
+        action_data: &shared::ActionData,
+        action_type: shared::ActionTypeEnum,
+    ) -> Result<u64, String> {
+        // Insert into DB
+        let action_id = action_table.add_scheduled_action(action_data).await?;
+
+        // Add to in-memory cache for the tick processor
+        let completion_time =
+            action_data.base_data.start_time + (action_data.base_data.duration_ms / 1000);
+        self.add_action(ActionInfo {
+            action_id,
+            player_id: action_data.base_data.player_id,
+            chunk_id: action_data.base_data.chunk,
+            cell: action_data.base_data.cell,
+            action_type,
+            status: shared::ActionStatusEnum::Pending,
+            start_time: action_data.base_data.start_time,
+            duration_ms: action_data.base_data.duration_ms,
+            completion_time,
+        })
+        .await;
+
+        Ok(action_id)
+    }
 }
 
 /// Démarre le processeur d'actions en arrière-plan

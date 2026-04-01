@@ -2,10 +2,22 @@ use bevy::prelude::*;
 use lightyear::netcode::Key;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use shared::TerrainChunkId;
+use shared::grid::GridCell;
+use shared::protocol::channels::ReliableGameChannel;
 
-use crate::state::resources::{ConnectionStatus, PlayerInfo, UnitsCache, UnitsDataCache};
+use crate::state::resources::{ActionTracker, ConnectionStatus, NotificationState, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache};
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, OwnedByPlayer};
+use shared::protocol::lightyear_messages::{ActionErrorMsg, ActionMoveUnitMsg, ActionStatusMsg};
+
+/// Bevy Message: UI systems write this, lightyear send system reads it.
+#[derive(Message, Clone)]
+pub struct SendActionMoveUnit {
+    pub unit_id: u64,
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+}
 
 pub struct LightyearClientPlugin;
 
@@ -13,15 +25,22 @@ impl Plugin for LightyearClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            connect_to_server.run_if(
-                in_state(AppState::InGame)
-                    .and(run_once)
-            ),
+            connect_to_server.run_if(in_state(AppState::InGame).and(run_once)),
         )
         .add_systems(
             Update,
-            (handle_connection_events, handle_lord_replication)
+            (
+                handle_connection_events,
+                handle_lord_replication,
+                receive_action_status,
+                receive_action_error,
+            )
                 .run_if(in_state(AppState::InGame)),
+        );
+
+        app.add_message::<SendActionMoveUnit>().add_systems(
+            Update,
+            send_pending_move_actions.run_if(in_state(AppState::InGame)),
         );
     }
 }
@@ -96,8 +115,14 @@ fn handle_lord_replication(
             continue;
         }
 
-        let new_cell = shared::grid::GridCell { q: pos.cell_q, r: pos.cell_r };
-        let new_chunk = shared::TerrainChunkId { x: pos.chunk_x, y: pos.chunk_y };
+        let new_cell = shared::grid::GridCell {
+            q: pos.cell_q,
+            r: pos.cell_r,
+        };
+        let new_chunk = shared::TerrainChunkId {
+            x: pos.chunk_x,
+            y: pos.chunk_y,
+        };
 
         // Skip if position hasn't actually changed (initial replication = same as login)
         if lord.current_cell == new_cell && lord.current_chunk == new_chunk {
@@ -128,6 +153,91 @@ fn handle_lord_replication(
                 unit.current_cell = new_cell;
                 unit.current_chunk = new_chunk;
             }
+        }
+    }
+}
+
+/// Receive ActionStatusMsg from server via lightyear.
+fn receive_action_status(
+    mut receivers: Query<&mut MessageReceiver<ActionStatusMsg>>,
+    mut action_tracker: Option<ResMut<ActionTracker>>,
+    mut notifications: ResMut<NotificationState>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "📨 Action {} status: {:?} (via lightyear)",
+                msg.action_id, msg.status
+            );
+
+            if let Some(ref mut tracker) = action_tracker {
+                let current_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let start_time = tracker
+                    .get_action(msg.action_id)
+                    .map(|a| a.start_time)
+                    .unwrap_or(current_time);
+
+                tracker.update_action(TrackedAction {
+                    action_id: msg.action_id,
+                    player_id: msg.player_id,
+                    chunk_id: msg.chunk_id,
+                    cell: msg.cell,
+                    action_type: msg.action_type,
+                    status: msg.status,
+                    start_time,
+                    completion_time: msg.completion_time,
+                    action_name: msg.action_name.clone(),
+                    unit_ids: msg.unit_ids.clone(),
+                });
+
+                match msg.status {
+                    shared::ActionStatusEnum::Pending => {
+                        notifications
+                            .push_info(format!("{} en attente...", msg.action_type.to_name()));
+                    }
+                    shared::ActionStatusEnum::InProgress => {
+                        notifications.push_info(format!("{} en cours", msg.action_type.to_name()));
+                    }
+                    shared::ActionStatusEnum::Failed => {
+                        notifications.push_error(format!("{} échouée", msg.action_type.to_name()));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Receive ActionErrorMsg from server via lightyear.
+fn receive_action_error(
+    mut receivers: Query<&mut MessageReceiver<ActionErrorMsg>>,
+    mut notifications: ResMut<NotificationState>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            warn!("❌ Action error (via lightyear): {}", msg.reason);
+            notifications.push_error(msg.reason.clone());
+        }
+    }
+}
+
+fn send_pending_move_actions(
+    mut events: MessageReader<SendActionMoveUnit>,
+    mut senders: Query<&mut MessageSender<ActionMoveUnitMsg>>,
+) {
+    for event in events.read() {
+        for mut sender in senders.iter_mut() {
+            let _ = sender.send::<ReliableGameChannel>(ActionMoveUnitMsg {
+                unit_id: event.unit_id,
+                chunk_id: event.chunk_id,
+                cell: event.cell,
+            });
+            info!("📤 Sent ActionMoveUnit via lightyear for unit {}", event.unit_id);
+            break; // Only one client sender
         }
     }
 }

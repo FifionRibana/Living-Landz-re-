@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::SendActionMoveUnit;
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
 use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
 use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
@@ -147,6 +148,7 @@ pub fn handle_context_menu_click(
     units_data_cache: Option<Res<UnitsDataCache>>,
     connection: Res<ConnectionStatus>,
     mut network_client: Option<ResMut<NetworkClient>>,
+    mut move_events: MessageWriter<SendActionMoveUnit>,
 ) {
     for (interaction, entry) in entry_query.iter() {
         if *interaction != Interaction::Pressed {
@@ -187,8 +189,7 @@ pub fn handle_context_menu_click(
                             continue;
                         }
 
-                        client.send_message(shared::protocol::ClientMessage::ActionMoveUnit {
-                            player_id,
+                        move_events.write(SendActionMoveUnit {
                             unit_id: *unit_id,
                             chunk_id: target_chunk,
                             cell: target_cell,

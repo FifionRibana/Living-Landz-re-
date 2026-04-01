@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use super::super::unit::ProfessionEnum;
 
@@ -59,7 +60,7 @@ impl ActionModeEnum {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Deserialize, Serialize)]
 pub enum ActionStatusEnum {
     InProgress = 1,
     Pending = 2,
@@ -83,7 +84,7 @@ impl ActionStatusEnum {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Deserialize, Serialize)]
 pub enum ActionTypeEnum {
     Unknown = 0,
     BuildBuilding = 1,
