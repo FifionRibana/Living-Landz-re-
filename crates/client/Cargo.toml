@@ -25,6 +25,8 @@ tungstenite = { workspace = true }
 url = { workspace = true }
 i_triangle = { workspace = true }
 
+lightyear = { workspace = true }
+
 chrono = { workspace = true }
 
 [features]
