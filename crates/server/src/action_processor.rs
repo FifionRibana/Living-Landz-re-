@@ -11,10 +11,10 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::dev::DevConfig;
 use crate::networking::Sessions;
 use crate::road::RoadSegment;
 use crate::{database::client::DatabaseTables, units::PortraitGenerator};
+use crate::{dev::DevConfig, networking::server::lightyear::bridge::BridgeSender};
 use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
@@ -53,6 +53,7 @@ pub struct ActionProcessor {
     dev_config: Arc<DevConfig>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
+    bridge_sender: Arc<BridgeSender>,
 }
 
 impl ActionProcessor {
@@ -62,6 +63,7 @@ impl ActionProcessor {
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
         dev_config: Arc<DevConfig>,
+        bridge_sender: Arc<BridgeSender>,
     ) -> Self {
         Self {
             db_tables,
@@ -70,6 +72,7 @@ impl ActionProcessor {
             grid_config,
             dev_config,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
+            bridge_sender,
         }
     }
 
@@ -479,16 +482,33 @@ impl ActionProcessor {
                                     action_id
                                 );
 
-                                // Notifier le joueur
-                                let move_msg = ServerMessage::UnitPositionUpdated {
-                                    unit_id,
-                                    from_cell,
-                                    from_chunk,
-                                    to_cell: target_cell,
-                                    to_chunk: target_chunk,
+                                // Check if this unit is a lord
+                                let is_lord = match self.db_tables.units.load_unit(unit_id).await {
+                                    Ok(unit) => unit.is_lord,
+                                    Err(_) => false,
                                 };
-                                self.send_message_to_player(action_info.player_id, move_msg)
-                                    .await;
+
+                                if is_lord {
+                                    // Lord position → lightyear replication (bridge event)
+                                    self.bridge_sender.send(
+                                        crate::networking::server::lightyear::bridge::BridgeEvent::UpdateLordPosition {
+                                            player_id: action_info.player_id,
+                                            to_chunk: target_chunk,
+                                            to_cell: target_cell,
+                                        },
+                                    );
+                                } else {
+                                    // Non-lord units → tungstenite (for now)
+                                    let move_msg = ServerMessage::UnitPositionUpdated {
+                                        unit_id,
+                                        from_cell,
+                                        from_chunk,
+                                        to_cell: target_cell,
+                                        to_chunk: target_chunk,
+                                    };
+                                    self.send_message_to_player(action_info.player_id, move_msg)
+                                        .await;
+                                }
                             }
                         }
                         Ok(None) => {

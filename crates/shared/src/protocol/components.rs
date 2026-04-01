@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // === Replicated Components ===
@@ -15,4 +14,4 @@ pub struct LordPosition {
 
 /// Identifies which player owns this entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct OwnedByPlayer(pub PeerId);
+pub struct OwnedByPlayer(pub u64);
