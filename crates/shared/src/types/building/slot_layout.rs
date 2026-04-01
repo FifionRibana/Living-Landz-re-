@@ -310,9 +310,9 @@ impl SlotLayout {
             q = -r - s;
         } else if r_diff > s_diff {
             r = -q - s;
-        } else {
+        } /*else {
             s = -q - r;
-        }
+        }*/
 
         Hex::new(q as i32, r as i32)
     }
