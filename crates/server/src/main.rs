@@ -141,7 +141,8 @@ fn main() {
         };
 
         // ── Lightyear bridge: tokio ↔ Bevy ECS ──
-        let (lightyear_bridge_res, bridge_sender) = bridge::create_bridge();
+        let (lightyear_bridge_res, bridge_sender, action_request_receiver) =
+            bridge::create_bridge();
         let bridge_sender_arc = Arc::new(bridge_sender);
 
         // ── Action processor (receives bridge_sender to push position updates) ──
@@ -173,6 +174,15 @@ fn main() {
 
         // ── Background processors ──
         action_processor::start_action_processor(action_processor.clone());
+
+        // Start action RPC handler (Bevy→tokio bridge for lightyear action messages)
+        networking::server::lightyear::action_handler::start_action_rpc_handler(
+            action_request_receiver,
+            bridge_sender_arc.clone(),
+            db_tables_arc.clone(),
+            action_processor.clone(),
+            dev_config_arc.clone(),
+        );
 
         let population_system = Arc::new(population::PopulationSystem::new(
             db_tables_arc.clone(),

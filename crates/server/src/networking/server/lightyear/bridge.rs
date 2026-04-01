@@ -1,33 +1,67 @@
-use shared::{TerrainChunkId, grid::GridCell};
+use shared::grid::GridCell;
+use shared::{ActionStatusEnum, ActionTypeEnum, TerrainChunkId};
 
-/// Events sent from tokio (tungstenite handlers, ActionProcessor) → Bevy ECS
+// ─── tokio → Bevy events (existing + new) ───────────────────────────
+
 pub enum BridgeEvent {
-    /// Player logged in — spawn their lord as a replicated entity
+    /// Player logged in — spawn their lord as a replicated entity.
     SpawnLord {
         player_id: u64,
         chunk: TerrainChunkId,
         cell: GridCell,
     },
-    /// MoveUnit action completed — update lord position in ECS
+    /// ActionMoveUnit completed — update the lord's position in ECS.
     UpdateLordPosition {
         player_id: u64,
         to_chunk: TerrainChunkId,
         to_cell: GridCell,
     },
-    /// Player disconnected — despawn their lord entity
-    DespawnLord {
+    /// Player disconnected — despawn their lord entity.
+    DespawnLord { player_id: u64 },
+
+    // ── NEW: Action responses to forward to client via lightyear ──
+
+    /// Send an ActionStatusMsg to a specific player via lightyear.
+    SendActionStatus {
         player_id: u64,
+        action_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        status: ActionStatusEnum,
+        action_type: ActionTypeEnum,
+        completion_time: u64,
+        action_name: Option<String>,
+        unit_ids: Vec<u64>,
     },
+    /// Send an ActionErrorMsg to a specific player via lightyear.
+    SendActionError { player_id: u64, reason: String },
 }
 
-/// Bevy Resource — lives in the ECS, polled by Bevy systems
+// ─── Bevy → tokio: action requests ─────────────────────────────────
+
+/// An action RPC from a lightyear client, forwarded to tokio for DB processing.
+pub enum ActionRequest {
+    MoveUnit {
+        player_id: u64,
+        unit_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+    },
+    // Future: BuildBuilding, HarvestResource, CraftResource, TrainUnit, etc.
+}
+
+// ─── Bridge resource (Bevy side) ────────────────────────────────────
+
 #[derive(bevy::prelude::Resource)]
 pub struct LightyearBridge {
+    /// tokio → Bevy: bridge events (spawn, despawn, position updates, action responses)
     rx: std::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BridgeEvent>>,
+    /// Bevy → tokio: action requests pushed by Bevy systems when lightyear messages arrive
+    action_tx: tokio::sync::mpsc::UnboundedSender<ActionRequest>,
 }
 
 impl LightyearBridge {
-    /// Non-blocking drain of all pending events. Safe to call from Bevy systems.
+    /// Non-blocking drain of all pending bridge events.
     pub fn drain(&self) -> Vec<BridgeEvent> {
         let Ok(mut rx) = self.rx.try_lock() else {
             return vec![];
@@ -38,10 +72,18 @@ impl LightyearBridge {
         }
         events
     }
+
+    /// Push an action request to the tokio handler.
+    /// Called by Bevy systems when they receive a lightyear Message.
+    pub fn send_action(&self, request: ActionRequest) {
+        if self.action_tx.send(request).is_err() {
+            tracing::warn!("Action request channel closed — request lost");
+        }
+    }
 }
 
-/// Sender half — cloned into tungstenite handlers and ActionProcessor.
-/// Cheap to clone (Arc internally).
+// ─── Bridge sender (tokio side) ─────────────────────────────────────
+
 #[derive(Clone)]
 pub struct BridgeSender {
     tx: tokio::sync::mpsc::UnboundedSender<BridgeEvent>,
@@ -55,13 +97,27 @@ impl BridgeSender {
     }
 }
 
-/// Create the bridge pair. Call once at startup.
-pub fn create_bridge() -> (LightyearBridge, BridgeSender) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+/// Receiver for action requests — lives in the tokio action handler task.
+pub struct ActionRequestReceiver {
+    pub rx: tokio::sync::mpsc::UnboundedReceiver<ActionRequest>,
+}
+
+// ─── Bridge creation ────────────────────────────────────────────────
+
+/// Create the full bridge. Returns:
+/// - `LightyearBridge`: Bevy resource
+/// - `BridgeSender`: cloned into tungstenite handlers and ActionProcessor
+/// - `ActionRequestReceiver`: consumed by the tokio action handler task
+pub fn create_bridge() -> (LightyearBridge, BridgeSender, ActionRequestReceiver) {
+    let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (action_tx, action_rx) = tokio::sync::mpsc::unbounded_channel();
+
     (
         LightyearBridge {
-            rx: std::sync::Mutex::new(rx),
+            rx: std::sync::Mutex::new(event_rx),
+            action_tx,
         },
-        BridgeSender { tx },
+        BridgeSender { tx: event_tx },
+        ActionRequestReceiver { rx: action_rx },
     )
 }

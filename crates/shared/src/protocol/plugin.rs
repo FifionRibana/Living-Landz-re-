@@ -3,7 +3,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::{
     channels::ReliableGameChannel,
-    components::{LordPosition, OwnedByPlayer},
+    components::{LordPosition, OwnedByPlayer}, lightyear_messages::{ActionErrorMsg, ActionMoveUnitMsg, ActionStatusMsg},
 };
 
 // === Protocol Plugin ===
@@ -20,6 +20,17 @@ impl Plugin for ProtocolPlugin {
         app.add_channel::<ReliableGameChannel>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
-        });
+        })
+        .add_direction(NetworkDirection::Bidirectional);
+
+    // Messages: client → server
+        app.register_message::<ActionMoveUnitMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+
+        // Messages: server → client
+        app.register_message::<ActionStatusMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<ActionErrorMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
     }
 }
