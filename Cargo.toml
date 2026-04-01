@@ -86,6 +86,13 @@ tokio-tungstenite = "0.28" # WebSocket async avec tokio
 tungstenite = "0.28"       # WebSocket
 futures = "0.3"
 bincode = "2.0.1"
+lightyear = { version = "0.26", features = [
+    "websocket",
+    "webtransport",
+    "webtransport_dangerous_configuration",  # dev: skip SSL certs
+    "netcode",
+    "udp"
+] }
 
 url = "2.5.7"
 
