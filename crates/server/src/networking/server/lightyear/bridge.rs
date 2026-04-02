@@ -78,6 +78,42 @@ pub enum BridgeEvent {
         organization: Option<shared::OrganizationSummary>,
         game_data: shared::protocol::GameDataPayload,
     },
+
+    // ── Bulk data responses ──
+
+    SendTerrainChunk {
+        player_id: u64,
+        chunk_id: TerrainChunkId,
+        compressed_data: Vec<u8>,
+    },
+    SendOceanData {
+        player_id: u64,
+        compressed_data: Vec<u8>,
+    },
+    SendLakeData {
+        player_id: u64,
+        compressed_data: Vec<u8>,
+    },
+    SendTerrainGlobalData {
+        player_id: u64,
+        compressed_data: Vec<u8>,
+    },
+    SendExplorationMap {
+        player_id: u64,
+        width: i32,
+        height: i32,
+        n_chunk_x: i32,
+        n_chunk_y: i32,
+        compressed_data: Vec<u8>,
+    },
+    SendExplorationPatch {
+        player_id: u64,
+        patch_x: i32,
+        patch_y: i32,
+        patch_width: i32,
+        patch_height: i32,
+        compressed_data: Vec<u8>,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────
@@ -131,6 +167,30 @@ pub enum ActionRequest {
     /// Load all login data for a newly connected player.
     LoadPlayerData {
         player_id: u64,
+    },
+
+    // ── Bulk data requests ──
+
+    LoadTerrainChunks {
+        player_id: u64,
+        terrain_name: String,
+        chunk_ids: Vec<TerrainChunkId>,
+    },
+    LoadOceanData {
+        player_id: u64,
+        world_name: String,
+    },
+    LoadLakeData {
+        player_id: u64,
+        world_name: String,
+    },
+    LoadTerrainGlobalData {
+        player_id: u64,
+        world_name: String,
+    },
+    LoadExplorationMap {
+        player_id: u64,
+        terrain_name: String,
     },
 }
 

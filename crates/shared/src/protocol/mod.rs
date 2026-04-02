@@ -1,3 +1,4 @@
+pub mod bulk_compress;
 pub mod channels;
 pub mod components;
 pub mod compression;

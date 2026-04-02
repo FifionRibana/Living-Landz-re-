@@ -6,23 +6,20 @@ use shared::{
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::{SendRequestExplorationMap, SendRequestTerrainChunks};
 use crate::rendering::terrain::components::{Biome, Building, Terrain};
 // use crate::rendering::terrain::components::Terrain;
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
 
 pub fn request_chunks_around_camera(
     camera: Query<&Transform, With<MainCamera>>,
-    // terrains: Query<&Terrain>,
     connection: Res<ConnectionStatus>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
     world_cache_opt: Option<ResMut<WorldCache>>,
     mut streaming_config: ResMut<StreamingConfig>,
     time: Res<Time>,
+    mut exploration_events: MessageWriter<SendRequestExplorationMap>,
+    mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
 ) {
-    let Some(mut network_client) = network_client_opt else {
-        return;
-    };
     let Some(mut world_cache) = world_cache_opt else {
         return;
     };
@@ -41,11 +38,9 @@ pub fn request_chunks_around_camera(
 
     if !world_cache.is_exploration_loaded() {
         if !world_cache.is_exploration_requested() {
-            network_client.send_message(
-                shared::protocol::ClientMessage::RequestExplorationMap {
-                    terrain_name: "Gaulyia".to_string(),
-                }
-            );
+            exploration_events.write(SendRequestExplorationMap {
+                terrain_name: "Gaulyia".to_string(),
+            });
             world_cache.mark_exploration_requested();
         }
         return; // Don't request any chunks until we know what's explored
@@ -105,10 +100,10 @@ pub fn request_chunks_around_camera(
     });
 
     if !to_request.is_empty() {
-        info!("Requesting {} chunks", to_request.len());
-        network_client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
+        info!("Requesting {} chunks via lightyear", to_request.len());
+        terrain_events.write(SendRequestTerrainChunks {
             terrain_name: "Gaulyia".to_string(),
-            terrain_chunk_ids: to_request,
+            chunk_ids: to_request,
         });
         streaming_config.last_request = time.elapsed_secs();
     }
