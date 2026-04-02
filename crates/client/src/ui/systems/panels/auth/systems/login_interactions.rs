@@ -4,15 +4,13 @@ use bevy::tasks::IoTaskPool;
 use bevy_ui_text_input::TextInputBuffer;
 
 use crate::{
-    networking::client::NetworkClient,
     networking::client::auth_task::{AuthResult, AuthTask},
     states::AuthScreen,
     ui::systems::panels::auth::components::*,
 };
-use shared::protocol::ClientMessage;
 
 /// System to handle login button click.
-/// Sends BOTH tungstenite login (for game data) and HTTP auth (for ConnectToken).
+/// Sends HTTP auth request to get a ConnectToken for lightyear connection.
 pub fn handle_login_button_click(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginSubmitButton>)>,
     family_name_query: Query<&TextInputBuffer, With<LoginFamilyNameInput>>,
@@ -21,7 +19,6 @@ pub fn handle_login_button_click(
         (With<LoginPasswordInput>, Without<LoginFamilyNameInput>),
     >,
     mut error_text_query: Query<(&mut Text, &mut Visibility), With<LoginErrorText>>,
-    mut network_client: ResMut<NetworkClient>,
     mut auth_task: ResMut<AuthTask>,
 ) {
     for interaction in &interaction_query {
@@ -77,15 +74,7 @@ pub fn handle_login_button_click(
                 *visibility = Visibility::Hidden;
             }
 
-            // Path 1: Tungstenite login (for game data, lord spawn, AppState::InGame)
-            let message = ClientMessage::LoginWithPassword {
-                family_name: family_name.clone(),
-                password: password.clone(),
-            };
-            network_client.send_message(message);
-            info!("Login request sent to server (tungstenite)");
-
-            // Path 2: HTTP auth (for ConnectToken → lightyear connection)
+            // HTTP auth (for ConnectToken → lightyear connection)
             let auth_url = std::env::var("AUTH_HTTP_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
             let url = format!("{}/api/auth/login", auth_url);
