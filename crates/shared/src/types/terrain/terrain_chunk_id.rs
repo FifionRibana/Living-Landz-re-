@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use crate::constants;
 
 #[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode,
+    Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode, Deserialize, Serialize,
 )]
 pub struct TerrainChunkId {
     pub x: i32,

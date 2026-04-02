@@ -16,6 +16,7 @@ use crate::action_processor::{ActionInfo, ActionProcessor};
 use crate::auth::password;
 use crate::database::client::DatabaseTables;
 use crate::dev::DevConfig;
+use crate::networking::server::lightyear::bridge::{BridgeEvent, BridgeSender};
 use crate::units::NameGenerator;
 use crate::world::resources::WorldGlobalState;
 use crate::{utils, world};
@@ -279,6 +280,7 @@ pub async fn handle_connection(
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
     world_global_state: Arc<WorldGlobalState>,
+    bridge_sender: Arc<BridgeSender>,
 ) {
     tracing::info!("New connection from {}", addr);
 
@@ -326,7 +328,7 @@ pub async fn handle_connection(
                             Ok((client_msg, _)) => {
                                 tracing::debug!("Received: {:?}", client_msg);
                                 let (responses, missing_chunks, terrain_name_opt) =
-                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config, &world_global_state).await;
+                                    handle_client_message(client_msg, session_id, &sessions, &db_tables, &action_processor, &name_generator, &game_state, &grid_config, &dev_config, &world_global_state, &bridge_sender).await;
 
                                 // Send DB-cached responses immediately
                                 for response in responses {
@@ -436,6 +438,12 @@ pub async fn handle_connection(
         }
     }
 
+    // Despawn lord entity in Bevy ECS when player disconnects
+    if let Some(player_id) = sessions.get_player_id(session_id).await {
+        bridge_sender.send(BridgeEvent::DespawnLord { player_id });
+        tracing::info!("🏰 Bridge: DespawnLord sent for player {}", player_id);
+    }
+
     sessions.remove(&session_id).await;
     tracing::info!("Connection closed: {}", addr);
 }
@@ -451,6 +459,7 @@ async fn handle_client_message(
     grid_config: &GridConfig,
     dev_config: &DevConfig,
     world_global_state: &WorldGlobalState,
+    bridge_sender: &BridgeSender,
 ) -> (Vec<ServerMessage>, Vec<TerrainChunkId>, Option<String>) {
     match msg {
         ClientMessage::Login { username } => {
@@ -533,6 +542,14 @@ async fn handle_client_message(
                     );
 
                     ensure_spawn_explored(lord.clone(), db_tables, player.id, &grid_config).await;
+
+                    if let Some(ref lord_data) = lord {
+                        bridge_sender.send(BridgeEvent::SpawnLord {
+                            player_id: player.id as u64,
+                            chunk: lord_data.current_chunk,
+                            cell: lord_data.current_cell,
+                        });
+                    }
 
                     let _ = sessions
                         .send_to_player(player_id_u64, ServerMessage::LordData { lord })
@@ -785,6 +802,14 @@ async fn handle_client_message(
 
                             ensure_spawn_explored(lord.clone(), db_tables, player.id, &grid_config)
                                 .await;
+
+                            if let Some(ref lord_data) = lord {
+                                bridge_sender.send(BridgeEvent::SpawnLord {
+                                    player_id: player.id as u64,
+                                    chunk: lord_data.current_chunk,
+                                    cell: lord_data.current_cell,
+                                });
+                            }
 
                             let _ = sessions
                                 .send_to_player(

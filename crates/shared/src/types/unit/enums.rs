@@ -1,7 +1,8 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 // ============ PROFESSIONS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum ProfessionEnum {
     Unknown = 0,
     Baker = 1,

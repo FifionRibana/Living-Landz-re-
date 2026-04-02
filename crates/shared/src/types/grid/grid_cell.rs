@@ -1,10 +1,24 @@
 use bevy::prelude::*;
 use bincode::{Decode, Encode};
 use hexx::*;
+use serde::{Deserialize, Serialize};
 
 use crate::{TerrainChunkId, constants};
 
-#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(
+    Component,
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Encode,
+    Decode,
+    Deserialize,
+    Serialize,
+)]
 pub struct GridCell {
     pub q: i32,
     pub r: i32,
@@ -43,12 +57,30 @@ impl GridCell {
     /// (2,-1), (1,-2), (-1,-1), (-2,1), (-1,2), (1,1)
     pub fn indirect_neighbors(&self) -> Vec<GridCell> {
         vec![
-            GridCell { q: self.q + 2, r: self.r - 1 },
-            GridCell { q: self.q + 1, r: self.r - 2 },
-            GridCell { q: self.q - 1, r: self.r - 1 },
-            GridCell { q: self.q - 2, r: self.r + 1 },
-            GridCell { q: self.q - 1, r: self.r + 2 },
-            GridCell { q: self.q + 1, r: self.r + 1 },
+            GridCell {
+                q: self.q + 2,
+                r: self.r - 1,
+            },
+            GridCell {
+                q: self.q + 1,
+                r: self.r - 2,
+            },
+            GridCell {
+                q: self.q - 1,
+                r: self.r - 1,
+            },
+            GridCell {
+                q: self.q - 2,
+                r: self.r + 1,
+            },
+            GridCell {
+                q: self.q - 1,
+                r: self.r + 2,
+            },
+            GridCell {
+                q: self.q + 1,
+                r: self.r + 1,
+            },
         ]
     }
 

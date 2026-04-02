@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::{SendActionBuildBuilding, SendActionMoveUnit};
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
 use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
 use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
@@ -147,6 +148,8 @@ pub fn handle_context_menu_click(
     units_data_cache: Option<Res<UnitsDataCache>>,
     connection: Res<ConnectionStatus>,
     mut network_client: Option<ResMut<NetworkClient>>,
+    mut move_events: MessageWriter<SendActionMoveUnit>,
+    mut build_events: MessageWriter<SendActionBuildBuilding>,
 ) {
     for (interaction, entry) in entry_query.iter() {
         if *interaction != Interaction::Pressed {
@@ -187,8 +190,7 @@ pub fn handle_context_menu_click(
                             continue;
                         }
 
-                        client.send_message(shared::protocol::ClientMessage::ActionMoveUnit {
-                            player_id,
+                        move_events.write(SendActionMoveUnit {
                             unit_id: *unit_id,
                             chunk_id: target_chunk,
                             cell: target_cell,
@@ -211,15 +213,12 @@ pub fn handle_context_menu_click(
                     building_type, target_cell.q, target_cell.r
                 );
 
-                if let Some(ref mut client) = network_client {
-                    client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
-                        player_id,
-                        chunk_id: target_chunk,
-                        cell: target_cell,
-                        building_type,
-                    });
-                    info!("✓ Build {:?} request sent", building_type);
-                }
+                build_events.write(SendActionBuildBuilding {
+                    chunk_id: target_chunk,
+                    cell: target_cell,
+                    building_type,
+                });
+                info!("✓ Build {:?} request sent via lightyear", building_type);
             }
         }
 

@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use crate::BiomeTypeEnum;
 
@@ -209,7 +210,7 @@ impl TreeTypeEnum {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum BuildingTypeEnum {
     // ManufacturingWorkshops
     Blacksmith = 1,

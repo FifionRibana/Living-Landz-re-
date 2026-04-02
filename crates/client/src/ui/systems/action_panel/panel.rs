@@ -4,6 +4,9 @@ use bevy::state::state_scoped::DespawnOnExit;
 use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
 use crate::camera::resources::{CellSceneRenderTarget, SceneRenderTarget};
+use crate::networking::client::lightyear_client::{
+    SendActionBuildBuilding, SendActionBuildRoad, SendActionCraftResource, SendActionTrainUnit,
+};
 use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo, UnitsDataCache};
 use crate::states::{AppState, GameView};
 use crate::ui::carousel::components::{Carousel, CarouselAlpha, CarouselItem};
@@ -1015,13 +1018,16 @@ pub fn update_action_detail_panel(
 /// Handle execute button click — dispatches the action to the server.
 pub fn handle_execute_button(
     button_query: Query<(&Interaction, &ActionExecuteButton), Changed<Interaction>>,
-    mut network_client_opt: Option<ResMut<crate::networking::client::NetworkClient>>,
     connection: Res<crate::state::resources::ConnectionStatus>,
     cell_state: Res<crate::ui::resources::CellState>,
     unit_selection: Res<crate::ui::resources::UnitSelectionState>,
     grid_config: Res<shared::grid::GridConfig>,
     selected_hexes: Res<crate::grid::resources::SelectedHexes>,
     mut selection: ResMut<ActionSelectionState>,
+    mut build_building_events: MessageWriter<SendActionBuildBuilding>,
+    mut build_road_events: MessageWriter<SendActionBuildRoad>,
+    mut craft_resource_events: MessageWriter<SendActionCraftResource>,
+    mut train_unit_events: MessageWriter<SendActionTrainUnit>,
 ) {
     for (interaction, button) in &button_query {
         if !matches!(interaction, Interaction::Pressed) {
@@ -1037,12 +1043,8 @@ pub fn handle_execute_button(
             warn!("Cannot execute action: not logged in");
             return;
         }
-        let Some(player_id) = connection.player_id else {
+        let Some(_player_id) = connection.player_id else {
             warn!("Cannot execute action: no player ID");
-            return;
-        };
-        let Some(network_client) = network_client_opt.as_mut() else {
-            warn!("Cannot execute action: no network client");
             return;
         };
 
@@ -1082,7 +1084,7 @@ pub fn handle_execute_button(
 
         let action_id = &button.action_id;
 
-        // ── Dispatch by action type (same logic as before) ──
+        // ── Dispatch by action type ──
         if let Some(building_id) = action_id.strip_prefix("build_") {
             let building_type = match building_id {
                 "blacksmith" => shared::BuildingTypeEnum::Blacksmith,
@@ -1097,8 +1099,7 @@ pub fn handle_execute_button(
                 "temple" => shared::BuildingTypeEnum::Temple,
                 "theater" => shared::BuildingTypeEnum::Theater,
                 "road_segment" => {
-                    network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
-                        player_id,
+                    build_road_events.write(SendActionBuildRoad {
                         start_cell: cell,
                         end_cell: cell,
                     });
@@ -1110,13 +1111,12 @@ pub fn handle_execute_button(
                     return;
                 }
             };
-            network_client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
-                player_id,
+            build_building_events.write(SendActionBuildBuilding {
                 chunk_id,
                 cell,
                 building_type,
             });
-            info!("✓ Build {} request sent", building_id);
+            info!("✓ Build {} request sent via lightyear", building_id);
         } else if action_id.starts_with("plan_") {
             let hexes: Vec<_> = selected_hexes.ids.iter().copied().collect();
             if hexes.len() < 2 {
@@ -1125,31 +1125,22 @@ pub fn handle_execute_button(
             }
             let start = shared::grid::GridCell::from_hex(&hexes[0]);
             let end = shared::grid::GridCell::from_hex(hexes.last().unwrap());
-            network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
-                player_id,
+            build_road_events.write(SendActionBuildRoad {
                 start_cell: start,
                 end_cell: end,
             });
         } else if let Some(recipe_id) = action_id.strip_prefix("produce_") {
             let unit_ids: Vec<u64> = unit_selection.selected_ids().to_vec();
-            network_client.send_message(shared::protocol::ClientMessage::ActionCraftResource {
-                player_id,
+            craft_resource_events.write(SendActionCraftResource {
                 chunk_id,
                 cell,
                 recipe_id: recipe_id.to_string(),
                 quantity: 1,
                 unit_ids,
             });
-            info!("✓ Production {} request sent", recipe_id);
-        } else if let Some(recipe_id) = action_id.strip_prefix("harvest_") {
-            // let unit_ids: Vec<u64> = unit_selection.selected_ids().to_vec();
-            // network_client.send_message(shared::protocol::ClientMessage::ActionHarvestResource {
-            //     player_id,
-            //     chunk_id,
-            //     cell,
-            //     unit_ids,
-            // });
-            // info!("✓ Harvest {} request sent", recipe_id);
+            info!("✓ Production {} request sent via lightyear", recipe_id);
+        } else if let Some(_recipe_id) = action_id.strip_prefix("harvest_") {
+            // Harvest UI not yet wired — will be enabled when harvest action panel is complete
         } else if let Some(profession_str) = action_id.strip_prefix("train_") {
             let target_profession = match profession_str {
                 "baker" => shared::ProfessionEnum::Baker,
@@ -1174,15 +1165,14 @@ pub fn handle_execute_button(
                 }
             };
             if let Some(&unit_id) = unit_selection.selected_ids().first() {
-                network_client.send_message(shared::protocol::ClientMessage::ActionTrainUnit {
-                    player_id,
+                train_unit_events.write(SendActionTrainUnit {
                     unit_id,
                     chunk_id,
                     cell,
                     target_profession,
                 });
                 info!(
-                    "✓ Train {} request sent for unit {}",
+                    "✓ Train {} request sent via lightyear for unit {}",
                     profession_str, unit_id
                 );
             } else {
