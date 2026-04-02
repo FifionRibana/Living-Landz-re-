@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use lightyear::netcode::Key;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use shared::TerrainChunkId;
@@ -134,8 +133,8 @@ fn connect_to_server(mut commands: Commands, connection: Res<ConnectionStatus>) 
     let auth = Authentication::Manual {
         server_addr,
         client_id: player_id, // player_id from tungstenite login
-        private_key: Key::default(),
-        protocol_id: 0,
+        private_key: shared::protocol::netcode_config::private_key(),
+        protocol_id: shared::protocol::netcode_config::PROTOCOL_ID,
     };
 
     let client = commands

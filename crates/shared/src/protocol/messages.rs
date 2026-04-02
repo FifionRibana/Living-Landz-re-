@@ -1,11 +1,12 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 // use crate::types::*;
 use crate::{
     BiomeChunkData, BuildingData, BuildingTypeEnum, ContourSegmentData, EquipmentSlotEnum, ItemTypeEnum, LakeData, OceanData, OrganizationSummary, OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerrainChunkId, UnitData, grid::{CellData, GridCell}, types::TerrainChunkData
 };
 
 /// Simplified Player data for network protocol (without timestamps)
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct PlayerData {
     pub id: i64,
     pub family_name: String,
@@ -16,7 +17,7 @@ pub struct PlayerData {
 }
 
 /// Simplified Character data for network protocol (without timestamps)
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct CharacterData {
     pub id: i64,
     pub player_id: i64,
@@ -29,7 +30,7 @@ pub struct CharacterData {
     pub motto: Option<String>,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct ColorData {
     pub r: f32,
     pub g: f32,
@@ -71,7 +72,7 @@ pub struct TerritoryContourChunkData {
 // =============================================================================
 
 /// Données de jeu statiques envoyées au client au login
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct GameDataPayload {
     pub items: Vec<ItemDefinitionNet>,
     pub recipes: Vec<RecipeNet>,
@@ -81,7 +82,7 @@ pub struct GameDataPayload {
     pub dev_mode: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct ItemDefinitionNet {
     pub id: i32,
     pub name: String,
@@ -95,7 +96,7 @@ pub struct ItemDefinitionNet {
     pub is_craftable: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct RecipeNet {
     pub id: i32,
     pub name: String,
@@ -108,20 +109,20 @@ pub struct RecipeNet {
     pub ingredients: Vec<RecipeIngredientNet>,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct RecipeIngredientNet {
     pub item_id: i32,
     pub quantity: i32,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct ConstructionCostNet {
     pub building_type_id: i32,
     pub item_id: i32,
     pub quantity: i32,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct HarvestYieldNet {
     pub resource_specific_type_id: i16,
     pub result_item_id: i32,
@@ -130,7 +131,7 @@ pub struct HarvestYieldNet {
     pub duration_seconds: i32,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct TranslationEntry {
     pub entity_type: String,
     pub entity_id: i32,

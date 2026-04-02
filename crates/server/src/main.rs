@@ -248,9 +248,15 @@ fn setup_lightyear_server(mut commands: Commands) {
 
     let server_addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
+    let netcode_cfg = server::NetcodeConfig {
+        protocol_id: shared::protocol::netcode_config::PROTOCOL_ID,
+        private_key: shared::protocol::netcode_config::private_key(),
+        ..Default::default()
+    };
+
     let server = commands
         .spawn((
-            NetcodeServer::new(server::NetcodeConfig::default()),
+            NetcodeServer::new(netcode_cfg),
             LocalAddr(server_addr),
             ServerUdpIo::default(),
         ))
