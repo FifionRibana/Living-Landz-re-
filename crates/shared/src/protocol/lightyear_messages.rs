@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::grid::GridCell;
+use crate::protocol::{
+    CharacterData, GameDataPayload, PlayerData,
+};
 use crate::{
-    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ProfessionEnum, ResourceSpecificTypeEnum,
-    TerrainChunkId,
+    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, OrganizationSummary, ProfessionEnum,
+    ResourceSpecificTypeEnum, TerrainChunkId, UnitData,
 };
 
 // ─── Client → Server Messages ───────────────────────────────────────
@@ -109,4 +112,33 @@ pub struct ActionCompletedMsg {
     pub chunk_id: TerrainChunkId,
     pub cell: GridCell,
     pub action_type: ActionTypeEnum,
+}
+
+// ─── Post-login data Messages (server → client) ─────────────────────
+
+/// Sent by server after lightyear connection is verified.
+/// Contains player identity and character info.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LoginSuccessMsg {
+    pub player: PlayerData,
+    pub character: Option<CharacterData>,
+}
+
+/// Lord unit data — sent after connection.
+/// None if the player hasn't created a lord yet.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LordDataMsg {
+    pub lord: Option<UnitData>,
+}
+
+/// Player's organization data — sent after connection.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PlayerOrganizationDataMsg {
+    pub organization: Option<OrganizationSummary>,
+}
+
+/// Static game data (items, recipes, costs, yields) — sent once after connection.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GameDataMsg {
+    pub payload: GameDataPayload,
 }

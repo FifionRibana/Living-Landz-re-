@@ -1,10 +1,11 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // ORGANIZATION TYPE ENUM
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode, Serialize, Deserialize)]
 #[repr(i16)]
 pub enum OrganizationType {
     // Territorial (1-20)

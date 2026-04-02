@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use crate::grid::GridCell;
 use super::enums::{OrganizationType, RoleType, MembershipStatus, DiplomaticRelationType};
 
@@ -135,7 +136,7 @@ pub struct CreateOrganizationRequest {
 // ORGANIZATION SUMMARY (for lists/UI)
 // ============================================================================
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct OrganizationSummary {
     pub id: u64,
     pub name: String,

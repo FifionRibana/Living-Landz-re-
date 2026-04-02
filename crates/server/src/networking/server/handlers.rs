@@ -103,7 +103,7 @@ async fn claim_cell_and_neighbors(
 }
 
 /// Build the GameDataPayload from the cached GameState
-fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
+pub(crate) fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
     let items = game_state
         .item_definitions
         .iter()
@@ -220,7 +220,7 @@ async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_i
     matches!(result, Ok(Some(_)))
 }
 
-async fn ensure_spawn_explored(
+pub(crate) async fn ensure_spawn_explored(
     lord: Option<UnitData>,
     db_tables: &DatabaseTables,
     player_id: i64,
@@ -689,12 +689,15 @@ async fn handle_client_message(
             }
         }
 
+        // DEPRECATED: Login data is now sent via lightyear Messages after ConnectToken auth (#141).
+        // This handler remains for backward compatibility with ClientMessage::Login (dev mode).
+        // Will be removed in #137 when tungstenite is fully removed.
         ClientMessage::LoginWithPassword {
             family_name,
             password,
         } => {
             tracing::info!(
-                "Session {} attempting to log in with password as {}",
+                "Session {} attempting to log in with password as {} (deprecated tungstenite path)",
                 session_id,
                 family_name
             );

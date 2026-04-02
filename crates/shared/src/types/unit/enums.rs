@@ -174,7 +174,7 @@ impl ProfessionEnum {
 }
 
 // ============ SKILLS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum SkillEnum {
     // Force-based
     MeleeAttack = 1,
@@ -458,7 +458,7 @@ impl ItemTypeEnum {
 }
 
 // ============ EQUIPMENT SLOTS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum EquipmentSlotEnum {
     Unknown = 0,
     Head = 1,

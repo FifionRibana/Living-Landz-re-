@@ -10,6 +10,7 @@ mod auth;
 mod database;
 mod dev;
 mod exploration;
+mod http;
 mod networking;
 mod population;
 mod road;
@@ -172,6 +173,18 @@ fn main() {
             bridge_sender_arc.clone(), // NEW
         );
 
+        // ── HTTP auth server (shares tokio runtime) ──
+        let game_server_addr: std::net::SocketAddr = format!(
+            "127.0.0.1:{}",
+            std::env::var("LIGHTYEAR_PORT").unwrap_or_else(|_| "5000".to_string())
+        )
+        .parse()
+        .unwrap();
+        tokio::spawn(http::start_http_server(
+            db_tables_arc.clone(),
+            game_server_addr,
+        ));
+
         // ── Background processors ──
         action_processor::start_action_processor(action_processor.clone());
 
@@ -248,9 +261,15 @@ fn setup_lightyear_server(mut commands: Commands) {
 
     let server_addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
+    let netcode_cfg = server::NetcodeConfig {
+        protocol_id: shared::protocol::netcode_config::PROTOCOL_ID,
+        private_key: shared::protocol::netcode_config::private_key(),
+        ..Default::default()
+    };
+
     let server = commands
         .spawn((
-            NetcodeServer::new(server::NetcodeConfig::default()),
+            NetcodeServer::new(netcode_cfg),
             LocalAddr(server_addr),
             ServerUdpIo::default(),
         ))

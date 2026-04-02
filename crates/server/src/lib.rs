@@ -6,6 +6,7 @@ pub mod auth;
 pub mod database;
 pub mod dev;
 pub mod exploration;
+pub mod http;
 pub mod networking;
 pub mod road;
 pub mod units;
