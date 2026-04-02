@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::grid::GridCell;
-use crate::{ActionStatusEnum, ActionTypeEnum, TerrainChunkId};
+use crate::{
+    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ProfessionEnum, ResourceSpecificTypeEnum,
+    TerrainChunkId,
+};
 
 // ─── Client → Server Messages ───────────────────────────────────────
 
@@ -11,6 +14,56 @@ pub struct ActionMoveUnitMsg {
     pub unit_id: u64,
     pub chunk_id: TerrainChunkId,
     pub cell: GridCell,
+}
+
+/// Client requests building construction. Replaces ClientMessage::ActionBuildBuilding.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionBuildBuildingMsg {
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub building_type: BuildingTypeEnum,
+}
+
+/// Client requests road construction. Replaces ClientMessage::ActionBuildRoad.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionBuildRoadMsg {
+    pub start_cell: GridCell,
+    pub end_cell: GridCell,
+}
+
+/// Client requests resource harvesting. Replaces ClientMessage::ActionHarvestResource.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionHarvestResourceMsg {
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub resource_specific_type: ResourceSpecificTypeEnum,
+    pub unit_ids: Vec<u64>,
+}
+
+/// Client requests resource crafting. Replaces ClientMessage::ActionCraftResource.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionCraftResourceMsg {
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub recipe_id: String,
+    pub quantity: u32,
+    pub unit_ids: Vec<u64>,
+}
+
+/// Client requests unit training. Replaces ClientMessage::ActionTrainUnit.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionTrainUnitMsg {
+    pub unit_id: u64,
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub target_profession: ProfessionEnum,
+}
+
+/// Client requests exploration. Replaces ClientMessage::ActionExplore.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionExploreMsg {
+    pub cell: GridCell,
+    pub radius: i32,
 }
 
 // ─── Server → Client Messages ───────────────────────────────────────

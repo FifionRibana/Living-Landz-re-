@@ -3,7 +3,12 @@ use lightyear::prelude::*;
 
 use crate::protocol::{
     channels::ReliableGameChannel,
-    components::{LordPosition, OwnedByPlayer}, lightyear_messages::{ActionErrorMsg, ActionMoveUnitMsg, ActionStatusMsg},
+    components::{LordPosition, OwnedByPlayer},
+    lightyear_messages::{
+        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCraftResourceMsg, ActionErrorMsg,
+        ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
+        ActionTrainUnitMsg,
+    },
 };
 
 // === Protocol Plugin ===
@@ -25,6 +30,18 @@ impl Plugin for ProtocolPlugin {
 
     // Messages: client → server
         app.register_message::<ActionMoveUnitMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionBuildBuildingMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionBuildRoadMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionHarvestResourceMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionCraftResourceMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionTrainUnitMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ActionExploreMsg>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // Messages: server → client
