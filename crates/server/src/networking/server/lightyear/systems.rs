@@ -9,9 +9,9 @@ use shared::protocol::{
     channels::ReliableGameChannel,
     components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer},
     lightyear_messages::{
-        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCraftResourceMsg, ActionErrorMsg,
-        ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
-        ActionTrainUnitMsg,
+        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
+        ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
     },
 };
 
@@ -311,6 +311,57 @@ pub fn poll_bridge_events(
                         unit_id
                     );
                     pending_despawns.0.push(unit_id);
+                }
+            }
+
+            BridgeEvent::SendUnitPositionUpdated {
+                player_id,
+                unit_id,
+                from_cell,
+                from_chunk,
+                to_cell,
+                to_chunk,
+            } => {
+                let Some(srv) = srv else {
+                    continue;
+                };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = UnitPositionUpdatedMsg {
+                    unit_id,
+                    from_cell,
+                    from_chunk,
+                    to_cell,
+                    to_chunk,
+                };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to send UnitPositionUpdatedMsg to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+            }
+
+            BridgeEvent::BroadcastActionCompleted {
+                action_id,
+                chunk_id,
+                cell,
+                action_type,
+            } => {
+                let Some(srv) = srv else {
+                    continue;
+                };
+                let target = NetworkTarget::All;
+                let msg = ActionCompletedMsg {
+                    action_id,
+                    chunk_id,
+                    cell,
+                    action_type,
+                };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to broadcast ActionCompletedMsg for action {}: {:?}",
+                        action_id, e
+                    );
                 }
             }
         }

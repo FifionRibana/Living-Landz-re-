@@ -89,3 +89,24 @@ pub struct ActionStatusMsg {
 pub struct ActionErrorMsg {
     pub reason: String,
 }
+
+/// Server notifies a non-lord unit moved.
+/// Replaces ServerMessage::UnitPositionUpdated for lightyear-routed actions.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct UnitPositionUpdatedMsg {
+    pub unit_id: u64,
+    pub from_cell: GridCell,
+    pub from_chunk: TerrainChunkId,
+    pub to_cell: GridCell,
+    pub to_chunk: TerrainChunkId,
+}
+
+/// Server notifies an action completed (broadcast to chunk).
+/// Replaces ServerMessage::ActionCompleted for lightyear-routed actions.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ActionCompletedMsg {
+    pub action_id: u64,
+    pub chunk_id: TerrainChunkId,
+    pub cell: GridCell,
+    pub action_type: ActionTypeEnum,
+}
