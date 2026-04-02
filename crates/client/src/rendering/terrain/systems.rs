@@ -17,7 +17,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::camera::MainCamera;
-use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::SendRequestTerrainGlobalData;
 use crate::rendering::terrain::components::TreeGlobalMesh;
 use crate::rendering::terrain::materials::{
     BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,
@@ -26,13 +26,8 @@ use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
     connection: Res<ConnectionStatus>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
     world_cache_opt: Option<ResMut<WorldCache>>,
-    // terrains: Query<&Terrain>,
 ) {
-    let Some(_network_client) = network_client_opt else {
-        return;
-    };
     let Some(_world_cache) = world_cache_opt else {
         return;
     };
@@ -44,15 +39,11 @@ pub fn initialize_terrain(
 
 pub fn request_terrain_global_data(
     mut cache: ResMut<WorldCache>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
+    mut events: MessageWriter<SendRequestTerrainGlobalData>,
 ) {
-    let Some(mut network_client) = network_client_opt else {
-        return;
-    };
-
     if !cache.is_terrain_global_loaded() && !cache.is_terrain_global_requested() {
-        info!("Requesting terrain global data from server");
-        network_client.send_message(shared::protocol::ClientMessage::RequestTerrainGlobalData {
+        info!("Requesting terrain global data from server via lightyear");
+        events.write(SendRequestTerrainGlobalData {
             world_name: "Gaulyia".to_string(),
         });
         cache.mark_terrain_global_requested();

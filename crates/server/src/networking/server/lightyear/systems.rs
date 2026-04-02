@@ -6,13 +6,19 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::protocol::{
-    channels::ReliableGameChannel,
+    channels::{
+        ExplorationChannel, LakeDataChannel, OceanDataChannel, ReliableGameChannel,
+        TerrainChunkChannel, TerrainGlobalChannel,
+    },
     components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer},
     lightyear_messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-        ActionStatusMsg, ActionTrainUnitMsg, GameDataMsg, LoginSuccessMsg, LordDataMsg,
-        PlayerOrganizationDataMsg, UnitPositionUpdatedMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, ExplorationMapMsg, ExplorationPatchMsg, GameDataMsg,
+        LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
+        PlayerOrganizationDataMsg, RequestExplorationMapMsg, RequestLakeDataMsg,
+        RequestOceanDataMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
+        TerrainChunkDataMsg, TerrainGlobalDataMsg, UnitPositionUpdatedMsg,
     },
 };
 
@@ -79,6 +85,11 @@ impl Plugin for LightyearGamePlugin {
                     receive_craft_resource_messages,
                     receive_train_unit_messages,
                     receive_explore_messages,
+                    receive_terrain_chunk_requests,
+                    receive_ocean_data_requests,
+                    receive_lake_data_requests,
+                    receive_terrain_global_data_requests,
+                    receive_exploration_map_requests,
                 ),
             );
     }
@@ -461,6 +472,116 @@ pub fn poll_bridge_events(
                     player_id
                 );
             }
+
+            // ── Bulk data responses ──
+
+            BridgeEvent::SendTerrainChunk {
+                player_id,
+                chunk_id,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = TerrainChunkDataMsg {
+                    chunk_id,
+                    compressed_data,
+                };
+                if let Err(e) = msg_sender.send::<_, TerrainChunkChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to send terrain chunk ({},{}) to player {}: {:?}",
+                        chunk_id.x, chunk_id.y, player_id, e
+                    );
+                }
+            }
+
+            BridgeEvent::SendOceanData {
+                player_id,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = OceanDataMsg { compressed_data };
+                if let Err(e) = msg_sender.send::<_, OceanDataChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send ocean data to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendLakeData {
+                player_id,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = LakeDataLyMsg { compressed_data };
+                if let Err(e) = msg_sender.send::<_, LakeDataChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send lake data to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendTerrainGlobalData {
+                player_id,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = TerrainGlobalDataMsg { compressed_data };
+                if let Err(e) = msg_sender.send::<_, TerrainGlobalChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to send terrain global data to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+            }
+
+            BridgeEvent::SendExplorationMap {
+                player_id,
+                width,
+                height,
+                n_chunk_x,
+                n_chunk_y,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = ExplorationMapMsg {
+                    width,
+                    height,
+                    n_chunk_x,
+                    n_chunk_y,
+                    compressed_data,
+                };
+                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to send exploration map to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+            }
+
+            BridgeEvent::SendExplorationPatch {
+                player_id,
+                patch_x,
+                patch_y,
+                patch_width,
+                patch_height,
+                compressed_data,
+            } => {
+                let Some(srv) = srv else { continue };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = ExplorationPatchMsg {
+                    patch_x,
+                    patch_y,
+                    patch_width,
+                    patch_height,
+                    compressed_data,
+                };
+                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
+                    tracing::error!(
+                        "Failed to send exploration patch to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+            }
         }
     }
 }
@@ -836,6 +957,92 @@ fn receive_explore_messages(
                 player_id,
                 cell: msg.cell,
                 radius: msg.radius,
+            });
+        }
+    }
+}
+
+// ─── Bulk data request receivers ─────────────────────────────────────
+
+fn receive_terrain_chunk_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainChunksMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Terrain chunks request from player {}: {} chunks",
+                player_id, msg.chunk_ids.len()
+            );
+            bridge.send_action(super::bridge::ActionRequest::LoadTerrainChunks {
+                player_id,
+                terrain_name: msg.terrain_name.clone(),
+                chunk_ids: msg.chunk_ids.clone(),
+            });
+        }
+    }
+}
+
+fn receive_ocean_data_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestOceanDataMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!("📨 Ocean data request from player {}", player_id);
+            bridge.send_action(super::bridge::ActionRequest::LoadOceanData {
+                player_id,
+                world_name: msg.world_name.clone(),
+            });
+        }
+    }
+}
+
+fn receive_lake_data_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestLakeDataMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!("📨 Lake data request from player {}", player_id);
+            bridge.send_action(super::bridge::ActionRequest::LoadLakeData {
+                player_id,
+                world_name: msg.world_name.clone(),
+            });
+        }
+    }
+}
+
+fn receive_terrain_global_data_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainGlobalDataMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!("📨 Terrain global data request from player {}", player_id);
+            bridge.send_action(super::bridge::ActionRequest::LoadTerrainGlobalData {
+                player_id,
+                world_name: msg.world_name.clone(),
+            });
+        }
+    }
+}
+
+fn receive_exploration_map_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestExplorationMapMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!("📨 Exploration map request from player {}", player_id);
+            bridge.send_action(super::bridge::ActionRequest::LoadExplorationMap {
+                player_id,
+                terrain_name: msg.terrain_name.clone(),
             });
         }
     }

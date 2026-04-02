@@ -9,7 +9,6 @@ use shared::{
 use crate::action_processor::ActionProcessor;
 use crate::database::client::DatabaseTables;
 use crate::dev::DevConfig;
-use crate::networking::Sessions;
 use crate::world::resources::WorldGlobalState;
 
 use super::bridge::{ActionRequest, ActionRequestReceiver, BridgeEvent, BridgeSender};
@@ -26,7 +25,6 @@ pub fn start_action_rpc_handler(
     game_state: Arc<GameState>,
     grid_config: Arc<shared::grid::GridConfig>,
     world_global_state: Arc<WorldGlobalState>,
-    sessions: Sessions,
 ) {
     tokio::spawn(async move {
         tracing::info!("🎮 Action RPC handler started");
@@ -163,7 +161,7 @@ pub fn start_action_rpc_handler(
                         &db_tables,
                         &grid_config,
                         &world_global_state,
-                        &sessions,
+                        &bridge_sender,
                     )
                     .await;
                 }
@@ -175,6 +173,62 @@ pub fn start_action_rpc_handler(
                         &dev_config,
                         &game_state,
                         &grid_config,
+                    )
+                    .await;
+                }
+                ActionRequest::LoadTerrainChunks {
+                    player_id,
+                    terrain_name,
+                    chunk_ids,
+                } => {
+                    handle_load_terrain_chunks(
+                        player_id,
+                        &terrain_name,
+                        &chunk_ids,
+                        &bridge_sender,
+                        &db_tables,
+                        &world_global_state,
+                        &game_state,
+                    )
+                    .await;
+                }
+                ActionRequest::LoadOceanData {
+                    player_id,
+                    world_name,
+                } => {
+                    handle_load_ocean_data(
+                        player_id, &world_name, &bridge_sender, &db_tables,
+                    )
+                    .await;
+                }
+                ActionRequest::LoadLakeData {
+                    player_id,
+                    world_name,
+                } => {
+                    handle_load_lake_data(
+                        player_id, &world_name, &bridge_sender, &db_tables,
+                    )
+                    .await;
+                }
+                ActionRequest::LoadTerrainGlobalData {
+                    player_id,
+                    world_name,
+                } => {
+                    handle_load_terrain_global_data(
+                        player_id, &world_name, &bridge_sender, &db_tables,
+                    )
+                    .await;
+                }
+                ActionRequest::LoadExplorationMap {
+                    player_id,
+                    terrain_name: _,
+                } => {
+                    handle_load_exploration_map(
+                        player_id,
+                        &bridge_sender,
+                        &db_tables,
+                        &grid_config,
+                        &world_global_state,
                     )
                     .await;
                 }
@@ -1083,9 +1137,8 @@ async fn handle_explore(
     db_tables: &DatabaseTables,
     grid_config: &shared::grid::GridConfig,
     world_global_state: &WorldGlobalState,
-    sessions: &Sessions,
+    bridge_sender: &BridgeSender,
 ) {
-    use shared::protocol::ServerMessage;
 
     // player_id is u64 but exploration DB uses i64
     let player_id_i64 = player_id as i64;
@@ -1147,14 +1200,17 @@ async fn handle_explore(
                     ph,
                 );
 
-                let update = ServerMessage::ExplorationPatch {
+                let compressed_patch =
+                    shared::protocol::bulk_compress::compress(&patch_data);
+                // Send to the exploring player via lightyear bridge
+                bridge_sender.send(BridgeEvent::SendExplorationPatch {
+                    player_id,
                     patch_x: px,
                     patch_y: py,
                     patch_width: pw,
                     patch_height: ph,
-                    patch_data,
-                };
-                sessions.broadcast(update).await;
+                    compressed_data: compressed_patch,
+                });
             }
         }
         Err(e) => {
@@ -1312,4 +1368,250 @@ async fn handle_load_player_data(
         "📦 LoadPlayerData complete for player {} — SendLoginData dispatched",
         player_id
     );
+}
+
+// ─── Bulk data handlers ──────────────────────────────────────────────
+
+async fn handle_load_ocean_data(
+    player_id: u64,
+    world_name: &str,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    match db_tables.ocean_data.load_ocean_data(world_name).await {
+        Ok(Some(ocean_data)) => {
+            let raw = bincode::encode_to_vec(&ocean_data, bincode::config::standard())
+                .expect("Failed to encode ocean data");
+            let compressed = shared::protocol::bulk_compress::compress(&raw);
+            tracing::info!(
+                "📦 Ocean data: {} → {} bytes ({:.1}x) for player {}",
+                raw.len(),
+                compressed.len(),
+                raw.len() as f64 / compressed.len().max(1) as f64,
+                player_id
+            );
+            bridge_sender.send(BridgeEvent::SendOceanData {
+                player_id,
+                compressed_data: compressed,
+            });
+        }
+        Ok(None) => tracing::warn!("No ocean data found for world {}", world_name),
+        Err(e) => tracing::error!("Failed to load ocean data: {}", e),
+    }
+}
+
+async fn handle_load_lake_data(
+    player_id: u64,
+    world_name: &str,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    match db_tables.lake_data.load_lake_data(world_name).await {
+        Ok(Some(lake_data)) => {
+            let raw = bincode::encode_to_vec(&lake_data, bincode::config::standard())
+                .expect("Failed to encode lake data");
+            let compressed = shared::protocol::bulk_compress::compress(&raw);
+            tracing::info!(
+                "📦 Lake data: {} → {} bytes ({:.1}x) for player {}",
+                raw.len(),
+                compressed.len(),
+                raw.len() as f64 / compressed.len().max(1) as f64,
+                player_id
+            );
+            bridge_sender.send(BridgeEvent::SendLakeData {
+                player_id,
+                compressed_data: compressed,
+            });
+        }
+        Ok(None) => tracing::warn!("No lake data found for world {}", world_name),
+        Err(e) => tracing::error!("Failed to load lake data: {}", e),
+    }
+}
+
+async fn handle_load_terrain_global_data(
+    player_id: u64,
+    world_name: &str,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    match db_tables
+        .terrain_global_data
+        .load_terrain_global_data(world_name)
+        .await
+    {
+        Ok(Some(data)) => {
+            let raw = bincode::encode_to_vec(&data, bincode::config::standard())
+                .expect("Failed to encode terrain global data");
+            let compressed = shared::protocol::bulk_compress::compress(&raw);
+            tracing::info!(
+                "📦 Terrain global data: {} → {} bytes ({:.1}x) for player {}",
+                raw.len(),
+                compressed.len(),
+                raw.len() as f64 / compressed.len().max(1) as f64,
+                player_id
+            );
+            bridge_sender.send(BridgeEvent::SendTerrainGlobalData {
+                player_id,
+                compressed_data: compressed,
+            });
+        }
+        Ok(None) => tracing::warn!("No terrain global data found for {}", world_name),
+        Err(e) => tracing::error!("Failed to load terrain global data: {}", e),
+    }
+}
+
+async fn handle_load_exploration_map(
+    player_id: u64,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+    grid_config: &shared::grid::GridConfig,
+    world_global_state: &WorldGlobalState,
+) {
+    let n_chunk_x = world_global_state.n_chunk_x;
+    let n_chunk_y = world_global_state.n_chunk_y;
+    let chunk_w = shared::constants::CHUNK_SIZE.x;
+    let chunk_h = shared::constants::CHUNK_SIZE.y;
+    let layout = &grid_config.layout;
+    let world_seed = crate::exploration::EXPLORATION_WORLD_SEED;
+
+    let seeds =
+        crate::exploration::compute_all_seeds(n_chunk_x, n_chunk_y, layout, world_seed);
+
+    match db_tables.exploration_voronoi.load_explored_set().await {
+        Ok(explored) => {
+            let (width, height, data) = crate::exploration::rasterize_exploration(
+                &seeds, &explored, n_chunk_x, n_chunk_y, chunk_w, chunk_h,
+            );
+            let compressed = shared::protocol::bulk_compress::compress(&data);
+            tracing::info!(
+                "📦 Exploration map {}×{}: {} → {} bytes ({:.1}x) for player {}",
+                width,
+                height,
+                data.len(),
+                compressed.len(),
+                data.len() as f64 / compressed.len().max(1) as f64,
+                player_id
+            );
+            bridge_sender.send(BridgeEvent::SendExplorationMap {
+                player_id,
+                width,
+                height,
+                n_chunk_x,
+                n_chunk_y,
+                compressed_data: compressed,
+            });
+        }
+        Err(e) => tracing::error!("Failed to load exploration data: {}", e),
+    }
+}
+
+async fn handle_load_terrain_chunks(
+    player_id: u64,
+    terrain_name: &str,
+    chunk_ids: &[shared::TerrainChunkId],
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+    world_global_state: &WorldGlobalState,
+    game_state: &GameState,
+) {
+    for chunk_id in chunk_ids {
+        // Try to load from DB first
+        let (terrain_data, biome_data) = match db_tables
+            .terrains
+            .load_terrain(terrain_name, chunk_id)
+            .await
+        {
+            Ok((Some(t), Some(b))) => (t, b),
+            Ok((Some(t), None)) => (t, vec![]),
+            Ok((None, _)) => {
+                // Not in DB — generate
+                let (terrain_data, cell_data, building_data) =
+                    crate::world::systems::generate_chunk_data(
+                        chunk_id,
+                        world_global_state,
+                        db_tables,
+                        game_state,
+                    )
+                    .await;
+
+                let unit_data = db_tables
+                    .units
+                    .load_chunk_units(*chunk_id)
+                    .await
+                    .unwrap_or_default();
+
+                send_terrain_chunk(
+                    player_id,
+                    *chunk_id,
+                    &terrain_data,
+                    &vec![],
+                    &cell_data,
+                    &building_data,
+                    &unit_data,
+                    bridge_sender,
+                );
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "DB error for chunk ({},{}) in terrain {}: {}",
+                    chunk_id.x, chunk_id.y, terrain_name, e
+                );
+                continue;
+            }
+        };
+
+        // Load associated data
+        let cell_data = db_tables
+            .cells
+            .load_chunk_cells(chunk_id)
+            .await
+            .unwrap_or_default();
+        let building_data = db_tables
+            .buildings
+            .load_chunk_buildings(chunk_id)
+            .await
+            .unwrap_or_default();
+        let unit_data = db_tables
+            .units
+            .load_chunk_units(*chunk_id)
+            .await
+            .unwrap_or_default();
+
+        send_terrain_chunk(
+            player_id,
+            *chunk_id,
+            &terrain_data,
+            &biome_data,
+            &cell_data,
+            &building_data,
+            &unit_data,
+            bridge_sender,
+        );
+    }
+}
+
+/// Serialize a full terrain chunk payload (terrain + biome + cells + buildings + units)
+/// with bincode, LZ4-compress, and send through the bridge.
+fn send_terrain_chunk(
+    player_id: u64,
+    chunk_id: shared::TerrainChunkId,
+    terrain_data: &shared::TerrainChunkData,
+    biome_data: &[shared::BiomeChunkData],
+    cell_data: &[shared::grid::CellData],
+    building_data: &[shared::BuildingData],
+    unit_data: &[shared::UnitData],
+    bridge_sender: &BridgeSender,
+) {
+    // Encode as a tuple: (TerrainChunkData, Vec<BiomeChunkData>, Vec<CellData>, Vec<BuildingData>, Vec<UnitData>)
+    let payload = (terrain_data, biome_data, cell_data, building_data, unit_data);
+    let raw = bincode::encode_to_vec(&payload, bincode::config::standard())
+        .expect("Failed to encode terrain chunk payload");
+    let compressed = shared::protocol::bulk_compress::compress(&raw);
+
+    bridge_sender.send(BridgeEvent::SendTerrainChunk {
+        player_id,
+        chunk_id,
+        compressed_data: compressed,
+    });
 }

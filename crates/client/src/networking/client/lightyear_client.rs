@@ -10,15 +10,18 @@ use crate::networking::client::NetworkClient;
 use crate::networking::client::auth_task::AuthTask;
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, GameDataCache, NotificationState, PlayerInfo, TrackedAction,
-    UnitsCache, UnitsDataCache,
+    UnitsCache, UnitsDataCache, WorldCache,
 };
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
 use shared::protocol::lightyear_messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-    ActionStatusMsg, ActionTrainUnitMsg, GameDataMsg, LoginSuccessMsg, LordDataMsg,
-    PlayerOrganizationDataMsg, UnitPositionUpdatedMsg,
+    ActionStatusMsg, ActionTrainUnitMsg, ExplorationMapMsg, ExplorationPatchMsg, GameDataMsg,
+    LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
+    PlayerOrganizationDataMsg, RequestExplorationMapMsg, RequestLakeDataMsg,
+    RequestOceanDataMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
+    TerrainChunkDataMsg, TerrainGlobalDataMsg, UnitPositionUpdatedMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -73,6 +76,34 @@ pub struct SendActionExplore {
     pub radius: i32,
 }
 
+// ─── Bulk data request Bevy Messages ─────────────────────────────────
+
+#[derive(Message, Clone)]
+pub struct SendRequestTerrainChunks {
+    pub terrain_name: String,
+    pub chunk_ids: Vec<TerrainChunkId>,
+}
+
+#[derive(Message, Clone)]
+pub struct SendRequestOceanData {
+    pub world_name: String,
+}
+
+#[derive(Message, Clone)]
+pub struct SendRequestLakeData {
+    pub world_name: String,
+}
+
+#[derive(Message, Clone)]
+pub struct SendRequestTerrainGlobalData {
+    pub world_name: String,
+}
+
+#[derive(Message, Clone)]
+pub struct SendRequestExplorationMap {
+    pub terrain_name: String,
+}
+
 pub struct LightyearClientPlugin;
 
 impl Plugin for LightyearClientPlugin {
@@ -109,6 +140,11 @@ impl Plugin for LightyearClientPlugin {
             .add_message::<SendActionCraftResource>()
             .add_message::<SendActionTrainUnit>()
             .add_message::<SendActionExplore>()
+            .add_message::<SendRequestTerrainChunks>()
+            .add_message::<SendRequestOceanData>()
+            .add_message::<SendRequestLakeData>()
+            .add_message::<SendRequestTerrainGlobalData>()
+            .add_message::<SendRequestExplorationMap>()
             .add_systems(
                 Update,
                 (
@@ -119,9 +155,28 @@ impl Plugin for LightyearClientPlugin {
                     send_pending_craft_resource_actions,
                     send_pending_train_unit_actions,
                     send_pending_explore_actions,
+                    send_terrain_chunk_requests,
+                    send_ocean_data_requests,
+                    send_lake_data_requests,
+                    send_terrain_global_data_requests,
+                    send_exploration_map_requests,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
+
+        // Bulk data receivers (run in InGame — world resources must exist)
+        app.add_systems(
+            Update,
+            (
+                receive_terrain_chunk_data,
+                receive_ocean_data,
+                receive_lake_data,
+                receive_terrain_global_data,
+                receive_exploration_map,
+                receive_exploration_patch,
+            )
+                .run_if(in_state(AppState::InGame)),
+        );
     }
 }
 
@@ -625,6 +680,281 @@ fn send_pending_explore_actions(
             });
             info!("📤 Sent ActionExplore via lightyear");
             break;
+        }
+    }
+}
+
+// ─── Bulk data request send systems ──────────────────────────────────
+
+fn send_terrain_chunk_requests(
+    mut events: MessageReader<SendRequestTerrainChunks>,
+    mut senders: Query<&mut MessageSender<RequestTerrainChunksMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestTerrainChunksMsg {
+                terrain_name: event.terrain_name.clone(),
+                chunk_ids: event.chunk_ids.clone(),
+            });
+            break;
+        }
+    }
+}
+
+fn send_ocean_data_requests(
+    mut events: MessageReader<SendRequestOceanData>,
+    mut senders: Query<&mut MessageSender<RequestOceanDataMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestOceanDataMsg {
+                world_name: event.world_name.clone(),
+            });
+            info!("📤 Sent RequestOceanData via lightyear");
+            break;
+        }
+    }
+}
+
+fn send_lake_data_requests(
+    mut events: MessageReader<SendRequestLakeData>,
+    mut senders: Query<&mut MessageSender<RequestLakeDataMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestLakeDataMsg {
+                world_name: event.world_name.clone(),
+            });
+            info!("📤 Sent RequestLakeData via lightyear");
+            break;
+        }
+    }
+}
+
+fn send_terrain_global_data_requests(
+    mut events: MessageReader<SendRequestTerrainGlobalData>,
+    mut senders: Query<&mut MessageSender<RequestTerrainGlobalDataMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestTerrainGlobalDataMsg {
+                world_name: event.world_name.clone(),
+            });
+            info!("📤 Sent RequestTerrainGlobalData via lightyear");
+            break;
+        }
+    }
+}
+
+fn send_exploration_map_requests(
+    mut events: MessageReader<SendRequestExplorationMap>,
+    mut senders: Query<&mut MessageSender<RequestExplorationMapMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestExplorationMapMsg {
+                terrain_name: event.terrain_name.clone(),
+            });
+            info!("📤 Sent RequestExplorationMap via lightyear");
+            break;
+        }
+    }
+}
+
+// ─── Bulk data receive systems ───────────────────────────────────────
+
+fn receive_terrain_chunk_data(
+    mut receivers: Query<&mut MessageReceiver<TerrainChunkDataMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+    mut units_cache: Option<ResMut<UnitsCache>>,
+    mut units_data_cache: Option<ResMut<UnitsDataCache>>,
+    mut commands: Commands,
+    terrain_query: Query<(Entity, &crate::rendering::terrain::components::Terrain)>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    let Some(ref mut units_cache) = units_cache else { return };
+    let Some(ref mut units_data_cache) = units_data_cache else { return };
+
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            // Decompress + deserialize
+            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => {
+                    warn!("Failed to decompress terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
+                    continue;
+                }
+            };
+
+            let (payload, _): (
+                (
+                    shared::TerrainChunkData,
+                    Vec<shared::BiomeChunkData>,
+                    Vec<shared::grid::CellData>,
+                    Vec<shared::BuildingData>,
+                    Vec<shared::UnitData>,
+                ),
+                _,
+            ) = match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Failed to decode terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
+                    continue;
+                }
+            };
+
+            let (terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data) = payload;
+
+            if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
+                continue;
+            }
+
+            info!(
+                "✓ Received terrain via lightyear: {} with {} units",
+                terrain_chunk_data.name, unit_data.len()
+            );
+
+            let is_update = cache.insert_terrain(&terrain_chunk_data);
+            if is_update {
+                let terrain_name = &terrain_chunk_data.name;
+                let terrain_id = terrain_chunk_data.id;
+                for (entity, terrain) in terrain_query.iter() {
+                    if &terrain.name == terrain_name && terrain.id == terrain_id {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
+                }
+            }
+
+            for chunk_data in &biome_chunk_data {
+                cache.insert_biome(chunk_data);
+            }
+            cache.insert_cells(&cell_data);
+            cache.insert_buildings(&building_data);
+
+            for unit in &unit_data {
+                let cell = unit.current_cell;
+                units_cache.add_unit(cell, unit.id);
+
+                if let Some(slot_pos) = crate::networking::handlers::db_to_slot_position(
+                    unit.slot_type.clone(),
+                    unit.slot_index,
+                ) {
+                    units_cache.set_unit_slot(cell, slot_pos, unit.id);
+                }
+                units_data_cache.insert_unit(unit.clone());
+            }
+        }
+    }
+}
+
+fn receive_ocean_data(
+    mut receivers: Query<&mut MessageReceiver<OceanDataMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => { warn!("Failed to decompress ocean data: {}", e); continue; }
+            };
+            let (ocean_data, _): (shared::OceanData, _) =
+                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                    Ok(v) => v,
+                    Err(e) => { warn!("Failed to decode ocean data: {}", e); continue; }
+                };
+            info!("✓ Received ocean data via lightyear: {}", ocean_data.name);
+            cache.insert_ocean(ocean_data);
+        }
+    }
+}
+
+fn receive_lake_data(
+    mut receivers: Query<&mut MessageReceiver<LakeDataLyMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => { warn!("Failed to decompress lake data: {}", e); continue; }
+            };
+            let (lake_data, _): (shared::LakeData, _) =
+                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                    Ok(v) => v,
+                    Err(e) => { warn!("Failed to decode lake data: {}", e); continue; }
+                };
+            info!("✓ Received lake data via lightyear: {}", lake_data.name);
+            cache.insert_lake(lake_data);
+        }
+    }
+}
+
+fn receive_terrain_global_data(
+    mut receivers: Query<&mut MessageReceiver<TerrainGlobalDataMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => { warn!("Failed to decompress terrain global data: {}", e); continue; }
+            };
+            let (data, _): (shared::TerrainGlobalData, _) =
+                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                    Ok(v) => v,
+                    Err(e) => { warn!("Failed to decode terrain global data: {}", e); continue; }
+                };
+            info!(
+                "✓ Received terrain global data via lightyear: biome {}x{}, heightmap {}x{}",
+                data.biome_width, data.biome_height, data.heightmap_width, data.heightmap_height
+            );
+            cache.insert_terrain_global(data);
+        }
+    }
+}
+
+fn receive_exploration_map(
+    mut receivers: Query<&mut MessageReceiver<ExplorationMapMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let data = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => { warn!("Failed to decompress exploration map: {}", e); continue; }
+            };
+            info!(
+                "✓ Received exploration map via lightyear: {}×{} ({} bytes)",
+                msg.width, msg.height, data.len()
+            );
+            cache.set_exploration_map(msg.width, msg.height, data, msg.n_chunk_x, msg.n_chunk_y);
+        }
+    }
+}
+
+fn receive_exploration_patch(
+    mut receivers: Query<&mut MessageReceiver<ExplorationPatchMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let data = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+                Ok(d) => d,
+                Err(e) => { warn!("Failed to decompress exploration patch: {}", e); continue; }
+            };
+            info!(
+                "✓ Exploration patch via lightyear at ({},{}) size {}×{}",
+                msg.patch_x, msg.patch_y, msg.patch_width, msg.patch_height
+            );
+            cache.apply_exploration_patch(
+                msg.patch_x, msg.patch_y, msg.patch_width, msg.patch_height, &data,
+            );
         }
     }
 }

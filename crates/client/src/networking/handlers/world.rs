@@ -3,118 +3,23 @@ use shared::protocol::ServerMessage;
 
 use crate::networking::events::ServerEvent;
 use crate::rendering::terrain::components::Terrain;
-use crate::state::resources::{UnitsCache, UnitsDataCache, WorldCache};
+use crate::state::resources::WorldCache;
 
-use super::db_to_slot_position;
-
-/// Handles world data messages (terrain, biome, ocean, roads).
-/// Only meaningful when InGame (world resources exist).
+/// Handles world data messages that still go through tungstenite (roads, territory).
+/// Terrain, ocean, lake, terrain global, exploration are handled by lightyear (#137).
 pub fn handle_world_events(
     mut events: MessageReader<ServerEvent>,
     mut cache: Option<ResMut<WorldCache>>,
-    mut units_cache: Option<ResMut<UnitsCache>>,
-    mut units_data_cache: Option<ResMut<UnitsDataCache>>,
     mut commands: Commands,
     terrain_query: Query<(Entity, &Terrain)>,
 ) {
     for event in events.read() {
         match &event.0 {
-            ServerMessage::TerrainChunkData {
-                terrain_chunk_data,
-                biome_chunk_data,
-                cell_data,
-                building_data,
-                unit_data,
-            } => {
-                let Some(ref mut cache) = cache else { continue };
-                let Some(ref mut units_cache) = units_cache else {
-                    continue;
-                };
-                let Some(ref mut units_data_cache) = units_data_cache else {
-                    continue;
-                };
-
-                if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
-                    // Already loaded — skip, don't re-insert, don't despawn
-                    continue;
-                }
-
-                info!(
-                    "✓ Received terrain: {} with {} units",
-                    terrain_chunk_data.name,
-                    unit_data.len()
-                );
-
-                let is_update = cache.insert_terrain(terrain_chunk_data);
-
-                if is_update {
-                    let terrain_name = &terrain_chunk_data.name;
-                    let terrain_id = terrain_chunk_data.id;
-
-                    for (entity, terrain) in terrain_query.iter() {
-                        if &terrain.name == terrain_name && terrain.id == terrain_id {
-                            info!(
-                                "Despawning terrain entity for chunk ({},{}) to trigger re-render",
-                                terrain_id.x, terrain_id.y
-                            );
-                            commands.entity(entity).despawn();
-                            break;
-                        }
-                    }
-                }
-
-                for chunk_data in biome_chunk_data.iter() {
-                    cache.insert_biome(chunk_data);
-                }
-
-                cache.insert_cells(cell_data);
-                cache.insert_buildings(building_data);
-
-                for unit in unit_data {
-                    let cell = unit.current_cell;
-                    let unit_id = unit.id;
-
-                    units_cache.add_unit(cell, unit_id);
-
-                    if let Some(slot_pos) =
-                        db_to_slot_position(unit.slot_type.clone(), unit.slot_index)
-                    {
-                        info!(
-                            "Loading unit {} at cell ({},{}) slot {:?}:{}",
-                            unit_id, cell.q, cell.r, slot_pos.slot_type, slot_pos.index
-                        );
-                        units_cache.set_unit_slot(cell, slot_pos, unit_id);
-                    }
-
-                    units_data_cache.insert_unit(unit.clone());
-                }
-            }
-
-            ServerMessage::OceanData { ocean_data } => {
-                let Some(ref mut cache) = cache else { continue };
-                info!("✓ Received ocean data for world: {}", ocean_data.name);
-                cache.insert_ocean(ocean_data.clone());
-            }
-
-            ServerMessage::LakeData { lake_data } => {
-                let Some(ref mut cache) = cache else { continue };
-                info!("✓ Received lake data for world: {}", lake_data.name);
-                cache.insert_lake(lake_data.clone());
-            }
-
-            ServerMessage::TerrainGlobalData {
-                terrain_global_data,
-            } => {
-                let Some(ref mut cache) = cache else { continue };
-                info!(
-                    "✓ Received terrain global data: biome {}x{}, heightmap {}x{}",
-                    terrain_global_data.biome_width,
-                    terrain_global_data.biome_height,
-                    terrain_global_data.heightmap_width,
-                    terrain_global_data.heightmap_height,
-                );
-                cache.insert_terrain_global(terrain_global_data.clone());
-            }
+            // Terrain, ocean, lake, terrain global data are now handled by lightyear (#137).
+            ServerMessage::TerrainChunkData { .. } => {}
+            ServerMessage::OceanData { .. } => {}
+            ServerMessage::LakeData { .. } => {}
+            ServerMessage::TerrainGlobalData { .. } => {}
 
             ServerMessage::RoadChunkSdfUpdate {
                 terrain_name,
@@ -164,40 +69,9 @@ pub fn handle_world_events(
                 }
             }
 
-            ServerMessage::ExplorationMap {
-                width,
-                height,
-                data,
-                n_chunk_x,
-                n_chunk_y,
-            } => {
-                let Some(ref mut cache) = cache else { continue };
-                info!(
-                    "✓ Received exploration map {}×{} ({} explored texels, chunks {}×{})",
-                    width,
-                    height,
-                    data.iter().filter(|&&v| v > 0).count(),
-                    n_chunk_x,
-                    n_chunk_y,
-                );
-                cache.set_exploration_map(*width, *height, data.to_vec(), *n_chunk_x, *n_chunk_y);
-            }
-
-            ServerMessage::ExplorationPatch {
-                patch_x,
-                patch_y,
-                patch_width,
-                patch_height,
-                patch_data,
-            } => {
-                let Some(ref mut cache) = cache else { continue };
-                info!(
-                    "✓ Exploration patch at ({},{}) size {}×{}",
-                    patch_x, patch_y, patch_width, patch_height
-                );
-                cache.apply_exploration_patch(
-                    *patch_x, *patch_y, *patch_width, *patch_height, patch_data,
-                );
+            // Exploration data is now handled by lightyear (#137).
+            ServerMessage::ExplorationMap { .. } => {}
+            ServerMessage::ExplorationPatch { .. } => {
             }
 
             _ => {}

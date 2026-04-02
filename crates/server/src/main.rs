@@ -198,7 +198,6 @@ fn main() {
             game_state_arc.clone(),
             grid_config_arc.clone(),
             world_global_state_arc.clone(),
-            sessions.clone(),
         );
 
         let population_system = Arc::new(population::PopulationSystem::new(
