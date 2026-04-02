@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::tasks::block_on;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use shared::TerrainChunkId;
@@ -6,6 +7,7 @@ use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
 use crate::networking::client::NetworkClient;
+use crate::networking::client::auth_task::AuthTask;
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, NotificationState, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache,
@@ -74,11 +76,9 @@ pub struct LightyearClientPlugin;
 
 impl Plugin for LightyearClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            connect_to_server.run_if(in_state(AppState::InGame).and(run_once)),
-        )
-        .add_systems(
+        app.init_resource::<AuthTask>()
+            .add_systems(Update, poll_auth_task)
+            .add_systems(
             Update,
             (
                 handle_connection_events,
@@ -115,45 +115,67 @@ impl Plugin for LightyearClientPlugin {
     }
 }
 
-/// Connect to lightyear server once we enter InGame state.
-/// Uses the player_id from tungstenite login as the netcode client_id,
-/// so the server can map PeerId::Netcode(client_id) back to the DB player_id.
-fn connect_to_server(mut commands: Commands, connection: Res<ConnectionStatus>) {
-    // player_id is set during tungstenite login (LoginSuccess handler)
-    let Some(player_id) = connection.player_id else {
-        warn!("Cannot connect to lightyear: no player_id yet (login not complete?)");
+/// Poll the auth task. When the HTTP response arrives, decode the ConnectToken
+/// and initiate the lightyear connection.
+fn poll_auth_task(
+    mut commands: Commands,
+    mut auth_task: ResMut<AuthTask>,
+    mut connection: ResMut<ConnectionStatus>,
+) {
+    if auth_task.completed {
+        return;
+    }
+
+    let Some(ref task) = auth_task.task else {
         return;
     };
 
-    let server_addr: std::net::SocketAddr = std::env::var("LIGHTYEAR_SERVER")
-        .unwrap_or_else(|_| "127.0.0.1:5000".to_string())
-        .parse()
-        .unwrap();
+    if !task.is_finished() {
+        return;
+    }
 
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id: player_id, // player_id from tungstenite login
-        private_key: shared::protocol::netcode_config::private_key(),
-        protocol_id: shared::protocol::netcode_config::PROTOCOL_ID,
-    };
+    // Task finished — take it out and get the result
+    let task = auth_task.task.take().unwrap();
+    let result = block_on(task);
 
-    let client = commands
-        .spawn((
-            Client::default(),
-            LocalAddr("127.0.0.1:0".parse().unwrap()),
-            PeerAddr(server_addr),
-            Link::new(None),
-            ReplicationReceiver::default(),
-            NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-            UdpIo::default(),
-        ))
-        .id();
-    commands.trigger(Connect { entity: client });
+    match result {
+        Ok(auth_result) => {
+            let player_id = auth_result.player_id;
+            connection.player_id = Some(player_id);
 
-    info!(
-        "🔌 Connecting to lightyear server at {} with player_id={}",
-        server_addr, player_id
-    );
+            let server_addr: std::net::SocketAddr = std::env::var("LIGHTYEAR_SERVER")
+                .unwrap_or_else(|_| "127.0.0.1:5000".to_string())
+                .parse()
+                .unwrap();
+
+            let client = commands
+                .spawn((
+                    Client::default(),
+                    LocalAddr("127.0.0.1:0".parse().unwrap()),
+                    PeerAddr(server_addr),
+                    Link::new(None),
+                    ReplicationReceiver::default(),
+                    NetcodeClient::new(
+                        Authentication::Token(auth_result.connect_token),
+                        NetcodeConfig::default(),
+                    )
+                    .unwrap(),
+                    UdpIo::default(),
+                ))
+                .id();
+            commands.trigger(Connect { entity: client });
+
+            auth_task.completed = true;
+            info!(
+                "🔌 Lightyear connecting with ConnectToken for player_id={}",
+                player_id
+            );
+        }
+        Err(e) => {
+            warn!("❌ Auth failed: {}", e);
+            // TODO: show error in UI
+        }
+    }
 }
 
 /// Log lightyear connection events

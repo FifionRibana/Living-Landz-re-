@@ -1,15 +1,18 @@
 /// Interaction systems for the login panel
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use bevy_ui_text_input::TextInputBuffer;
 
 use crate::{
     networking::client::NetworkClient,
+    networking::client::auth_task::{AuthResult, AuthTask},
     states::AuthScreen,
     ui::systems::panels::auth::components::*,
 };
 use shared::protocol::ClientMessage;
 
-/// System to handle login button click
+/// System to handle login button click.
+/// Sends BOTH tungstenite login (for game data) and HTTP auth (for ConnectToken).
 pub fn handle_login_button_click(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<LoginSubmitButton>)>,
     family_name_query: Query<&TextInputBuffer, With<LoginFamilyNameInput>>,
@@ -19,6 +22,7 @@ pub fn handle_login_button_click(
     >,
     mut error_text_query: Query<(&mut Text, &mut Visibility), With<LoginErrorText>>,
     mut network_client: ResMut<NetworkClient>,
+    mut auth_task: ResMut<AuthTask>,
 ) {
     for interaction in &interaction_query {
         if *interaction == Interaction::Pressed {
@@ -73,14 +77,79 @@ pub fn handle_login_button_click(
                 *visibility = Visibility::Hidden;
             }
 
-            // Send login message to server
+            // Path 1: Tungstenite login (for game data, lord spawn, AppState::InGame)
             let message = ClientMessage::LoginWithPassword {
-                family_name,
-                password,
+                family_name: family_name.clone(),
+                password: password.clone(),
             };
-
             network_client.send_message(message);
-            info!("Login request sent to server");
+            info!("Login request sent to server (tungstenite)");
+
+            // Path 2: HTTP auth (for ConnectToken → lightyear connection)
+            let auth_url = std::env::var("AUTH_HTTP_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+            let url = format!("{}/api/auth/login", auth_url);
+
+            let task = IoTaskPool::get().spawn(async_compat::Compat::new(async move {
+                let client = reqwest::Client::new();
+                let resp = client
+                    .post(&url)
+                    .json(&serde_json::json!({
+                        "family_name": family_name,
+                        "password": password,
+                    }))
+                    .send()
+                    .await
+                    .map_err(|e| format!("HTTP error: {}", e))?;
+
+                if !resp.status().is_success() {
+                    let error: serde_json::Value = resp
+                        .json()
+                        .await
+                        .unwrap_or(serde_json::json!({"error": "Unknown error"}));
+                    return Err(error["error"]
+                        .as_str()
+                        .unwrap_or("Auth failed")
+                        .to_string());
+                }
+
+                let body: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("JSON parse error: {}", e))?;
+
+                let player_id = body["player_id"]
+                    .as_i64()
+                    .ok_or("Missing player_id")?
+                    as u64;
+
+                let token_b64 = body["token"].as_str().ok_or("Missing token")?;
+
+                use base64::Engine;
+                let token_bytes = base64::engine::general_purpose::STANDARD
+                    .decode(token_b64)
+                    .map_err(|e| format!("Base64 decode error: {}", e))?;
+
+                use lightyear::netcode::{ConnectToken, CONNECT_TOKEN_BYTES};
+                if token_bytes.len() != CONNECT_TOKEN_BYTES {
+                    return Err(format!(
+                        "Invalid token size: {} (expected {})",
+                        token_bytes.len(),
+                        CONNECT_TOKEN_BYTES
+                    ));
+                }
+
+                let connect_token = ConnectToken::try_from_bytes(&token_bytes)
+                    .map_err(|e| format!("Token parse error: {}", e))?;
+
+                Ok(AuthResult {
+                    player_id,
+                    connect_token,
+                })
+            }));
+
+            auth_task.task = Some(task);
+            info!("🔐 Auth request sent to {}", auth_url);
         }
     }
 }

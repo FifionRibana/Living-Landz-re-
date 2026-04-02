@@ -10,6 +10,7 @@ mod auth;
 mod database;
 mod dev;
 mod exploration;
+mod http;
 mod networking;
 mod population;
 mod road;
@@ -171,6 +172,18 @@ fn main() {
             world_global_state_arc.clone(),
             bridge_sender_arc.clone(), // NEW
         );
+
+        // ── HTTP auth server (shares tokio runtime) ──
+        let game_server_addr: std::net::SocketAddr = format!(
+            "127.0.0.1:{}",
+            std::env::var("LIGHTYEAR_PORT").unwrap_or_else(|_| "5000".to_string())
+        )
+        .parse()
+        .unwrap();
+        tokio::spawn(http::start_http_server(
+            db_tables_arc.clone(),
+            game_server_addr,
+        ));
 
         // ── Background processors ──
         action_processor::start_action_processor(action_processor.clone());
