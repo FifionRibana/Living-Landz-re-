@@ -169,26 +169,21 @@ impl ActionProcessor {
                 }
 
                 // Si c'est une action BuildBuilding, créer le bâtiment en construction
-                if action_info.action_type == ActionTypeEnum::BuildBuilding {
-                    if let Err(e) = self
+                if action_info.action_type == ActionTypeEnum::BuildBuilding
+                    && let Err(e) = self
                         .create_building_for_action(action_id, action_info)
                         .await
-                    {
-                        tracing::error!(
-                            "Failed to create building for action {}: {}",
-                            action_id,
-                            e
-                        );
-                        // Continue quand même, l'action peut se terminer mais sans bâtiment
-                    }
+                {
+                    tracing::error!("Failed to create building for action {}: {}", action_id, e);
+                    // Continue quand même, l'action peut se terminer mais sans bâtiment
                 }
 
                 // Si c'est une action BuildRoad, créer le segment de route
-                if action_info.action_type == ActionTypeEnum::BuildRoad {
-                    if let Err(e) = self.create_road_for_action(action_id, action_info).await {
-                        tracing::error!("Failed to create road for action {}: {}", action_id, e);
-                        // Continue quand même
-                    }
+                if action_info.action_type == ActionTypeEnum::BuildRoad
+                    && let Err(e) = self.create_road_for_action(action_id, action_info).await
+                {
+                    tracing::error!("Failed to create road for action {}: {}", action_id, e);
+                    // Continue quand même
                 }
 
                 // Envoyer notification au joueur
@@ -206,6 +201,37 @@ impl ActionProcessor {
 
                 self.send_message_to_player(action_info.player_id, message)
                     .await;
+
+                // Spawn moving unit entity in Bevy ECS for lightyear replication
+                if action_info.action_type == ActionTypeEnum::MoveUnit {
+                    match self.db_tables.actions.load_move_unit_data(action_id).await {
+                        Ok(Some((unit_id, _target_cell, _target_chunk))) => {
+                            // Load the unit's CURRENT position (starting point of the move)
+                            match self.db_tables.units.load_unit(unit_id).await {
+                                Ok(unit) => {
+                                    if !unit.is_lord {
+                                        // Lords already have a permanent entity — only spawn for non-lords
+                                        self.bridge_sender.send(
+                                            crate::networking::server::lightyear::bridge::BridgeEvent::SpawnMovingUnit {
+                                                player_id: action_info.player_id,
+                                                unit_id,
+                                                chunk: unit.current_chunk,
+                                                cell: unit.current_cell,
+                                            },
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to load unit for moving spawn: {}", e);
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to load move_unit data for spawn: {}", e);
+                        }
+                    }
+                }
 
                 tracing::info!(
                     "Action {} started (InProgress) for player {}",
@@ -488,6 +514,11 @@ impl ActionProcessor {
                                     Err(_) => false,
                                 };
 
+                                tracing::info!(
+                                    "DEBUG: unit {} is_lord={} — about to send bridge event",
+                                    unit_id, is_lord
+                                );
+
                                 if is_lord {
                                     // Lord position → lightyear replication (bridge event)
                                     self.bridge_sender.send(
@@ -498,7 +529,7 @@ impl ActionProcessor {
                                         },
                                     );
                                 } else {
-                                    // Non-lord units → tungstenite (for now)
+                                    // Non-lord → tungstenite position update + despawn moving entity
                                     let move_msg = ServerMessage::UnitPositionUpdated {
                                         unit_id,
                                         from_cell,
@@ -508,6 +539,12 @@ impl ActionProcessor {
                                     };
                                     self.send_message_to_player(action_info.player_id, move_msg)
                                         .await;
+
+                                    self.bridge_sender.send(
+                                        crate::networking::server::lightyear::bridge::BridgeEvent::DespawnMovingUnit {
+                                            unit_id,
+                                        },
+                                    );
                                 }
                             }
                         }

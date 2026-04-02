@@ -7,8 +7,12 @@ use lightyear::prelude::*;
 
 use shared::protocol::{
     channels::ReliableGameChannel,
-    components::{LordPosition, OwnedByPlayer},
-    lightyear_messages::{ActionErrorMsg, ActionMoveUnitMsg, ActionStatusMsg},
+    components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer},
+    lightyear_messages::{
+        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCraftResourceMsg, ActionErrorMsg,
+        ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
+        ActionTrainUnitMsg,
+    },
 };
 
 use super::bridge::{BridgeEvent, LightyearBridge};
@@ -20,6 +24,11 @@ use super::bridge::{BridgeEvent, LightyearBridge};
 /// NOT replicated — server bookkeeping only.
 #[derive(Component)]
 pub struct ServerPlayerId(pub u64);
+
+/// Server-only: maps a moving unit entity to its DB unit_id.
+/// Used to find the entity when the move completes.
+#[derive(Component)]
+pub struct ServerMovingUnitId(pub u64);
 
 // ─── Resources ──────────────────────────────────────────────────────
 
@@ -37,6 +46,9 @@ pub struct PlayerLinkMap {
     pub map: HashMap<u64, Entity>,
 }
 
+#[derive(Resource, Default)]
+pub struct PendingDespawns(pub Vec<u64>);
+
 // ─── Constants ──────────────────────────────────────────────────────
 
 /// How many chunks around the lord the player can see.
@@ -52,10 +64,22 @@ impl Plugin for LightyearGamePlugin {
         app.add_plugins(RoomPlugin)
             .init_resource::<ChunkRooms>()
             .init_resource::<PlayerLinkMap>()
+            .init_resource::<PendingDespawns>()
             .add_observer(on_lightyear_link_created)
             .add_observer(on_lightyear_connected)
             .add_systems(FixedUpdate, poll_bridge_events)
-            .add_systems(Update, receive_action_messages);
+            .add_systems(
+                Update,
+                (
+                    receive_move_unit_messages,
+                    receive_build_building_messages,
+                    receive_build_road_messages,
+                    receive_harvest_resource_messages,
+                    receive_craft_resource_messages,
+                    receive_train_unit_messages,
+                    receive_explore_messages,
+                ),
+            );
     }
 }
 
@@ -104,13 +128,27 @@ pub fn poll_bridge_events(
     mut commands: Commands,
     bridge: Res<LightyearBridge>,
     mut lords: Query<(Entity, &ServerPlayerId, &mut LordPosition)>,
+    moving_units: Query<(Entity, &ServerMovingUnitId)>,
     mut chunk_rooms: ResMut<ChunkRooms>,
     mut player_links: ResMut<PlayerLinkMap>,
     mut msg_sender: ServerMultiMessageSender,
     server_entity: Option<Single<&Server>>,
+    mut pending_despawns: ResMut<PendingDespawns>,
 ) {
     // Extract the Server entity once before the loop
     let srv = server_entity.map(|s| s.into_inner());
+
+    // Process any despawns that were deferred from the previous tick
+    pending_despawns.0.retain(|&unit_id| {
+        for (entity, id) in moving_units.iter() {
+            if id.0 == unit_id {
+                commands.entity(entity).despawn();
+                tracing::info!("🚶 Moving unit {} despawned (deferred)", unit_id);
+                return false; // Remove from pending
+            }
+        }
+        true // Keep in pending — entity still not spawned (shouldn't happen)
+    });
 
     for event in bridge.drain() {
         match event {
@@ -167,7 +205,9 @@ pub fn poll_bridge_events(
                 action_name,
                 unit_ids,
             } => {
-                let Some(srv) = srv else { continue; };
+                let Some(srv) = srv else {
+                    continue;
+                };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
                 let msg = ActionStatusMsg {
                     action_id,
@@ -180,9 +220,7 @@ pub fn poll_bridge_events(
                     action_name,
                     unit_ids,
                 };
-                if let Err(e) =
-                    msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target)
-                {
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
                     tracing::error!(
                         "Failed to send ActionStatusMsg to player {}: {:?}",
                         player_id,
@@ -192,19 +230,87 @@ pub fn poll_bridge_events(
             }
 
             BridgeEvent::SendActionError { player_id, reason } => {
-                let Some(srv) = srv else { continue; };
+                let Some(srv) = srv else {
+                    continue;
+                };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
                 let msg = ActionErrorMsg {
                     reason: reason.clone(),
                 };
-                if let Err(e) =
-                    msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target)
-                {
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
                     tracing::error!(
                         "Failed to send ActionErrorMsg to player {}: {:?}",
                         player_id,
                         e
                     );
+                }
+            }
+
+            BridgeEvent::SpawnMovingUnit {
+                player_id,
+                unit_id,
+                chunk,
+                cell,
+            } => {
+                // Don't spawn if already exists
+                if moving_units.iter().any(|(_, id)| id.0 == unit_id) {
+                    tracing::warn!("Moving unit {} already exists, skipping", unit_id);
+                    continue;
+                }
+
+                let entity = commands
+                    .spawn((
+                        Name::new(format!("MovingUnit_{}", unit_id)),
+                        ServerMovingUnitId(unit_id),
+                        MovingUnitPosition {
+                            chunk_x: chunk.x,
+                            chunk_y: chunk.y,
+                            cell_q: cell.q,
+                            cell_r: cell.r,
+                        },
+                        MovingUnitId(unit_id),
+                        OwnedByPlayer(player_id),
+                        Replicate::to_clients(NetworkTarget::All),
+                        NetworkVisibility,
+                    ))
+                    .id();
+
+                // Add to chunk room
+                let room =
+                    get_or_create_chunk_room(&mut commands, &mut chunk_rooms, chunk.x, chunk.y);
+                commands.trigger(RoomEvent {
+                    target: RoomTarget::AddEntity(entity),
+                    room,
+                });
+
+                tracing::info!(
+                    "🚶 Moving unit {} spawned (entity {:?}) at chunk ({},{}) cell ({},{})",
+                    unit_id,
+                    entity,
+                    chunk.x,
+                    chunk.y,
+                    cell.q,
+                    cell.r
+                );
+            }
+
+            BridgeEvent::DespawnMovingUnit { unit_id } => {
+                let mut found = false;
+                for (entity, id) in moving_units.iter() {
+                    if id.0 == unit_id {
+                        commands.entity(entity).despawn();
+                        tracing::info!("🚶 Moving unit {} despawned", unit_id);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    // Entity not yet in ECS (spawned this same tick) — defer to next tick
+                    tracing::info!(
+                        "🚶 Moving unit {} despawn deferred (entity not yet spawned)",
+                        unit_id
+                    );
+                    pending_despawns.0.push(unit_id);
                 }
             }
         }
@@ -436,28 +542,152 @@ fn remove_sender_from_all_rooms(
     }
 }
 
-// Receive ActionMoveUnit messages from lightyear clients,
-/// resolve the player_id from the link entity, and push to the tokio handler.
-fn receive_action_messages(
+// ─── Receive lightyear action messages ────────────────────────────────
+
+fn receive_move_unit_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionMoveUnitMsg>, &RemoteId)>,
     bridge: Res<LightyearBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
-
         for msg in receiver.receive() {
             tracing::info!(
                 "📨 Received ActionMoveUnit from player {}: unit {} → ({},{})",
-                player_id,
-                msg.unit_id,
-                msg.cell.q,
-                msg.cell.r
+                player_id, msg.unit_id, msg.cell.q, msg.cell.r
             );
             bridge.send_action(super::bridge::ActionRequest::MoveUnit {
                 player_id,
                 unit_id: msg.unit_id,
                 chunk_id: msg.chunk_id,
                 cell: msg.cell,
+            });
+        }
+    }
+}
+
+fn receive_build_building_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionBuildBuildingMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionBuildBuilding from player {}: {:?} at ({},{})",
+                player_id, msg.building_type, msg.cell.q, msg.cell.r
+            );
+            bridge.send_action(super::bridge::ActionRequest::BuildBuilding {
+                player_id,
+                chunk_id: msg.chunk_id,
+                cell: msg.cell,
+                building_type: msg.building_type,
+            });
+        }
+    }
+}
+
+fn receive_build_road_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionBuildRoadMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionBuildRoad from player {}: ({},{}) → ({},{})",
+                player_id, msg.start_cell.q, msg.start_cell.r, msg.end_cell.q, msg.end_cell.r
+            );
+            bridge.send_action(super::bridge::ActionRequest::BuildRoad {
+                player_id,
+                start_cell: msg.start_cell,
+                end_cell: msg.end_cell,
+            });
+        }
+    }
+}
+
+fn receive_harvest_resource_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionHarvestResourceMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionHarvestResource from player {}: {:?} at ({},{})",
+                player_id, msg.resource_specific_type, msg.cell.q, msg.cell.r
+            );
+            bridge.send_action(super::bridge::ActionRequest::HarvestResource {
+                player_id,
+                chunk_id: msg.chunk_id,
+                cell: msg.cell,
+                resource_specific_type: msg.resource_specific_type,
+                unit_ids: msg.unit_ids,
+            });
+        }
+    }
+}
+
+fn receive_craft_resource_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionCraftResourceMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionCraftResource from player {}: recipe '{}' x{} at ({},{})",
+                player_id, msg.recipe_id, msg.quantity, msg.cell.q, msg.cell.r
+            );
+            bridge.send_action(super::bridge::ActionRequest::CraftResource {
+                player_id,
+                chunk_id: msg.chunk_id,
+                cell: msg.cell,
+                recipe_id: msg.recipe_id,
+                quantity: msg.quantity,
+                unit_ids: msg.unit_ids,
+            });
+        }
+    }
+}
+
+fn receive_train_unit_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionTrainUnitMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionTrainUnit from player {}: unit {} → {:?}",
+                player_id, msg.unit_id, msg.target_profession
+            );
+            bridge.send_action(super::bridge::ActionRequest::TrainUnit {
+                player_id,
+                unit_id: msg.unit_id,
+                chunk_id: msg.chunk_id,
+                cell: msg.cell,
+                target_profession: msg.target_profession,
+            });
+        }
+    }
+}
+
+fn receive_explore_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<ActionExploreMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received ActionExplore from player {}: ({},{}) radius {}",
+                player_id, msg.cell.q, msg.cell.r, msg.radius
+            );
+            bridge.send_action(super::bridge::ActionRequest::Explore {
+                player_id,
+                cell: msg.cell,
+                radius: msg.radius,
             });
         }
     }

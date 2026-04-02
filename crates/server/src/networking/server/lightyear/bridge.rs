@@ -1,5 +1,8 @@
 use shared::grid::GridCell;
-use shared::{ActionStatusEnum, ActionTypeEnum, TerrainChunkId};
+use shared::{
+    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ProfessionEnum, ResourceSpecificTypeEnum,
+    TerrainChunkId,
+};
 
 // ─── tokio → Bevy events (existing + new) ───────────────────────────
 
@@ -35,6 +38,18 @@ pub enum BridgeEvent {
     },
     /// Send an ActionErrorMsg to a specific player via lightyear.
     SendActionError { player_id: u64, reason: String },
+
+    /// A non-lord unit started moving — spawn a temporary replicated entity.
+    SpawnMovingUnit {
+        player_id: u64,
+        unit_id: u64,
+        chunk: TerrainChunkId,
+        cell: GridCell,
+    },
+    /// A non-lord unit finished moving — despawn the temporary entity.
+    DespawnMovingUnit {
+        unit_id: u64,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────
@@ -47,7 +62,44 @@ pub enum ActionRequest {
         chunk_id: TerrainChunkId,
         cell: GridCell,
     },
-    // Future: BuildBuilding, HarvestResource, CraftResource, TrainUnit, etc.
+    BuildBuilding {
+        player_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        building_type: BuildingTypeEnum,
+    },
+    BuildRoad {
+        player_id: u64,
+        start_cell: GridCell,
+        end_cell: GridCell,
+    },
+    HarvestResource {
+        player_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        resource_specific_type: ResourceSpecificTypeEnum,
+        unit_ids: Vec<u64>,
+    },
+    CraftResource {
+        player_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        recipe_id: String,
+        quantity: u32,
+        unit_ids: Vec<u64>,
+    },
+    TrainUnit {
+        player_id: u64,
+        unit_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        target_profession: ProfessionEnum,
+    },
+    Explore {
+        player_id: u64,
+        cell: GridCell,
+        radius: i32,
+    },
 }
 
 // ─── Bridge resource (Bevy side) ────────────────────────────────────
