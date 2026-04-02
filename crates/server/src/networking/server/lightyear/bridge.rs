@@ -50,6 +50,24 @@ pub enum BridgeEvent {
     DespawnMovingUnit {
         unit_id: u64,
     },
+
+    /// Send a UnitPositionUpdatedMsg to a specific player via lightyear.
+    SendUnitPositionUpdated {
+        player_id: u64,
+        unit_id: u64,
+        from_cell: GridCell,
+        from_chunk: TerrainChunkId,
+        to_cell: GridCell,
+        to_chunk: TerrainChunkId,
+    },
+
+    /// Broadcast an ActionCompletedMsg to all clients via lightyear.
+    BroadcastActionCompleted {
+        action_id: u64,
+        chunk_id: TerrainChunkId,
+        cell: GridCell,
+        action_type: ActionTypeEnum,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────

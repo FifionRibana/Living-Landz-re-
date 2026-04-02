@@ -136,34 +136,9 @@ pub fn handle_unit_events(
                     }
                 }
             }
-            ServerMessage::UnitPositionUpdated {
-                unit_id,
-                from_cell,
-                from_chunk,
-                to_cell,
-                to_chunk,
-            } => {
-                info!(
-                    "Unit {} moved from ({},{}) to ({},{})",
-                    unit_id, from_cell.q, from_cell.r, to_cell.q, to_cell.r
-                );
-
-                // Update unit caches (for non-lord units — lord is handled by lightyear)
-                let is_lord = player_info.lord.as_ref().is_some_and(|l| l.id == *unit_id);
-
-                if !is_lord {
-                    if let Some(ref mut cache) = units_cache {
-                        cache.remove_unit(*unit_id);
-                        cache.add_unit(*to_cell, *unit_id);
-                    }
-
-                    if let Some(ref mut data_cache) = units_data_cache
-                        && let Some(unit) = data_cache.get_unit_mut(*unit_id)
-                    {
-                        unit.current_cell = *to_cell;
-                        unit.current_chunk = *to_chunk;
-                    }
-                }
+            ServerMessage::UnitPositionUpdated { .. } => {
+                // Position updates are now handled by lightyear (UnitPositionUpdatedMsg).
+                // This tungstenite path will be removed in #137.
             }
 
             ServerMessage::UnitWorkStatusUpdate {

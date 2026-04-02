@@ -5,9 +5,9 @@ use crate::protocol::{
     channels::ReliableGameChannel,
     components::{LordPosition, OwnedByPlayer},
     lightyear_messages::{
-        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCraftResourceMsg, ActionErrorMsg,
-        ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
-        ActionTrainUnitMsg,
+        ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
+        ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
     },
 };
 
@@ -48,6 +48,10 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<ActionStatusMsg>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<ActionErrorMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<UnitPositionUpdatedMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<ActionCompletedMsg>()
             .add_direction(NetworkDirection::ServerToClient);
     }
 }

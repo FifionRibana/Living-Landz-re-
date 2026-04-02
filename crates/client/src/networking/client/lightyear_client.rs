@@ -6,6 +6,7 @@ use shared::TerrainChunkId;
 use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
+use crate::networking::client::NetworkClient;
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, NotificationState, PlayerInfo, TrackedAction, UnitsCache,
     UnitsDataCache,
@@ -13,9 +14,9 @@ use crate::state::resources::{
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
 use shared::protocol::lightyear_messages::{
-    ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCraftResourceMsg, ActionErrorMsg,
-    ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
-    ActionTrainUnitMsg,
+    ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
+    ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
+    ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -86,6 +87,8 @@ impl Plugin for LightyearClientPlugin {
                 handle_moving_unit_replication,
                 receive_action_status,
                 receive_action_error,
+                receive_unit_position_updated,
+                receive_action_completed,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -301,6 +304,67 @@ fn receive_action_error(
         for msg in receiver.receive() {
             warn!("❌ Action error (via lightyear): {}", msg.reason);
             notifications.push_error(msg.reason.clone());
+        }
+    }
+}
+
+/// Receive UnitPositionUpdatedMsg from server via lightyear (non-lord units).
+fn receive_unit_position_updated(
+    mut receivers: Query<&mut MessageReceiver<UnitPositionUpdatedMsg>>,
+    mut units_cache: Option<ResMut<UnitsCache>>,
+    mut units_data_cache: Option<ResMut<UnitsDataCache>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "📨 Unit {} moved ({},{}) → ({},{}) (via lightyear)",
+                msg.unit_id, msg.from_cell.q, msg.from_cell.r, msg.to_cell.q, msg.to_cell.r
+            );
+
+            // Update UnitsCache (cell → unit_id mapping for rendering)
+            if let Some(ref mut cache) = units_cache {
+                cache.remove_unit(msg.unit_id);
+                cache.add_unit(msg.to_cell, msg.unit_id);
+            }
+
+            // Update UnitsDataCache (full unit data)
+            if let Some(ref mut data_cache) = units_data_cache
+                && let Some(unit) = data_cache.get_unit_mut(msg.unit_id)
+            {
+                unit.current_cell = msg.to_cell;
+                unit.current_chunk = msg.to_chunk;
+            }
+        }
+    }
+}
+
+/// Receive ActionCompletedMsg from server via lightyear.
+/// Triggers a chunk data refresh so the client sees new buildings/roads/etc.
+fn receive_action_completed(
+    mut receivers: Query<&mut MessageReceiver<ActionCompletedMsg>>,
+    mut notifications: ResMut<NotificationState>,
+    mut network_client: Option<ResMut<NetworkClient>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "📨 Action {} completed at chunk ({},{}) cell ({},{}) (via lightyear)",
+                msg.action_id, msg.chunk_id.x, msg.chunk_id.y, msg.cell.q, msg.cell.r
+            );
+
+            notifications.push_success(format!("{} terminée !", msg.action_type.to_name()));
+
+            // Request chunk data refresh so the client sees the result
+            if let Some(ref mut client) = network_client {
+                info!(
+                    "Requesting chunk data refresh for ({},{})",
+                    msg.chunk_id.x, msg.chunk_id.y
+                );
+                client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
+                    terrain_name: "Gaulyia".to_string(),
+                    terrain_chunk_ids: vec![msg.chunk_id],
+                });
+            }
         }
     }
 }
