@@ -7,6 +7,7 @@ use shared::{
 use crate::{
     grid::resources::SelectedHexes,
     networking::client::NetworkClient,
+    networking::client::lightyear_client::{SendActionBuildBuilding, SendActionBuildRoad},
     state::resources::{ConnectionStatus, GameDataCache},
     ui::{
         components::{
@@ -538,9 +539,10 @@ pub fn handle_action_run_button(
     >,
     action_state: Res<ActionState>,
     grid_config: Res<GridConfig>,
-    mut network_client_opt: Option<ResMut<NetworkClient>>,
     connection: Res<ConnectionStatus>,
     mut selected_hexes: ResMut<SelectedHexes>,
+    mut build_building_events: MessageWriter<SendActionBuildBuilding>,
+    mut build_road_events: MessageWriter<SendActionBuildRoad>,
 ) {
     for (interaction, mut background_color) in &mut query {
         match *interaction {
@@ -549,10 +551,11 @@ pub fn handle_action_run_button(
                 info!("Run action pressed!");
                 execute_action(
                     &action_state,
-                    &mut network_client_opt,
                     &grid_config,
                     &connection,
                     &mut selected_hexes,
+                    &mut build_building_events,
+                    &mut build_road_events,
                 );
             }
             Interaction::Hovered => {
@@ -567,10 +570,11 @@ pub fn handle_action_run_button(
 
 fn execute_action(
     action_state: &ActionState,
-    network_client_opt: &mut Option<ResMut<NetworkClient>>,
     grid_config: &Res<GridConfig>,
     connection: &ConnectionStatus,
     selected_hexes: &mut SelectedHexes,
+    build_building_events: &mut MessageWriter<SendActionBuildBuilding>,
+    build_road_events: &mut MessageWriter<SendActionBuildRoad>,
 ) {
     // Check if connected
     if !connection.logged_in {
@@ -578,13 +582,8 @@ fn execute_action(
         return;
     }
 
-    let Some(player_id) = connection.player_id else {
+    let Some(_player_id) = connection.player_id else {
         warn!("Cannot execute action: no player ID");
-        return;
-    };
-
-    let Some(network_client) = network_client_opt.as_mut() else {
-        warn!("Cannot execute action: no network client");
         return;
     };
 
@@ -641,21 +640,18 @@ fn execute_action(
                     }
                 };
 
-                // Send construction request to server
-                network_client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
-                    player_id,
+                build_building_events.write(SendActionBuildBuilding {
                     chunk_id,
                     cell,
                     building_type,
                 });
 
-                info!("✓ Building construction request sent to server");
+                info!("✓ Building construction request sent via lightyear");
             }
         }
         Some(ActionCategory::Roads) => {
             info!("Executing road construction with selected hexes");
 
-            // Récupérer toutes les cellules sélectionnées
             let hexes_vec: Vec<_> = selected_hexes.ids.iter().copied().collect();
 
             if hexes_vec.is_empty() {
@@ -663,10 +659,8 @@ fn execute_action(
                 return;
             }
 
-            // Utiliser la première et la dernière cellule sélectionnée
             let start_hex = hexes_vec.first().unwrap();
             let end_hex = if hexes_vec.len() == 1 {
-                // Si une seule cellule, créer un point unique
                 start_hex
             } else {
                 hexes_vec.last().unwrap()
@@ -677,16 +671,14 @@ fn execute_action(
 
             info!("Building road from {:?} to {:?}", start_cell, end_cell);
 
-            network_client.send_message(shared::protocol::ClientMessage::ActionBuildRoad {
-                player_id,
+            build_road_events.write(SendActionBuildRoad {
                 start_cell,
                 end_cell,
             });
 
-            // Effacer la sélection après avoir envoyé la commande
             selected_hexes.clear();
 
-            info!("✓ Road construction request sent to server");
+            info!("✓ Road construction request sent via lightyear");
         }
         _ => {
             warn!("No action to execute");

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use shared::GameState;
 use shared::grid::GridConfig;
+use shared::GameState;
 use tokio::net::TcpListener;
 
 use crate::action_processor::ActionProcessor;
@@ -12,6 +12,7 @@ use crate::world::resources::WorldGlobalState;
 
 use super::super::Sessions;
 use super::handlers;
+use super::lightyear::bridge::BridgeSender;
 
 pub struct NetworkServer {
     pub address: String,
@@ -33,6 +34,7 @@ impl NetworkServer {
         grid_config: Arc<GridConfig>,
         dev_config: Arc<DevConfig>,
         world_global_state: Arc<WorldGlobalState>,
+        bridge_sender: Arc<BridgeSender>, // NEW
     ) {
         let addr = format!("{}:{}", self.address, self.port);
         let listener = TcpListener::bind(&addr)
@@ -51,6 +53,7 @@ impl NetworkServer {
             let grid_config_clone = grid_config.clone();
             let dev_config_clone = dev_config.clone();
             let world_global_state_clone = world_global_state.clone();
+            let bridge_sender_clone = bridge_sender.clone(); // NEW
 
             tokio::spawn(async move {
                 tracing::info!("Handle connections...");
@@ -65,6 +68,7 @@ impl NetworkServer {
                     grid_config_clone,
                     dev_config_clone,
                     world_global_state_clone,
+                    bridge_sender_clone, // NEW
                 )
                 .await;
             });
@@ -81,10 +85,10 @@ pub fn initialize_server(
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
     world_global_state: Arc<WorldGlobalState>,
+    bridge_sender: Arc<BridgeSender>, // NEW
 ) {
     tracing::info!("Starting network server...");
 
-    // Normal server startup
     let server_address =
         std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
     let server_port: u16 = std::env::var("SERVER_PORT")
@@ -100,6 +104,7 @@ pub fn initialize_server(
     let grid_config_clone = grid_config.clone();
     let dev_config_clone = dev_config.clone();
     let world_global_state_clone = world_global_state.clone();
+    let bridge_sender_clone = bridge_sender.clone(); // NEW
 
     tokio::spawn(async move {
         let server = NetworkServer::new(server_address, server_port);
@@ -113,6 +118,7 @@ pub fn initialize_server(
                 grid_config_clone,
                 dev_config_clone,
                 world_global_state_clone,
+                bridge_sender_clone, // NEW
             )
             .await;
     });

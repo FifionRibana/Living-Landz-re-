@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // === Replicated Components ===
@@ -15,4 +14,18 @@ pub struct LordPosition {
 
 /// Identifies which player owns this entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct OwnedByPlayer(pub PeerId);
+pub struct OwnedByPlayer(pub u64);
+
+/// Position of a unit currently in transit (MoveUnit action InProgress).
+/// The entity exists only while the unit is moving, and is despawned on completion.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MovingUnitPosition {
+    pub chunk_x: i32,
+    pub chunk_y: i32,
+    pub cell_q: i32,
+    pub cell_r: i32,
+}
+
+/// DB unit ID for a replicated moving unit entity.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MovingUnitId(pub u64);

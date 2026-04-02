@@ -75,30 +75,9 @@ pub fn handle_action_events(
                 }
             }
 
-            ServerMessage::ActionCompleted {
-                action_id,
-                chunk_id,
-                cell,
-                action_type,
-            } => {
-                info!(
-                    "Action {} completed at chunk ({}, {}) cell ({}, {})",
-                    action_id, chunk_id.x, chunk_id.y, cell.q, cell.r
-                );
-
-                // Notification de complétion
-                notifications.push_success(format!("{} terminée !", action_type.to_name()));
-
-                if let Some(ref mut client) = network_client {
-                    info!(
-                        "Requesting chunk data refresh for ({}, {})",
-                        chunk_id.x, chunk_id.y
-                    );
-                    client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
-                        terrain_name: "Gaulyia".to_string(),
-                        terrain_chunk_ids: vec![*chunk_id],
-                    });
-                }
+            ServerMessage::ActionCompleted { .. } => {
+                // Action completions are now handled by lightyear (ActionCompletedMsg).
+                // This tungstenite path will be removed in #137.
             }
 
             ServerMessage::ActionError { reason } => {
