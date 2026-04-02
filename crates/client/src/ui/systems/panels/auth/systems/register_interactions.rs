@@ -4,15 +4,13 @@ use bevy::tasks::IoTaskPool;
 use bevy_ui_text_input::TextInputBuffer;
 
 use crate::{
-    networking::client::NetworkClient,
     networking::client::auth_task::{AuthResult, AuthTask},
     states::AuthScreen,
     ui::systems::panels::auth::components::*,
 };
-use shared::protocol::ClientMessage;
 
 /// System to handle register button click.
-/// Sends BOTH tungstenite register (for account creation feedback) and HTTP auth (for ConnectToken).
+/// Sends HTTP auth request to register and get a ConnectToken for lightyear connection.
 pub fn handle_register_button_click(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<RegisterSubmitButton>)>,
     family_name_query: Query<&TextInputBuffer, With<RegisterFamilyNameInput>>,
@@ -40,7 +38,6 @@ pub fn handle_register_button_click(
         (&mut Text, &mut Visibility),
         (With<RegisterSuccessText>, Without<RegisterErrorText>),
     >,
-    mut network_client: ResMut<NetworkClient>,
     mut auth_task: ResMut<AuthTask>,
 ) {
     for interaction in &interaction_query {
@@ -113,15 +110,7 @@ pub fn handle_register_button_click(
                 return;
             }
 
-            // Path 1: Tungstenite register (for account creation feedback)
-            let message = ClientMessage::RegisterAccount {
-                family_name: family_name.clone(),
-                password: password.clone(),
-            };
-            network_client.send_message(message);
-            info!("Registration request sent to server (tungstenite)");
-
-            // Path 2: HTTP auth register (for ConnectToken → lightyear connection)
+            // HTTP auth register (for ConnectToken → lightyear connection)
             let auth_url = std::env::var("AUTH_HTTP_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
             let url = format!("{}/api/auth/register", auth_url);

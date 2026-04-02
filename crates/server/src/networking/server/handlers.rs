@@ -689,12 +689,15 @@ async fn handle_client_message(
             }
         }
 
+        // DEPRECATED: Login data is now sent via lightyear Messages after ConnectToken auth (#141).
+        // This handler remains for backward compatibility with ClientMessage::Login (dev mode).
+        // Will be removed in #137 when tungstenite is fully removed.
         ClientMessage::LoginWithPassword {
             family_name,
             password,
         } => {
             tracing::info!(
-                "Session {} attempting to log in with password as {}",
+                "Session {} attempting to log in with password as {} (deprecated tungstenite path)",
                 session_id,
                 family_name
             );
