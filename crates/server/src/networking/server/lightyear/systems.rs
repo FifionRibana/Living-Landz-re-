@@ -11,7 +11,8 @@ use shared::protocol::{
     lightyear_messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-        ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, GameDataMsg, LoginSuccessMsg, LordDataMsg,
+        PlayerOrganizationDataMsg, UnitPositionUpdatedMsg,
     },
 };
 
@@ -101,12 +102,16 @@ fn on_lightyear_link_created(trigger: On<Add, LinkOf>, mut commands: Commands) {
     );
 }
 
-/// When a lightyear client is confirmed Connected, store the player_id → link mapping.
-/// The client connects with client_id = player_id (set after tungstenite login).
+/// When a lightyear client is confirmed Connected, store the player_id → link mapping
+/// and trigger game data loading via the tokio bridge.
 fn on_lightyear_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut player_links: ResMut<PlayerLinkMap>,
+    lords: Query<(&ServerPlayerId, &LordPosition)>,
+    mut commands: Commands,
+    mut chunk_rooms: ResMut<ChunkRooms>,
+    bridge: Res<LightyearBridge>,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
@@ -119,6 +124,27 @@ fn on_lightyear_connected(
         player_id,
         trigger.entity
     );
+
+    // If lord was already spawned via tungstenite bridge, join rooms now
+    for (pid, pos) in lords.iter() {
+        if pid.0 == player_id {
+            add_sender_to_nearby_rooms(
+                &mut commands,
+                &mut chunk_rooms,
+                trigger.entity,
+                pos.chunk_x,
+                pos.chunk_y,
+            );
+            tracing::info!(
+                "🏠 Deferred room join: player {} added to rooms around ({},{})",
+                player_id, pos.chunk_x, pos.chunk_y
+            );
+            break;
+        }
+    }
+
+    // Trigger game data loading via the tokio bridge
+    bridge.send_action(super::bridge::ActionRequest::LoadPlayerData { player_id });
 }
 
 // ─── Bridge polling ─────────────────────────────────────────────────
@@ -363,6 +389,77 @@ pub fn poll_bridge_events(
                         action_id, e
                     );
                 }
+            }
+
+            BridgeEvent::SendLoginData {
+                player_id,
+                player,
+                character,
+                lord,
+                organization,
+                game_data,
+            } => {
+                let Some(srv) = srv else {
+                    continue;
+                };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+
+                // Send in order: LoginSuccess → LordData → Organization → GameData
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
+                    &LoginSuccessMsg {
+                        player: player.clone(),
+                        character: character.clone(),
+                    },
+                    srv,
+                    &target,
+                ) {
+                    tracing::error!(
+                        "Failed to send LoginSuccessMsg to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
+                    &LordDataMsg { lord: lord.clone() },
+                    srv,
+                    &target,
+                ) {
+                    tracing::error!(
+                        "Failed to send LordDataMsg to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
+                    &PlayerOrganizationDataMsg {
+                        organization: organization.clone(),
+                    },
+                    srv,
+                    &target,
+                ) {
+                    tracing::error!(
+                        "Failed to send PlayerOrganizationDataMsg to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
+                    &GameDataMsg {
+                        payload: game_data.clone(),
+                    },
+                    srv,
+                    &target,
+                ) {
+                    tracing::error!(
+                        "Failed to send GameDataMsg to player {}: {:?}",
+                        player_id, e
+                    );
+                }
+
+                tracing::info!(
+                    "📦 Sent login data to player {} via lightyear",
+                    player_id
+                );
             }
         }
     }
