@@ -68,6 +68,16 @@ pub enum BridgeEvent {
         cell: GridCell,
         action_type: ActionTypeEnum,
     },
+
+    /// All login data loaded from DB — send to client via lightyear Messages.
+    SendLoginData {
+        player_id: u64,
+        player: shared::protocol::PlayerData,
+        character: Option<shared::protocol::CharacterData>,
+        lord: Option<shared::UnitData>,
+        organization: Option<shared::OrganizationSummary>,
+        game_data: shared::protocol::GameDataPayload,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────
@@ -117,6 +127,10 @@ pub enum ActionRequest {
         player_id: u64,
         cell: GridCell,
         radius: i32,
+    },
+    /// Load all login data for a newly connected player.
+    LoadPlayerData {
+        player_id: u64,
     },
 }
 

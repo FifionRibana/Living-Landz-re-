@@ -103,7 +103,7 @@ async fn claim_cell_and_neighbors(
 }
 
 /// Build the GameDataPayload from the cached GameState
-fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
+pub(crate) fn build_game_data_payload(game_state: &GameState, dev_config: &DevConfig) -> GameDataPayload {
     let items = game_state
         .item_definitions
         .iter()
@@ -220,7 +220,7 @@ async fn player_controls_unit(db_tables: &DatabaseTables, player_id: u64, unit_i
     matches!(result, Ok(Some(_)))
 }
 
-async fn ensure_spawn_explored(
+pub(crate) async fn ensure_spawn_explored(
     lord: Option<UnitData>,
     db_tables: &DatabaseTables,
     player_id: i64,

@@ -167,6 +167,17 @@ pub fn start_action_rpc_handler(
                     )
                     .await;
                 }
+                ActionRequest::LoadPlayerData { player_id } => {
+                    handle_load_player_data(
+                        player_id,
+                        &bridge_sender,
+                        &db_tables,
+                        &dev_config,
+                        &game_state,
+                        &grid_config,
+                    )
+                    .await;
+                }
             }
         }
 
@@ -1150,4 +1161,155 @@ async fn handle_explore(
             tracing::error!("Failed to mark voronoi exploration: {}", e);
         }
     }
+}
+
+// ─── LoadPlayerData ──────────────────────────────────────────────────
+
+/// Load all post-login data for a newly connected player and send it back
+/// through the bridge as SendLoginData + SpawnLord events.
+async fn handle_load_player_data(
+    player_id: u64,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+    dev_config: &DevConfig,
+    game_state: &GameState,
+    grid_config: &shared::grid::GridConfig,
+) {
+    let player_id_i64 = player_id as i64;
+
+    // 1. Load player
+    let player = match shared::types::game::methods::get_player_by_id(
+        &db_tables.pool,
+        player_id_i64,
+    )
+    .await
+    {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            tracing::error!(
+                "LoadPlayerData: player {} not found in DB",
+                player_id
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::error!(
+                "LoadPlayerData: DB error loading player {}: {}",
+                player_id, e
+            );
+            return;
+        }
+    };
+
+    let player_data = shared::protocol::PlayerData {
+        id: player.id,
+        family_name: player.family_name.clone(),
+        language_id: player.language_id,
+        coat_of_arms_id: player.coat_of_arms_id,
+        motto: player.motto.clone(),
+        origin_location: player.origin_location.clone(),
+    };
+
+    // 2. Load characters
+    let characters = shared::types::game::methods::get_player_characters(
+        &db_tables.pool,
+        player_id_i64,
+    )
+    .await
+    .unwrap_or_default();
+
+    let character_data = characters.into_iter().next().map(|c| {
+        shared::protocol::CharacterData {
+            id: c.id,
+            player_id: c.player_id,
+            first_name: c.first_name,
+            family_name: c.family_name,
+            second_name: c.second_name,
+            nickname: c.nickname,
+            coat_of_arms_id: c.coat_of_arms_id,
+            image_id: c.image_id,
+            motto: c.motto,
+        }
+    });
+
+    // 3. Load lord
+    let lord = db_tables
+        .units
+        .load_lord_for_player(player_id)
+        .await
+        .unwrap_or(None);
+
+    tracing::info!(
+        "LoadPlayerData: player {} lord={}",
+        player_id,
+        lord.as_ref().map_or("None".to_string(), |l| l.full_name())
+    );
+
+    // 4. Ensure spawn area is explored
+    crate::networking::server::handlers::ensure_spawn_explored(
+        lord.clone(),
+        db_tables,
+        player_id_i64,
+        grid_config,
+    )
+    .await;
+
+    // 5. Spawn lord entity in Bevy ECS
+    if let Some(ref lord_data) = lord {
+        bridge_sender.send(BridgeEvent::SpawnLord {
+            player_id,
+            chunk: lord_data.current_chunk,
+            cell: lord_data.current_cell,
+        });
+    }
+
+    // 6. Load organization (via lord)
+    let organization = if let Some(ref lord_data) = lord {
+        let org_row = sqlx::query_as::<_, (i64, String, i16, Option<i64>, i32, Option<String>)>(
+            r#"
+            SELECT o.id, o.name, o.organization_type_id, o.leader_unit_id, o.population, o.emblem_url
+            FROM organizations.organizations o
+            WHERE o.leader_unit_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(lord_data.id as i64)
+        .fetch_optional(&db_tables.pool)
+        .await;
+
+        match org_row {
+            Ok(Some((id, name, type_id, leader_id, pop, emblem))) => {
+                Some(shared::OrganizationSummary {
+                    id: id as u64,
+                    name,
+                    organization_type: shared::OrganizationType::from_id(type_id),
+                    leader_unit_id: leader_id.map(|l| l as u64),
+                    population: pop,
+                    emblem_url: emblem,
+                })
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    // 7. Build game data payload
+    let game_data =
+        crate::networking::server::handlers::build_game_data_payload(game_state, dev_config);
+
+    // 8. Send all login data back through the bridge
+    bridge_sender.send(BridgeEvent::SendLoginData {
+        player_id,
+        player: player_data,
+        character: character_data,
+        lord,
+        organization,
+        game_data,
+    });
+
+    tracing::info!(
+        "📦 LoadPlayerData complete for player {} — SendLoginData dispatched",
+        player_id
+    );
 }
