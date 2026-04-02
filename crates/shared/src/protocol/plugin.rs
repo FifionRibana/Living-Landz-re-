@@ -7,7 +7,8 @@ use crate::protocol::{
     lightyear_messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-        ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, GameDataMsg, LoginSuccessMsg, LordDataMsg,
+        PlayerOrganizationDataMsg, UnitPositionUpdatedMsg,
     },
 };
 
@@ -52,6 +53,16 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<UnitPositionUpdatedMsg>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<ActionCompletedMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+
+        // Post-login data messages: server → client
+        app.register_message::<LoginSuccessMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<LordDataMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<PlayerOrganizationDataMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<GameDataMsg>()
             .add_direction(NetworkDirection::ServerToClient);
     }
 }

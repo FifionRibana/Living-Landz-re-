@@ -1,7 +1,8 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// Type of slot within a cell
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode, Serialize, Deserialize)]
 pub enum SlotType {
     Interior,
     Exterior,
@@ -25,7 +26,7 @@ impl SlotType {
 }
 
 /// Position of a unit slot within a cell
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode, Serialize, Deserialize)]
 pub struct SlotPosition {
     pub slot_type: SlotType,
     pub index: usize,

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use lightyear::netcode::Key;
+use bevy::tasks::block_on;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use shared::TerrainChunkId;
@@ -7,16 +7,18 @@ use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
 use crate::networking::client::NetworkClient;
+use crate::networking::client::auth_task::AuthTask;
 use crate::state::resources::{
-    ActionTracker, ConnectionStatus, NotificationState, PlayerInfo, TrackedAction, UnitsCache,
-    UnitsDataCache,
+    ActionTracker, ConnectionStatus, GameDataCache, NotificationState, PlayerInfo, TrackedAction,
+    UnitsCache, UnitsDataCache,
 };
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
 use shared::protocol::lightyear_messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-    ActionStatusMsg, ActionTrainUnitMsg, UnitPositionUpdatedMsg,
+    ActionStatusMsg, ActionTrainUnitMsg, GameDataMsg, LoginSuccessMsg, LordDataMsg,
+    PlayerOrganizationDataMsg, UnitPositionUpdatedMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -75,23 +77,30 @@ pub struct LightyearClientPlugin;
 
 impl Plugin for LightyearClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            connect_to_server.run_if(in_state(AppState::InGame).and(run_once)),
-        )
-        .add_systems(
-            Update,
-            (
-                handle_connection_events,
-                handle_lord_replication,
-                handle_moving_unit_replication,
-                receive_action_status,
-                receive_action_error,
-                receive_unit_position_updated,
-                receive_action_completed,
+        app.init_resource::<AuthTask>()
+            .add_systems(
+                Update,
+                (
+                    poll_auth_task,
+                    receive_login_success,
+                    receive_lord_data,
+                    receive_organization_data,
+                    receive_game_data,
+                ),
             )
-                .run_if(in_state(AppState::InGame)),
-        );
+            .add_systems(
+                Update,
+                (
+                    handle_connection_events,
+                    handle_lord_replication,
+                    handle_moving_unit_replication,
+                    receive_action_status,
+                    receive_action_error,
+                    receive_unit_position_updated,
+                    receive_action_completed,
+                )
+                    .run_if(in_state(AppState::InGame)),
+            );
 
         app.add_message::<SendActionMoveUnit>()
             .add_message::<SendActionBuildBuilding>()
@@ -116,45 +125,67 @@ impl Plugin for LightyearClientPlugin {
     }
 }
 
-/// Connect to lightyear server once we enter InGame state.
-/// Uses the player_id from tungstenite login as the netcode client_id,
-/// so the server can map PeerId::Netcode(client_id) back to the DB player_id.
-fn connect_to_server(mut commands: Commands, connection: Res<ConnectionStatus>) {
-    // player_id is set during tungstenite login (LoginSuccess handler)
-    let Some(player_id) = connection.player_id else {
-        warn!("Cannot connect to lightyear: no player_id yet (login not complete?)");
+/// Poll the auth task. When the HTTP response arrives, decode the ConnectToken
+/// and initiate the lightyear connection.
+fn poll_auth_task(
+    mut commands: Commands,
+    mut auth_task: ResMut<AuthTask>,
+    mut connection: ResMut<ConnectionStatus>,
+) {
+    if auth_task.completed {
+        return;
+    }
+
+    let Some(ref task) = auth_task.task else {
         return;
     };
 
-    let server_addr: std::net::SocketAddr = std::env::var("LIGHTYEAR_SERVER")
-        .unwrap_or_else(|_| "127.0.0.1:5000".to_string())
-        .parse()
-        .unwrap();
+    if !task.is_finished() {
+        return;
+    }
 
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id: player_id, // player_id from tungstenite login
-        private_key: Key::default(),
-        protocol_id: 0,
-    };
+    // Task finished — take it out and get the result
+    let task = auth_task.task.take().unwrap();
+    let result = block_on(task);
 
-    let client = commands
-        .spawn((
-            Client::default(),
-            LocalAddr("127.0.0.1:0".parse().unwrap()),
-            PeerAddr(server_addr),
-            Link::new(None),
-            ReplicationReceiver::default(),
-            NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-            UdpIo::default(),
-        ))
-        .id();
-    commands.trigger(Connect { entity: client });
+    match result {
+        Ok(auth_result) => {
+            let player_id = auth_result.player_id;
+            connection.player_id = Some(player_id);
 
-    info!(
-        "🔌 Connecting to lightyear server at {} with player_id={}",
-        server_addr, player_id
-    );
+            let server_addr: std::net::SocketAddr = std::env::var("LIGHTYEAR_SERVER")
+                .unwrap_or_else(|_| "127.0.0.1:5000".to_string())
+                .parse()
+                .unwrap();
+
+            let client = commands
+                .spawn((
+                    Client::default(),
+                    LocalAddr("127.0.0.1:0".parse().unwrap()),
+                    PeerAddr(server_addr),
+                    Link::new(None),
+                    ReplicationReceiver::default(),
+                    NetcodeClient::new(
+                        Authentication::Token(auth_result.connect_token),
+                        NetcodeConfig::default(),
+                    )
+                    .unwrap(),
+                    UdpIo::default(),
+                ))
+                .id();
+            commands.trigger(Connect { entity: client });
+
+            auth_task.completed = true;
+            info!(
+                "🔌 Lightyear connecting with ConnectToken for player_id={}",
+                player_id
+            );
+        }
+        Err(e) => {
+            warn!("❌ Auth failed: {}", e);
+            // TODO: show error in UI
+        }
+    }
 }
 
 /// Log lightyear connection events
@@ -368,6 +399,111 @@ fn receive_action_completed(
         }
     }
 }
+
+// ─── Post-login data receivers ───────────────────────────────────────
+
+/// Receive LoginSuccessMsg from server via lightyear.
+fn receive_login_success(
+    mut receivers: Query<&mut MessageReceiver<LoginSuccessMsg>>,
+    mut connection: ResMut<ConnectionStatus>,
+    mut player_info: ResMut<PlayerInfo>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "✓ Login successful via lightyear, player ID: {}",
+                msg.player.id
+            );
+            connection.logged_in = true;
+            connection.player_id = Some(msg.player.id as u64);
+            player_info.temp_player_name = Some(msg.player.family_name.clone());
+
+            if let Some(ref char_data) = msg.character {
+                let character_name = if let Some(ref nickname) = char_data.nickname {
+                    format!(
+                        "{} \"{}\" {}",
+                        char_data.first_name, nickname, char_data.family_name
+                    )
+                } else {
+                    format!("{} {}", char_data.first_name, char_data.family_name)
+                };
+                player_info.temp_character_name = Some(character_name);
+            }
+        }
+    }
+}
+
+/// Receive LordDataMsg from server via lightyear.
+/// Transitions to InGame if lord exists, or CharacterCreation if not.
+fn receive_lord_data(
+    mut receivers: Query<&mut MessageReceiver<LordDataMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut next_app_state: ResMut<NextState<AppState>>,
+    mut network_client: Option<ResMut<NetworkClient>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            if let Some(lord_data) = msg.lord {
+                info!(
+                    "✓ Lord loaded via lightyear: {} at ({},{})",
+                    lord_data.full_name(),
+                    lord_data.current_cell.q,
+                    lord_data.current_cell.r
+                );
+
+                // Request inventory for the lord
+                if let Some(ref mut client) = network_client {
+                    client.send_message(shared::protocol::ClientMessage::RequestInventory {
+                        unit_id: lord_data.id,
+                    });
+                }
+
+                player_info.set_lord(lord_data);
+                next_app_state.set(AppState::InGame);
+            } else {
+                info!("No lord — entering character creation (via lightyear)");
+                next_app_state.set(AppState::CharacterCreation);
+            }
+        }
+    }
+}
+
+/// Receive PlayerOrganizationDataMsg from server via lightyear.
+fn receive_organization_data(
+    mut receivers: Query<&mut MessageReceiver<PlayerOrganizationDataMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            if let Some(ref org) = msg.organization {
+                info!(
+                    "✓ Organization loaded via lightyear: {} (ID: {})",
+                    org.name, org.id
+                );
+            }
+            player_info.organization = msg.organization;
+        }
+    }
+}
+
+/// Receive GameDataMsg from server via lightyear.
+fn receive_game_data(
+    mut receivers: Query<&mut MessageReceiver<GameDataMsg>>,
+    mut game_data_cache: ResMut<GameDataCache>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "✓ Game data loaded via lightyear: {} items, {} recipes",
+                msg.payload.items.len(),
+                msg.payload.recipes.len()
+            );
+            game_data_cache.load_from_payload(msg.payload);
+        }
+    }
+}
+
+// ─── Action send systems ─────────────────────────────────────────────
 
 fn send_pending_move_actions(
     mut events: MessageReader<SendActionMoveUnit>,
