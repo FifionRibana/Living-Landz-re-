@@ -46,6 +46,12 @@ pub fn request_chunks_around_camera(
         return; // Don't request any chunks until we know what's explored
     }
 
+    // Don't request chunks until terrain global data (biome + heightmap textures) is loaded.
+    // Without it, chunks render with wrong/fallback colors.
+    if !world_cache.is_terrain_global_loaded() {
+        return;
+    }
+
     let position = &transform.translation.truncate();
 
     let terrain_chunk_id = &TerrainChunkId {

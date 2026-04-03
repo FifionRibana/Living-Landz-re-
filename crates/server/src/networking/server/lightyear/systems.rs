@@ -14,11 +14,17 @@ use shared::protocol::{
     lightyear_messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-        ActionStatusMsg, ActionTrainUnitMsg, ExplorationMapMsg, ExplorationPatchMsg, GameDataMsg,
+        ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
+        DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationMapMsg, ExplorationPatchMsg,
+        GameDataMsg, HamletFoundErrorMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
         LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
-        PlayerOrganizationDataMsg, RequestExplorationMapMsg, RequestLakeDataMsg,
-        RequestOceanDataMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
-        TerrainChunkDataMsg, TerrainGlobalDataMsg, UnitPositionUpdatedMsg,
+        OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg,
+        RequestExplorationMapMsg, RequestInventoryMsg, RequestLakeDataMsg,
+        RequestOceanDataMsg, RequestOrganizationAtCellMsg, RequestTerrainChunksMsg,
+        RequestTerrainGlobalDataMsg, RoadChunkSdfUpdateMsg, TerrainChunkDataMsg,
+        TerrainGlobalDataMsg, TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg,
+        TerritoryContourUpdateMsg, UnitPositionUpdatedMsg, UnitProfessionChangedMsg,
+        UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
     },
 };
 
@@ -85,6 +91,8 @@ impl Plugin for LightyearGamePlugin {
                     receive_craft_resource_messages,
                     receive_train_unit_messages,
                     receive_explore_messages,
+                    receive_inventory_requests,
+                    receive_organization_at_cell_requests,
                     receive_terrain_chunk_requests,
                     receive_ocean_data_requests,
                     receive_lake_data_requests,
@@ -113,8 +121,8 @@ fn on_lightyear_link_created(trigger: On<Add, LinkOf>, mut commands: Commands) {
     );
 }
 
-/// When a lightyear client is confirmed Connected, store the player_id → link mapping
-/// and trigger game data loading via the tokio bridge.
+/// When a lightyear client is confirmed Connected, store the player_id → link mapping.
+/// The client connects with client_id = player_id (set after tungstenite login).
 fn on_lightyear_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
@@ -127,28 +135,19 @@ fn on_lightyear_connected(
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
-    // remote_id.0 is PeerId::Netcode(client_id) where client_id == player_id
     let player_id = remote_id.0.to_bits();
     player_links.map.insert(player_id, trigger.entity);
     tracing::info!(
         "✓ Lightyear client connected: player_id={} → link entity {:?}",
-        player_id,
-        trigger.entity
+        player_id, trigger.entity
     );
 
     // If lord was already spawned via tungstenite bridge, join rooms now
     for (pid, pos) in lords.iter() {
         if pid.0 == player_id {
             add_sender_to_nearby_rooms(
-                &mut commands,
-                &mut chunk_rooms,
-                trigger.entity,
-                pos.chunk_x,
-                pos.chunk_y,
-            );
-            tracing::info!(
-                "🏠 Deferred room join: player {} added to rooms around ({},{})",
-                player_id, pos.chunk_x, pos.chunk_y
+                &mut commands, &mut chunk_rooms, trigger.entity,
+                pos.chunk_x, pos.chunk_y,
             );
             break;
         }
@@ -402,184 +401,227 @@ pub fn poll_bridge_events(
                 }
             }
 
+            // ── Step 4 (#141): Login data ──
+
             BridgeEvent::SendLoginData {
-                player_id,
-                player,
-                character,
-                lord,
-                organization,
-                game_data,
+                player_id, player, character, lord, organization, game_data,
             } => {
-                let Some(srv) = srv else {
-                    continue;
-                };
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-
-                // Send in order: LoginSuccess → LordData → Organization → GameData
-                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
-                    &LoginSuccessMsg {
-                        player: player.clone(),
-                        character: character.clone(),
-                    },
-                    srv,
-                    &target,
-                ) {
-                    tracing::error!(
-                        "Failed to send LoginSuccessMsg to player {}: {:?}",
-                        player_id, e
-                    );
-                }
-
-                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
-                    &LordDataMsg { lord: lord.clone() },
-                    srv,
-                    &target,
-                ) {
-                    tracing::error!(
-                        "Failed to send LordDataMsg to player {}: {:?}",
-                        player_id, e
-                    );
-                }
-
-                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
-                    &PlayerOrganizationDataMsg {
-                        organization: organization.clone(),
-                    },
-                    srv,
-                    &target,
-                ) {
-                    tracing::error!(
-                        "Failed to send PlayerOrganizationDataMsg to player {}: {:?}",
-                        player_id, e
-                    );
-                }
-
-                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(
-                    &GameDataMsg {
-                        payload: game_data.clone(),
-                    },
-                    srv,
-                    &target,
-                ) {
-                    tracing::error!(
-                        "Failed to send GameDataMsg to player {}: {:?}",
-                        player_id, e
-                    );
-                }
-
-                tracing::info!(
-                    "📦 Sent login data to player {} via lightyear",
-                    player_id
-                );
+                let _ = msg_sender.send::<_, ReliableGameChannel>(
+                    &LoginSuccessMsg { player: player.clone(), character: character.clone() }, srv, &target);
+                let _ = msg_sender.send::<_, ReliableGameChannel>(
+                    &LordDataMsg { lord: lord.clone() }, srv, &target);
+                let _ = msg_sender.send::<_, ReliableGameChannel>(
+                    &PlayerOrganizationDataMsg { organization: organization.clone() }, srv, &target);
+                let _ = msg_sender.send::<_, ReliableGameChannel>(
+                    &GameDataMsg { payload: game_data.clone() }, srv, &target);
+                tracing::info!("📦 Sent login data to player {} via lightyear", player_id);
             }
 
-            // ── Bulk data responses ──
+            // ── Step 1 (#137): Bulk data responses ──
 
-            BridgeEvent::SendTerrainChunk {
-                player_id,
-                chunk_id,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            BridgeEvent::SendTerrainChunk { player_id, chunk_id, compressed_data } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = TerrainChunkDataMsg {
-                    chunk_id,
-                    compressed_data,
-                };
+                let msg = TerrainChunkDataMsg { chunk_id, compressed_data };
                 if let Err(e) = msg_sender.send::<_, TerrainChunkChannel>(&msg, srv, &target) {
-                    tracing::error!(
-                        "Failed to send terrain chunk ({},{}) to player {}: {:?}",
-                        chunk_id.x, chunk_id.y, player_id, e
-                    );
+                    tracing::error!("Failed to send terrain chunk: {:?}", e);
                 }
             }
-
-            BridgeEvent::SendOceanData {
-                player_id,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            BridgeEvent::SendOceanData { player_id, compressed_data } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
                 let msg = OceanDataMsg { compressed_data };
                 if let Err(e) = msg_sender.send::<_, OceanDataChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send ocean data to player {}: {:?}", player_id, e);
+                    tracing::error!("Failed to send ocean data: {:?}", e);
                 }
             }
-
-            BridgeEvent::SendLakeData {
-                player_id,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            BridgeEvent::SendLakeData { player_id, compressed_data } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
                 let msg = LakeDataLyMsg { compressed_data };
                 if let Err(e) = msg_sender.send::<_, LakeDataChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send lake data to player {}: {:?}", player_id, e);
+                    tracing::error!("Failed to send lake data: {:?}", e);
                 }
             }
-
-            BridgeEvent::SendTerrainGlobalData {
-                player_id,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            BridgeEvent::SendTerrainGlobalData { player_id, compressed_data } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
                 let msg = TerrainGlobalDataMsg { compressed_data };
                 if let Err(e) = msg_sender.send::<_, TerrainGlobalChannel>(&msg, srv, &target) {
-                    tracing::error!(
-                        "Failed to send terrain global data to player {}: {:?}",
-                        player_id, e
-                    );
+                    tracing::error!("Failed to send terrain global data: {:?}", e);
+                }
+            }
+            BridgeEvent::SendExplorationMap { player_id, width, height, n_chunk_x, n_chunk_y, compressed_data } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = ExplorationMapMsg { width, height, n_chunk_x, n_chunk_y, compressed_data };
+                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send exploration map: {:?}", e);
+                }
+            }
+            BridgeEvent::SendExplorationPatch { player_id, patch_x, patch_y, patch_width, patch_height, compressed_data } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = ExplorationPatchMsg { patch_x, patch_y, patch_width, patch_height, compressed_data };
+                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send exploration patch: {:?}", e);
                 }
             }
 
-            BridgeEvent::SendExplorationMap {
-                player_id,
-                width,
-                height,
-                n_chunk_x,
-                n_chunk_y,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            // ── Step 2: remaining server→client messages ──
+
+            BridgeEvent::SendInventoryData { player_id, unit_id, items } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = ExplorationMapMsg {
-                    width,
-                    height,
-                    n_chunk_x,
-                    n_chunk_y,
-                    compressed_data,
-                };
-                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
-                    tracing::error!(
-                        "Failed to send exploration map to player {}: {:?}",
-                        player_id, e
-                    );
+                let msg = InventoryDataMsg { unit_id, items };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send InventoryDataMsg to player {}: {:?}", player_id, e);
                 }
             }
 
-            BridgeEvent::SendExplorationPatch {
-                player_id,
-                patch_x,
-                patch_y,
-                patch_width,
-                patch_height,
-                compressed_data,
-            } => {
-                let Some(srv) = srv else { continue };
+            BridgeEvent::SendInventoryUpdate { player_id, unit_id, item_id, quantity_delta, new_total } => {
+                let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = ExplorationPatchMsg {
-                    patch_x,
-                    patch_y,
-                    patch_width,
-                    patch_height,
-                    compressed_data,
-                };
-                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
-                    tracing::error!(
-                        "Failed to send exploration patch to player {}: {:?}",
-                        player_id, e
-                    );
+                let msg = InventoryUpdateMsg { unit_id, item_id, quantity_delta, new_total };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send InventoryUpdateMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendUnitProfessionChanged { player_id, unit_id, new_profession, new_avatar_url } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = UnitProfessionChangedMsg { unit_id, new_profession, new_avatar_url };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send UnitProfessionChangedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendUnitWorkStatusUpdate { player_id, unit_id, working_on_action_id } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = UnitWorkStatusUpdateMsg { unit_id, working_on_action_id };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send UnitWorkStatusUpdateMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::BroadcastRoadChunkSdfUpdate { terrain_name, chunk_id, road_sdf_data } => {
+                let Some(srv) = srv else { continue; };
+                let msg = RoadChunkSdfUpdateMsg { terrain_name, chunk_id, road_sdf_data };
+                // TODO: target by room instead of all
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
+                    tracing::error!("Failed to broadcast RoadChunkSdfUpdateMsg: {:?}", e);
+                }
+            }
+
+            BridgeEvent::BroadcastTerritoryContourUpdate { chunk_id, contours } => {
+                let Some(srv) = srv else { continue; };
+                let msg = TerritoryContourUpdateMsg { chunk_id, contours };
+                // TODO: target by room instead of all
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
+                    tracing::error!("Failed to broadcast TerritoryContourUpdateMsg: {:?}", e);
+                }
+            }
+
+            BridgeEvent::BroadcastTerritoryBorderSdfUpdate { chunk_id, border_sdf_data_list } => {
+                let Some(srv) = srv else { continue; };
+                let msg = TerritoryBorderSdfUpdateMsg { chunk_id, border_sdf_data_list };
+                // TODO: target by room instead of all
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
+                    tracing::error!("Failed to broadcast TerritoryBorderSdfUpdateMsg: {:?}", e);
+                }
+            }
+
+            BridgeEvent::SendTerritoryBorderCells { player_id, organization_id, border_cells } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = TerritoryBorderCellsMsg { organization_id, border_cells };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send TerritoryBorderCellsMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendPopulationChanged { player_id, organization_id, new_population, immigrant } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = PopulationChangedMsg { organization_id, new_population, immigrant };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send PopulationChangedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendHamletFounded { player_id, organization_id, name, headquarters, territory_cells } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = HamletFoundedMsg { organization_id, name, headquarters, territory_cells };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send HamletFoundedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendHamletFoundError { player_id, reason } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = HamletFoundErrorMsg { reason };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send HamletFoundErrorMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendOrganizationAtCell { player_id, cell, organization } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = OrganizationAtCellMsg { cell, organization };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send OrganizationAtCellMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendUnitSlotUpdated { player_id, unit_id, cell, slot_position } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = UnitSlotUpdatedMsg { unit_id, cell, slot_position };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send UnitSlotUpdatedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendDebugOrganizationCreated { player_id, organization_id, name } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = DebugOrganizationCreatedMsg { organization_id, name };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send DebugOrganizationCreatedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendDebugOrganizationDeleted { player_id, organization_id } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = DebugOrganizationDeletedMsg { organization_id };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send DebugOrganizationDeletedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendDebugUnitSpawned { player_id, unit_data } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = DebugUnitSpawnedMsg { unit_data };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send DebugUnitSpawnedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendDebugError { player_id, reason } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = DebugErrorMsg { reason };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send DebugErrorMsg to player {}: {:?}", player_id, e);
                 }
             }
         }
@@ -962,7 +1004,41 @@ fn receive_explore_messages(
     }
 }
 
-// ─── Bulk data request receivers ─────────────────────────────────────
+fn receive_inventory_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestInventoryMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            tracing::info!(
+                "📨 Received RequestInventory from player {}: unit {}",
+                player_id, msg.unit_id
+            );
+            bridge.send_action(super::bridge::ActionRequest::LoadInventory {
+                player_id,
+                unit_id: msg.unit_id,
+            });
+        }
+    }
+}
+
+fn receive_organization_at_cell_requests(
+    mut receivers: Query<(Entity, &mut MessageReceiver<RequestOrganizationAtCellMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::LoadOrganizationAtCell {
+                player_id,
+                cell: msg.cell,
+            });
+        }
+    }
+}
+
+// ─── Bulk data request receivers (#137 Step 1) ───────────────────────
 
 fn receive_terrain_chunk_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainChunksMsg>, &RemoteId)>,
@@ -971,10 +1047,6 @@ fn receive_terrain_chunk_requests(
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
         for msg in receiver.receive() {
-            tracing::info!(
-                "📨 Terrain chunks request from player {}: {} chunks",
-                player_id, msg.chunk_ids.len()
-            );
             bridge.send_action(super::bridge::ActionRequest::LoadTerrainChunks {
                 player_id,
                 terrain_name: msg.terrain_name.clone(),
@@ -991,7 +1063,6 @@ fn receive_ocean_data_requests(
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
         for msg in receiver.receive() {
-            tracing::info!("📨 Ocean data request from player {}", player_id);
             bridge.send_action(super::bridge::ActionRequest::LoadOceanData {
                 player_id,
                 world_name: msg.world_name.clone(),
@@ -1007,7 +1078,6 @@ fn receive_lake_data_requests(
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
         for msg in receiver.receive() {
-            tracing::info!("📨 Lake data request from player {}", player_id);
             bridge.send_action(super::bridge::ActionRequest::LoadLakeData {
                 player_id,
                 world_name: msg.world_name.clone(),
@@ -1023,7 +1093,6 @@ fn receive_terrain_global_data_requests(
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
         for msg in receiver.receive() {
-            tracing::info!("📨 Terrain global data request from player {}", player_id);
             bridge.send_action(super::bridge::ActionRequest::LoadTerrainGlobalData {
                 player_id,
                 world_name: msg.world_name.clone(),
@@ -1039,7 +1108,6 @@ fn receive_exploration_map_requests(
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
         for msg in receiver.receive() {
-            tracing::info!("📨 Exploration map request from player {}", player_id);
             bridge.send_action(super::bridge::ActionRequest::LoadExplorationMap {
                 player_id,
                 terrain_name: msg.terrain_name.clone(),

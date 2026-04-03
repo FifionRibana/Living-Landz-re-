@@ -412,7 +412,7 @@ impl PrimaryStat {
 }
 
 // ============ ITEM TYPES ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum ItemTypeEnum {
     Unknown = 0,
     Resource = 1,

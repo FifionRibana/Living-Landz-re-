@@ -3,7 +3,7 @@ use bevy::window::PrimaryWindow;
 use hexx::Hex;
 
 use crate::camera::MainCamera;
-use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::SendRequestOrganizationAtCell;
 use crate::state::resources::CurrentOrganization;
 use shared::grid::{GridCell, GridConfig};
 
@@ -13,7 +13,7 @@ pub fn track_hovered_cell_organization(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     grid_config: Res<GridConfig>,
     mut current_organization: ResMut<CurrentOrganization>,
-    mut network_client: ResMut<NetworkClient>,
+    mut org_events: MessageWriter<SendRequestOrganizationAtCell>,
     // Check if cursor is over UI to avoid queries during UI interaction
     ui_interaction_query: Query<&Interaction, (With<Node>, With<Pickable>)>,
 ) -> Result {
@@ -47,9 +47,7 @@ pub fn track_hovered_cell_organization(
         };
 
         if should_request {
-            network_client.send_message(shared::protocol::ClientMessage::RequestOrganizationAtCell {
-                cell: current_cell.clone(),
-            });
+            org_events.write(SendRequestOrganizationAtCell { cell: current_cell });
             current_organization.last_queried_cell = Some(current_cell);
         }
     }
@@ -63,7 +61,7 @@ pub fn track_camera_center_organization(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     grid_config: Res<GridConfig>,
     mut current_organization: ResMut<CurrentOrganization>,
-    mut network_client: ResMut<NetworkClient>,
+    mut org_events: MessageWriter<SendRequestOrganizationAtCell>,
     time: Res<Time>,
     mut last_check: Local<f64>
 ) -> Result {
@@ -93,11 +91,7 @@ pub fn track_camera_center_organization(
         };
 
         if should_request {
-            network_client.send_message(
-                shared::protocol::ClientMessage::RequestOrganizationAtCell {
-                    cell: current_cell,
-                },
-            );
+            org_events.write(SendRequestOrganizationAtCell { cell: current_cell });
             current_organization.last_queried_cell = Some(current_cell);
         }
     }

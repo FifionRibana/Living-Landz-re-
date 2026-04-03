@@ -317,17 +317,15 @@ impl ActionProcessor {
                                                     .count_item_for_unit(lord_unit_id, cost.item_id)
                                                     .await
                                                     .unwrap_or(0);
-                                                let msg = ServerMessage::InventoryUpdate {
-                                                    unit_id: lord_unit_id,
-                                                    item_id: cost.item_id,
-                                                    quantity_delta: -cost.quantity,
-                                                    new_total: remaining,
-                                                };
-                                                self.send_message_to_player(
-                                                    action_info.player_id,
-                                                    msg,
-                                                )
-                                                .await;
+                                                self.bridge_sender.send(
+                                                    crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                        player_id: action_info.player_id,
+                                                        unit_id: lord_unit_id,
+                                                        item_id: cost.item_id,
+                                                        quantity_delta: -cost.quantity,
+                                                        new_total: remaining,
+                                                    },
+                                                );
                                             }
                                             Err(e) => {
                                                 tracing::error!(
@@ -438,13 +436,14 @@ impl ActionProcessor {
                                 };
 
                                 // Notify the player
-                                let profession_msg = ServerMessage::UnitProfessionChanged {
-                                    unit_id,
-                                    new_profession: target_profession,
-                                    new_avatar_url,
-                                };
-                                self.send_message_to_player(action_info.player_id, profession_msg)
-                                    .await;
+                                self.bridge_sender.send(
+                                    crate::networking::server::lightyear::bridge::BridgeEvent::SendUnitProfessionChanged {
+                                        player_id: action_info.player_id,
+                                        unit_id,
+                                        new_profession: target_profession,
+                                        new_avatar_url,
+                                    },
+                                );
                             }
                         }
                         Ok(None) => {
@@ -603,11 +602,7 @@ impl ActionProcessor {
                                                         lord_unit_id
                                                     );
 
-                                                    let inv_msg = ServerMessage::InventoryUpdate {
-                                                        unit_id: lord_unit_id,
-                                                        item_id: hy.result_item_id,
-                                                        quantity_delta: quantity,
-                                                        new_total: self
+                                                    let new_total = self
                                                             .db_tables
                                                             .resources
                                                             .count_item_for_unit(
@@ -615,13 +610,16 @@ impl ActionProcessor {
                                                                 hy.result_item_id,
                                                             )
                                                             .await
-                                                            .unwrap_or(quantity),
-                                                    };
-                                                    self.send_message_to_player(
-                                                        action_info.player_id,
-                                                        inv_msg,
-                                                    )
-                                                    .await;
+                                                            .unwrap_or(quantity);
+                                                    self.bridge_sender.send(
+                                                        crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                            player_id: action_info.player_id,
+                                                            unit_id: lord_unit_id,
+                                                            item_id: hy.result_item_id,
+                                                            quantity_delta: quantity,
+                                                            new_total,
+                                                        },
+                                                    );
                                                 }
                                                 Err(e) => {
                                                     tracing::error!(
@@ -749,18 +747,15 @@ impl ActionProcessor {
                                                                 )
                                                                 .await
                                                                 .unwrap_or(0);
-                                                            let ing_msg =
-                                                                ServerMessage::InventoryUpdate {
+                                                            self.bridge_sender.send(
+                                                                crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                                    player_id: action_info.player_id,
                                                                     unit_id: lord_unit_id,
                                                                     item_id: ingredient.item_id,
                                                                     quantity_delta: -needed,
                                                                     new_total: remaining,
-                                                                };
-                                                            self.send_message_to_player(
-                                                                action_info.player_id,
-                                                                ing_msg,
-                                                            )
-                                                            .await;
+                                                                },
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -788,12 +783,7 @@ impl ActionProcessor {
                                                             lord_unit_id
                                                         );
 
-                                                        let inv_msg =
-                                                            ServerMessage::InventoryUpdate {
-                                                                unit_id: lord_unit_id,
-                                                                item_id: recipe.result_item_id,
-                                                                quantity_delta: result_qty,
-                                                                new_total: self
+                                                        let new_total = self
                                                                     .db_tables
                                                                     .resources
                                                                     .count_item_for_unit(
@@ -801,13 +791,16 @@ impl ActionProcessor {
                                                                         recipe.result_item_id,
                                                                     )
                                                                     .await
-                                                                    .unwrap_or(result_qty),
-                                                            };
-                                                        self.send_message_to_player(
-                                                            action_info.player_id,
-                                                            inv_msg,
-                                                        )
-                                                        .await;
+                                                                    .unwrap_or(result_qty);
+                                                        self.bridge_sender.send(
+                                                            crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                                player_id: action_info.player_id,
+                                                                unit_id: lord_unit_id,
+                                                                item_id: recipe.result_item_id,
+                                                                quantity_delta: result_qty,
+                                                                new_total,
+                                                            },
+                                                        );
                                                     }
                                                     Err(e) => {
                                                         tracing::error!(
@@ -863,12 +856,13 @@ impl ActionProcessor {
                 match self.db_tables.units.clear_units_working_on(action_id).await {
                     Ok(freed_unit_ids) => {
                         for uid in &freed_unit_ids {
-                            let msg = ServerMessage::UnitWorkStatusUpdate {
-                                unit_id: *uid,
-                                working_on_action_id: None,
-                            };
-                            self.send_message_to_player(action_info.player_id, msg)
-                                .await;
+                            self.bridge_sender.send(
+                                crate::networking::server::lightyear::bridge::BridgeEvent::SendUnitWorkStatusUpdate {
+                                    player_id: action_info.player_id,
+                                    unit_id: *uid,
+                                    working_on_action_id: None,
+                                },
+                            );
                         }
                         tracing::info!(
                             "Freed {} units from action {}",
@@ -1947,13 +1941,13 @@ impl ActionProcessor {
                 );
 
                 // Envoyer la mise à jour de la SDF à tous les joueurs du chunk
-                let road_update = shared::protocol::ServerMessage::RoadChunkSdfUpdate {
-                    terrain_name: "Gaulyia".to_string(),
-                    chunk_id: *chunk_id,
-                    road_sdf_data: road_sdf,
-                };
-
-                self.broadcast_to_chunk(chunk_id, road_update).await;
+                self.bridge_sender.send(
+                    crate::networking::server::lightyear::bridge::BridgeEvent::BroadcastRoadChunkSdfUpdate {
+                        terrain_name: "Gaulyia".to_string(),
+                        chunk_id: *chunk_id,
+                        road_sdf_data: road_sdf,
+                    },
+                );
             }
             Ok(_) => {
                 tracing::debug!(
@@ -2001,21 +1995,20 @@ impl ActionProcessor {
                 }
             }
 
-            // Notifier le joueur
-            let message = ServerMessage::ActionStatusUpdate {
-                action_id,
-                player_id: action_info.player_id,
-                chunk_id: action_info.chunk_id.clone(),
-                cell: action_info.cell.clone(),
-                status: ActionStatusEnum::Failed,
-                action_type: action_info.action_type,
-                completion_time: action_info.completion_time,
-                action_name: None,
-                unit_ids: vec![],
-            };
-
-            self.send_message_to_player(action_info.player_id, message)
-                .await;
+            // Notifier le joueur via lightyear bridge
+            self.bridge_sender.send(
+                crate::networking::server::lightyear::bridge::BridgeEvent::SendActionStatus {
+                    player_id: action_info.player_id,
+                    action_id,
+                    chunk_id: action_info.chunk_id,
+                    cell: action_info.cell,
+                    status: ActionStatusEnum::Failed,
+                    action_type: action_info.action_type,
+                    completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
+                },
+            );
 
             tracing::info!(
                 "Action {} failed for player {}",

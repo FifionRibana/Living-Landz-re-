@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::grid::GridCell;
 use crate::protocol::{
-    CharacterData, GameDataPayload, PlayerData,
+    CharacterData, ColorData, GameDataPayload, InventoryItemData, PlayerData,
+    TerritoryContourChunkData,
 };
 use crate::{
     ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, OrganizationSummary, ProfessionEnum,
-    ResourceSpecificTypeEnum, TerrainChunkId, UnitData,
+    ResourceSpecificTypeEnum, RoadChunkSdfData, SlotPosition, TerritoryBorderChunkSdfData,
+    TerrainChunkId, UnitData,
 };
 
 // ─── Client → Server Messages ───────────────────────────────────────
@@ -218,4 +220,124 @@ pub struct ExplorationPatchMsg {
     pub patch_width: i32,
     pub patch_height: i32,
     pub compressed_data: Vec<u8>,
+}
+
+// ─── Client → Server request Messages ────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RequestInventoryMsg {
+    pub unit_id: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RequestOrganizationAtCellMsg {
+    pub cell: GridCell,
+}
+
+// ─── Server → Client event Messages (#137 Step 2) ───────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InventoryDataMsg {
+    pub unit_id: u64,
+    pub items: Vec<InventoryItemData>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct InventoryUpdateMsg {
+    pub unit_id: u64,
+    pub item_id: i32,
+    pub quantity_delta: i32,
+    pub new_total: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct UnitProfessionChangedMsg {
+    pub unit_id: u64,
+    pub new_profession: ProfessionEnum,
+    pub new_avatar_url: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct UnitWorkStatusUpdateMsg {
+    pub unit_id: u64,
+    pub working_on_action_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RoadChunkSdfUpdateMsg {
+    pub terrain_name: String,
+    pub chunk_id: TerrainChunkId,
+    pub road_sdf_data: RoadChunkSdfData,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TerritoryContourUpdateMsg {
+    pub chunk_id: TerrainChunkId,
+    pub contours: Vec<TerritoryContourChunkData>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TerritoryBorderSdfUpdateMsg {
+    pub chunk_id: TerrainChunkId,
+    pub border_sdf_data_list: Vec<TerritoryBorderChunkSdfData>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TerritoryBorderCellsMsg {
+    pub organization_id: u64,
+    pub border_cells: Vec<GridCell>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PopulationChangedMsg {
+    pub organization_id: u64,
+    pub new_population: i32,
+    pub immigrant: Option<UnitData>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HamletFoundedMsg {
+    pub organization_id: u64,
+    pub name: String,
+    pub headquarters: GridCell,
+    pub territory_cells: Vec<GridCell>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HamletFoundErrorMsg {
+    pub reason: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct OrganizationAtCellMsg {
+    pub cell: GridCell,
+    pub organization: Option<OrganizationSummary>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct UnitSlotUpdatedMsg {
+    pub unit_id: u64,
+    pub cell: GridCell,
+    pub slot_position: Option<SlotPosition>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugOrganizationCreatedMsg {
+    pub organization_id: u64,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugOrganizationDeletedMsg {
+    pub organization_id: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DebugUnitSpawnedMsg {
+    pub unit_data: UnitData,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugErrorMsg {
+    pub reason: String,
 }
