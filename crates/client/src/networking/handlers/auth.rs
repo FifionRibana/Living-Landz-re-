@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use shared::protocol::{ClientMessage, ServerMessage};
+use shared::protocol::ServerMessage;
 
-use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::SendRequestInventory;
 use crate::networking::events::ServerEvent;
 use crate::state::resources::PlayerInfo;
 use crate::states::AppState;
@@ -14,7 +14,7 @@ pub fn handle_auth_events(
     mut events: MessageReader<ServerEvent>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut inventory_events: MessageWriter<SendRequestInventory>,
 ) {
     for event in events.read() {
         match &event.0 {
@@ -33,12 +33,10 @@ pub fn handle_auth_events(
                 );
                 player_info.set_lord(unit_data.clone());
 
-                // Request inventory for the newly created lord
-                if let Some(ref mut client) = network_client {
-                    client.send_message(ClientMessage::RequestInventory {
-                        unit_id: unit_data.id,
-                    });
-                }
+                // Request inventory for the newly created lord via lightyear
+                inventory_events.write(SendRequestInventory {
+                    unit_id: unit_data.id,
+                });
 
                 next_app_state.set(AppState::InGame);
             }

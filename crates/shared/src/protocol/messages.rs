@@ -54,7 +54,7 @@ impl ColorData {
 }
 
 /// Territory contour data for a specific organization in a specific chunk
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct TerritoryContourChunkData {
     pub organization_id: u64,
     pub chunk_id: TerrainChunkId,
@@ -145,7 +145,7 @@ pub struct TranslationEntry {
 // =============================================================================
 
 /// Données d'item pour l'inventaire réseau (version allégée)
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct InventoryItemData {
     pub instance_id: u64,
     pub item_id: i32,

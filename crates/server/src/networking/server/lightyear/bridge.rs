@@ -3,6 +3,7 @@ use shared::{
     ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ProfessionEnum, ResourceSpecificTypeEnum,
     TerrainChunkId,
 };
+use shared::protocol::InventoryItemData;
 
 // ─── tokio → Bevy events (existing + new) ───────────────────────────
 
@@ -79,7 +80,7 @@ pub enum BridgeEvent {
         game_data: shared::protocol::GameDataPayload,
     },
 
-    // ── Bulk data responses ──
+    // ── Bulk data responses (#137 Step 1) ──
 
     SendTerrainChunk {
         player_id: u64,
@@ -113,6 +114,95 @@ pub enum BridgeEvent {
         patch_width: i32,
         patch_height: i32,
         compressed_data: Vec<u8>,
+    },
+
+    // ── Step 2 events: remaining server→client messages ──
+
+    SendInventoryData {
+        player_id: u64,
+        unit_id: u64,
+        items: Vec<InventoryItemData>,
+    },
+    SendInventoryUpdate {
+        player_id: u64,
+        unit_id: u64,
+        item_id: i32,
+        quantity_delta: i32,
+        new_total: i32,
+    },
+    SendUnitProfessionChanged {
+        player_id: u64,
+        unit_id: u64,
+        new_profession: ProfessionEnum,
+        new_avatar_url: Option<String>,
+    },
+    SendUnitWorkStatusUpdate {
+        player_id: u64,
+        unit_id: u64,
+        working_on_action_id: Option<u64>,
+    },
+    BroadcastRoadChunkSdfUpdate {
+        terrain_name: String,
+        chunk_id: TerrainChunkId,
+        road_sdf_data: shared::RoadChunkSdfData,
+    },
+    BroadcastTerritoryContourUpdate {
+        chunk_id: TerrainChunkId,
+        contours: Vec<shared::protocol::TerritoryContourChunkData>,
+    },
+    BroadcastTerritoryBorderSdfUpdate {
+        chunk_id: TerrainChunkId,
+        border_sdf_data_list: Vec<shared::TerritoryBorderChunkSdfData>,
+    },
+    SendTerritoryBorderCells {
+        player_id: u64,
+        organization_id: u64,
+        border_cells: Vec<GridCell>,
+    },
+    SendPopulationChanged {
+        player_id: u64,
+        organization_id: u64,
+        new_population: i32,
+        immigrant: Option<shared::UnitData>,
+    },
+    SendHamletFounded {
+        player_id: u64,
+        organization_id: u64,
+        name: String,
+        headquarters: GridCell,
+        territory_cells: Vec<GridCell>,
+    },
+    SendHamletFoundError {
+        player_id: u64,
+        reason: String,
+    },
+    SendOrganizationAtCell {
+        player_id: u64,
+        cell: GridCell,
+        organization: Option<shared::OrganizationSummary>,
+    },
+    SendUnitSlotUpdated {
+        player_id: u64,
+        unit_id: u64,
+        cell: GridCell,
+        slot_position: Option<shared::SlotPosition>,
+    },
+    SendDebugOrganizationCreated {
+        player_id: u64,
+        organization_id: u64,
+        name: String,
+    },
+    SendDebugOrganizationDeleted {
+        player_id: u64,
+        organization_id: u64,
+    },
+    SendDebugUnitSpawned {
+        player_id: u64,
+        unit_data: shared::UnitData,
+    },
+    SendDebugError {
+        player_id: u64,
+        reason: String,
     },
 }
 
@@ -169,7 +259,7 @@ pub enum ActionRequest {
         player_id: u64,
     },
 
-    // ── Bulk data requests ──
+    // ── Bulk data requests (#137 Step 1) ──
 
     LoadTerrainChunks {
         player_id: u64,
@@ -191,6 +281,17 @@ pub enum ActionRequest {
     LoadExplorationMap {
         player_id: u64,
         terrain_name: String,
+    },
+
+    // ── Step 2 requests ──
+
+    LoadInventory {
+        player_id: u64,
+        unit_id: u64,
+    },
+    LoadOrganizationAtCell {
+        player_id: u64,
+        cell: GridCell,
     },
 }
 

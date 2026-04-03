@@ -689,15 +689,12 @@ async fn handle_client_message(
             }
         }
 
-        // DEPRECATED: Login data is now sent via lightyear Messages after ConnectToken auth (#141).
-        // This handler remains for backward compatibility with ClientMessage::Login (dev mode).
-        // Will be removed in #137 when tungstenite is fully removed.
         ClientMessage::LoginWithPassword {
             family_name,
             password,
         } => {
             tracing::info!(
-                "Session {} attempting to log in with password as {} (deprecated tungstenite path)",
+                "Session {} attempting to log in with password as {}",
                 session_id,
                 family_name
             );
@@ -1982,6 +1979,7 @@ async fn handle_client_message(
             to_slot,
         } => {
             let mut responses = Vec::new();
+            let player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             tracing::info!(
                 "Moving unit {} from slot {:?} to {:?} at cell {:?}",
@@ -2007,8 +2005,9 @@ async fn handle_client_message(
                 Ok(_) => {
                     tracing::info!("Unit {} slot updated in database", unit_id);
 
-                    // Broadcast success to all clients
-                    responses.push(ServerMessage::UnitSlotUpdated {
+                    // Broadcast success to all clients via lightyear
+                    bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
+                        player_id,
                         unit_id,
                         cell,
                         slot_position: Some(to_slot),
@@ -2030,6 +2029,7 @@ async fn handle_client_message(
             slot,
         } => {
             let mut responses = Vec::new();
+            let player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             tracing::info!(
                 "Assigning unit {} to slot {:?}:{} at cell {:?}",
@@ -2055,8 +2055,9 @@ async fn handle_client_message(
                 Ok(_) => {
                     tracing::info!("Unit {} slot assigned in database", unit_id);
 
-                    // Broadcast success to all clients
-                    responses.push(ServerMessage::UnitSlotUpdated {
+                    // Broadcast success to all clients via lightyear
+                    bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
+                        player_id,
                         unit_id,
                         cell,
                         slot_position: Some(slot),
@@ -2418,13 +2419,11 @@ async fn handle_client_message(
             let player_id = match sessions.get_player_id(session_id).await {
                 Some(id) => id,
                 None => {
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: "Non authentifié".to_string(),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id: 0,
+                        reason: "Non authentifié".to_string(),
+                    });
+                    return (vec![], vec![], None);
                 }
             };
 
@@ -2432,22 +2431,18 @@ async fn handle_client_message(
             let lord = match db_tables.units.load_lord_for_player(player_id).await {
                 Ok(Some(lord)) => lord,
                 Ok(None) => {
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: "Vous n'avez pas de Lord/Lady".to_string(),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
+                        reason: "Vous n'avez pas de Lord/Lady".to_string(),
+                    });
+                    return (vec![], vec![], None);
                 }
                 Err(e) => {
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: format!("Erreur: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
+                        reason: format!("Erreur: {}", e),
+                    });
+                    return (vec![], vec![], None);
                 }
             };
 
@@ -2463,15 +2458,19 @@ async fn handle_client_message(
             .await
             {
                 Ok(Some(_)) => {
-                    return (vec![ServerMessage::HamletFoundError {
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
                         reason: "Cette cellule appartient déjà à un territoire".to_string(),
-                    }], vec![], None);
+                    });
+                    return (vec![], vec![], None);
                 }
                 Ok(None) => { /* libre, on continue */ }
                 Err(e) => {
-                    return (vec![ServerMessage::HamletFoundError {
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
                         reason: format!("Erreur DB: {}", e),
-                    }], vec![], None);
+                    });
+                    return (vec![], vec![], None);
                 }
             }
 
@@ -2485,26 +2484,22 @@ async fn handle_client_message(
             .await
             {
                 Ok(Some(existing_org_id)) => {
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: format!(
-                                "Vous avez déjà une organisation (ID: {})",
-                                existing_org_id
-                            ),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
+                        reason: format!(
+                            "Vous avez déjà une organisation (ID: {})",
+                            existing_org_id
+                        ),
+                    });
+                    return (vec![], vec![], None);
                 }
                 Ok(None) => { /* OK */ }
                 Err(e) => {
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: format!("Erreur DB: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
+                        reason: format!("Erreur DB: {}", e),
+                    });
+                    return (vec![], vec![], None);
                 }
             }
 
@@ -2534,13 +2529,11 @@ async fn handle_client_message(
                 Ok(id) => id,
                 Err(e) => {
                     tracing::error!("Failed to create hamlet: {}", e);
-                    return (
-                        vec![ServerMessage::HamletFoundError {
-                            reason: format!("Échec de la création: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                        player_id,
+                        reason: format!("Échec de la création: {}", e),
+                    });
+                    return (vec![], vec![], None);
                 }
             };
 
@@ -2624,8 +2617,6 @@ async fn handle_client_message(
             );
 
             // 8. Générer les contours territoriaux
-            let mut contour_messages = Vec::new();
-
             match db_tables.organizations.load_territory_cells(org_id).await {
                 Ok(territory_cells) if !territory_cells.is_empty() => {
                     use hexx::Hex;
@@ -2655,13 +2646,12 @@ async fn handle_client_message(
                             .await;
                     }
 
-                    // Préparer les messages TerritoryContourUpdate à envoyer au client
-                    // Regrouper par chunk_id
+                    // Send TerritoryContourUpdate via lightyear bridge
                     for (chunk_id, contour_segments) in &contour_chunks {
                         let (border_color, fill_color) =
                             world::territory::generate_org_colors(org_id);
 
-                        contour_messages.push(ServerMessage::TerritoryContourUpdate {
+                        bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
                             chunk_id: *chunk_id,
                             contours: vec![shared::protocol::TerritoryContourChunkData {
                                 organization_id: org_id,
@@ -2681,18 +2671,16 @@ async fn handle_client_message(
                 }
             }
 
-            // 9. Envoyer les réponses
-            let mut responses = vec![ServerMessage::HamletFounded {
+            // 9. Send HamletFounded via lightyear bridge
+            bridge_sender.send(BridgeEvent::SendHamletFounded {
+                player_id,
                 organization_id: org_id,
                 name: hamlet_name,
                 headquarters: cell,
                 territory_cells: claimed_cells,
-            }];
+            });
 
-            // Ajouter les contours pour que le client les affiche immédiatement
-            responses.extend(contour_messages);
-
-            (responses, vec![], None)
+            (vec![], vec![], None)
         }
 
         // ====================================================================
@@ -3024,12 +3012,14 @@ async fn handle_client_message(
                                 }
                             }
 
-                            // Get territory border cells for debugging
-                            let mut response_messages =
-                                vec![ServerMessage::DebugOrganizationCreated {
-                                    organization_id: org_id,
-                                    name: name.clone(),
-                                }];
+                            let dbg_player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
+
+                            // Send DebugOrganizationCreated via lightyear bridge
+                            bridge_sender.send(BridgeEvent::SendDebugOrganizationCreated {
+                                player_id: dbg_player_id,
+                                organization_id: org_id,
+                                name: name.clone(),
+                            });
 
                             // Get border cells (cells at the frontier of the territory)
                             tracing::info!(
@@ -3049,8 +3039,9 @@ async fn handle_client_message(
                                         border_cells.len()
                                     );
 
-                                    // Send border cells to client for debug visualization
-                                    response_messages.push(ServerMessage::TerritoryBorderCells {
+                                    // Send border cells via lightyear bridge
+                                    bridge_sender.send(BridgeEvent::SendTerritoryBorderCells {
+                                        player_id: dbg_player_id,
                                         organization_id: org_id,
                                         border_cells,
                                     });
@@ -3060,35 +3051,34 @@ async fn handle_client_message(
                                 }
                             }
 
-                            (response_messages, vec![], None)
+                            (vec![], vec![], None)
                         }
                         Err(e) => {
                             tracing::error!("✗ Failed to create organization: {}", e);
-                            (
-                                vec![ServerMessage::DebugError {
-                                    reason: format!("Failed to create organization: {}", e),
-                                }],
-                                vec![],
-                                None,
-                            )
+                            let dbg_player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
+                            bridge_sender.send(BridgeEvent::SendDebugError {
+                                player_id: dbg_player_id,
+                                reason: format!("Failed to create organization: {}", e),
+                            });
+                            (vec![], vec![], None)
                         }
                     }
                 }
                 Err(e) => {
                     tracing::error!("✗ Failed to create leader unit: {}", e);
-                    (
-                        vec![ServerMessage::DebugError {
-                            reason: format!("Failed to create leader unit: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    )
+                    let dbg_player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
+                    bridge_sender.send(BridgeEvent::SendDebugError {
+                        player_id: dbg_player_id,
+                        reason: format!("Failed to create leader unit: {}", e),
+                    });
+                    (vec![], vec![], None)
                 }
             }
         }
 
         ClientMessage::DebugDeleteOrganization { organization_id } => {
             tracing::info!("DEBUG: Deleting organization ID {}", organization_id);
+            let dbg_player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             match sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
                 .bind(organization_id as i64)
@@ -3097,27 +3087,26 @@ async fn handle_client_message(
             {
                 Ok(_) => {
                     tracing::info!("✓ Organization {} deleted", organization_id);
-                    (
-                        vec![ServerMessage::DebugOrganizationDeleted { organization_id }],
-                        vec![],
-                        None,
-                    )
+                    bridge_sender.send(BridgeEvent::SendDebugOrganizationDeleted {
+                        player_id: dbg_player_id,
+                        organization_id,
+                    });
+                    (vec![], vec![], None)
                 }
                 Err(e) => {
                     tracing::error!("✗ Failed to delete organization: {}", e);
-                    (
-                        vec![ServerMessage::DebugError {
-                            reason: format!("Failed to delete organization: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    )
+                    bridge_sender.send(BridgeEvent::SendDebugError {
+                        player_id: dbg_player_id,
+                        reason: format!("Failed to delete organization: {}", e),
+                    });
+                    (vec![], vec![], None)
                 }
             }
         }
 
         ClientMessage::DebugSpawnUnit { cell } => {
             tracing::info!("DEBUG: Spawning random unit at {:?}", cell);
+            let dbg_player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             // Check slot availability before spawning
             let default_chunk = shared::TerrainChunkId { x: 0, y: 0 };
@@ -3131,13 +3120,11 @@ async fn handle_client_message(
                 Ok(slots) => slots,
                 Err(e) => {
                     tracing::error!("✗ Failed to get occupied slots: {}", e);
-                    return (
-                        vec![ServerMessage::DebugError {
-                            reason: format!("Failed to get occupied slots: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    );
+                    bridge_sender.send(BridgeEvent::SendDebugError {
+                        player_id: dbg_player_id,
+                        reason: format!("Failed to get occupied slots: {}", e),
+                    });
+                    return (vec![], vec![], None);
                 }
             };
 
@@ -3161,25 +3148,21 @@ async fn handle_client_message(
                             }
                             Err(e) => {
                                 tracing::error!("✗ Failed to get biome: {}", e);
-                                return (
-                                    vec![ServerMessage::DebugError {
-                                        reason: format!("Failed to get biome: {}", e),
-                                    }],
-                                    vec![],
-                                    None,
-                                );
+                                bridge_sender.send(BridgeEvent::SendDebugError {
+                                    player_id: dbg_player_id,
+                                    reason: format!("Failed to get biome: {}", e),
+                                });
+                                return (vec![], vec![], None);
                             }
                         }
                     }
                     Err(e) => {
                         tracing::error!("✗ Failed to get building type: {}", e);
-                        return (
-                            vec![ServerMessage::DebugError {
-                                reason: format!("Failed to get building type: {}", e),
-                            }],
-                            vec![],
-                            None,
-                        );
+                        bridge_sender.send(BridgeEvent::SendDebugError {
+                            player_id: dbg_player_id,
+                            reason: format!("Failed to get building type: {}", e),
+                        });
+                        return (vec![], vec![], None);
                     }
                 }
             };
@@ -3219,17 +3202,15 @@ async fn handle_client_message(
                     occupied_slots.len(),
                     total_slots
                 );
-                return (
-                    vec![ServerMessage::DebugError {
-                        reason: format!(
-                            "Cell is full ({}/{} slots occupied)",
-                            occupied_slots.len(),
-                            total_slots
-                        ),
-                    }],
-                    vec![],
-                    None,
-                );
+                bridge_sender.send(BridgeEvent::SendDebugError {
+                    player_id: dbg_player_id,
+                    reason: format!(
+                        "Cell is full ({}/{} slots occupied)",
+                        occupied_slots.len(),
+                        total_slots
+                    ),
+                });
+                return (vec![], vec![], None);
             }
 
             tracing::info!(
@@ -3327,61 +3308,56 @@ async fn handle_client_message(
 
                             // Load the full unit data to send to the client
                             match db_tables.units.load_unit(unit_id).await {
-                                Ok(unit_data) => (
-                                    vec![ServerMessage::DebugUnitSpawned { unit_data }],
-                                    vec![],
-                                    None,
-                                ),
+                                Ok(unit_data) => {
+                                    bridge_sender.send(BridgeEvent::SendDebugUnitSpawned {
+                                        player_id: dbg_player_id,
+                                        unit_data,
+                                    });
+                                    (vec![], vec![], None)
+                                }
                                 Err(e) => {
                                     tracing::error!(
                                         "✗ Failed to load unit data after spawn: {}",
                                         e
                                     );
-                                    (
-                                        vec![ServerMessage::DebugError {
-                                            reason: format!(
-                                                "Unit created but failed to load data: {}",
-                                                e
-                                            ),
-                                        }],
-                                        vec![],
-                                        None,
-                                    )
+                                    bridge_sender.send(BridgeEvent::SendDebugError {
+                                        player_id: dbg_player_id,
+                                        reason: format!(
+                                            "Unit created but failed to load data: {}",
+                                            e
+                                        ),
+                                    });
+                                    (vec![], vec![], None)
                                 }
                             }
                         }
                         Err(e) => {
                             tracing::error!("✗ Failed to assign slot to unit: {}", e);
-                            // Unit was created but slot assignment failed
-                            // We could delete the unit here, or just warn
-                            (
-                                vec![ServerMessage::DebugError {
-                                    reason: format!(
-                                        "Unit created but slot assignment failed: {}",
-                                        e
-                                    ),
-                                }],
-                                vec![],
-                                None,
-                            )
+                            bridge_sender.send(BridgeEvent::SendDebugError {
+                                player_id: dbg_player_id,
+                                reason: format!(
+                                    "Unit created but slot assignment failed: {}",
+                                    e
+                                ),
+                            });
+                            (vec![], vec![], None)
                         }
                     }
                 }
                 Err(e) => {
                     tracing::error!("✗ Failed to spawn unit: {}", e);
-                    (
-                        vec![ServerMessage::DebugError {
-                            reason: format!("Failed to spawn unit: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    )
+                    bridge_sender.send(BridgeEvent::SendDebugError {
+                        player_id: dbg_player_id,
+                        reason: format!("Failed to spawn unit: {}", e),
+                    });
+                    (vec![], vec![], None)
                 }
             }
         }
 
         ClientMessage::RequestOrganizationAtCell { cell } => {
             tracing::debug!("Checking organization at cell {:?}", cell);
+            let player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             // Query to find which organization owns this cell
             match sqlx::query_as::<_, (i64,)>(
@@ -3404,39 +3380,45 @@ async fn handle_client_message(
                                 population: org_data.population,
                                 emblem_url: org_data.emblem_url,
                             };
-                            (vec![ServerMessage::OrganizationAtCell {
+                            bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
+                                player_id,
                                 cell,
                                 organization: Some(summary),
-                            }], vec![], None)
+                            });
                         }
                         Err(e) => {
                             tracing::error!("Failed to load organization: {}", e);
-                            (vec![ServerMessage::OrganizationAtCell {
+                            bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
+                                player_id,
                                 cell,
                                 organization: None,
-                            }], vec![], None)
+                            });
                         }
                     }
                 }
                 Ok(None) => {
                     // No organization at this cell
-                    (vec![ServerMessage::OrganizationAtCell {
+                    bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
+                        player_id,
                         cell,
                         organization: None,
-                    }], vec![], None)
+                    });
                 }
                 Err(e) => {
                     tracing::error!("Database error checking organization: {}", e);
-                    (vec![ServerMessage::OrganizationAtCell {
+                    bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
+                        player_id,
                         cell,
                         organization: None,
-                    }], vec![], None)
+                    });
                 }
             }
+            (vec![], vec![], None)
         }
 
         ClientMessage::RequestInventory { unit_id } => {
             use shared::protocol::InventoryItemData;
+            let player_id = sessions.get_player_id(session_id).await.unwrap_or(0);
 
             match db_tables.resources.load_items_for_unit(unit_id).await {
                 Ok(full_items) => {
@@ -3474,21 +3456,20 @@ async fn handle_client_message(
                         })
                         .collect();
 
-                    (
-                        vec![ServerMessage::InventoryData { unit_id, items }],
-                        vec![],
-                        None,
-                    )
+                    bridge_sender.send(BridgeEvent::SendInventoryData {
+                        player_id,
+                        unit_id,
+                        items,
+                    });
+                    (vec![], vec![], None)
                 }
                 Err(e) => {
                     tracing::error!("Failed to load inventory for unit {}: {}", unit_id, e);
-                    (
-                        vec![ServerMessage::ActionError {
-                            reason: format!("Failed to load inventory: {}", e),
-                        }],
-                        vec![],
-                        None,
-                    )
+                    bridge_sender.send(BridgeEvent::SendActionError {
+                        player_id,
+                        reason: format!("Failed to load inventory: {}", e),
+                    });
+                    (vec![], vec![], None)
                 }
             }
         }

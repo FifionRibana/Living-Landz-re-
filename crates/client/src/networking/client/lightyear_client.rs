@@ -9,19 +9,25 @@ use shared::protocol::channels::ReliableGameChannel;
 use crate::networking::client::NetworkClient;
 use crate::networking::client::auth_task::AuthTask;
 use crate::state::resources::{
-    ActionTracker, ConnectionStatus, GameDataCache, NotificationState, PlayerInfo, TrackedAction,
-    UnitsCache, UnitsDataCache, WorldCache,
+    ActionTracker, ConnectionStatus, CurrentOrganization, GameDataCache, InventoryCache,
+    NotificationState, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache,
 };
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
 use shared::protocol::lightyear_messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-    ActionStatusMsg, ActionTrainUnitMsg, ExplorationMapMsg, ExplorationPatchMsg, GameDataMsg,
+    ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
+    DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationMapMsg, ExplorationPatchMsg,
+    GameDataMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
     LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
-    PlayerOrganizationDataMsg, RequestExplorationMapMsg, RequestLakeDataMsg,
-    RequestOceanDataMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
-    TerrainChunkDataMsg, TerrainGlobalDataMsg, UnitPositionUpdatedMsg,
+    OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg,
+    RequestExplorationMapMsg, RequestInventoryMsg, RequestLakeDataMsg, RequestOceanDataMsg,
+    RequestOrganizationAtCellMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
+    RoadChunkSdfUpdateMsg, TerrainChunkDataMsg, TerrainGlobalDataMsg,
+    TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg,
+    UnitPositionUpdatedMsg, UnitProfessionChangedMsg, UnitSlotUpdatedMsg,
+    UnitWorkStatusUpdateMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -104,11 +110,22 @@ pub struct SendRequestExplorationMap {
     pub terrain_name: String,
 }
 
+#[derive(Message, Clone)]
+pub struct SendRequestInventory {
+    pub unit_id: u64,
+}
+
+#[derive(Message, Clone)]
+pub struct SendRequestOrganizationAtCell {
+    pub cell: GridCell,
+}
+
 pub struct LightyearClientPlugin;
 
 impl Plugin for LightyearClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AuthTask>()
+            .init_resource::<PendingTerrainChunks>()
             .add_systems(
                 Update,
                 (
@@ -145,6 +162,8 @@ impl Plugin for LightyearClientPlugin {
             .add_message::<SendRequestLakeData>()
             .add_message::<SendRequestTerrainGlobalData>()
             .add_message::<SendRequestExplorationMap>()
+            .add_message::<SendRequestInventory>()
+            .add_message::<SendRequestOrganizationAtCell>()
             .add_systems(
                 Update,
                 (
@@ -160,20 +179,35 @@ impl Plugin for LightyearClientPlugin {
                     send_lake_data_requests,
                     send_terrain_global_data_requests,
                     send_exploration_map_requests,
+                    send_inventory_requests,
+                    send_organization_at_cell_requests,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
 
-        // Bulk data receivers (run in InGame — world resources must exist)
+        // Bulk data + event receivers (run in InGame — world resources must exist)
         app.add_systems(
             Update,
             (
                 receive_terrain_chunk_data,
+                process_pending_terrain_chunks,
                 receive_ocean_data,
                 receive_lake_data,
                 receive_terrain_global_data,
                 receive_exploration_map,
                 receive_exploration_patch,
+                receive_inventory_data,
+                receive_inventory_update,
+                receive_unit_profession_changed,
+                receive_unit_work_status_update,
+                receive_road_chunk_sdf_update,
+                receive_territory_contour_update,
+                receive_territory_border_sdf_update,
+                receive_hamlet_founded,
+                receive_population_changed,
+                receive_organization_at_cell,
+                receive_unit_slot_updated,
+                receive_debug_messages,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -494,7 +528,7 @@ fn receive_lord_data(
     mut receivers: Query<&mut MessageReceiver<LordDataMsg>>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut inventory_events: MessageWriter<SendRequestInventory>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -506,12 +540,10 @@ fn receive_lord_data(
                     lord_data.current_cell.r
                 );
 
-                // Request inventory for the lord
-                if let Some(ref mut client) = network_client {
-                    client.send_message(shared::protocol::ClientMessage::RequestInventory {
-                        unit_id: lord_data.id,
-                    });
-                }
+                // Request inventory for the lord via lightyear
+                inventory_events.write(SendRequestInventory {
+                    unit_id: lord_data.id,
+                });
 
                 player_info.set_lord(lord_data);
                 next_app_state.set(AppState::InGame);
@@ -763,8 +795,28 @@ fn send_exploration_map_requests(
 
 // ─── Bulk data receive systems ───────────────────────────────────────
 
+/// Max terrain chunks to decompress + insert per frame to avoid frame drops.
+const MAX_TERRAIN_CHUNKS_PER_FRAME: usize = 4;
+
+/// Pending terrain chunks waiting to be processed (buffered from lightyear receiver).
+#[derive(Resource, Default)]
+pub struct PendingTerrainChunks(pub Vec<TerrainChunkDataMsg>);
+
+/// Drain terrain chunk messages from lightyear into the pending queue.
 fn receive_terrain_chunk_data(
     mut receivers: Query<&mut MessageReceiver<TerrainChunkDataMsg>>,
+    mut pending: ResMut<PendingTerrainChunks>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            pending.0.push(msg);
+        }
+    }
+}
+
+/// Process up to N pending terrain chunks per frame.
+fn process_pending_terrain_chunks(
+    mut pending: ResMut<PendingTerrainChunks>,
     mut cache: Option<ResMut<WorldCache>>,
     mut units_cache: Option<ResMut<UnitsCache>>,
     mut units_data_cache: Option<ResMut<UnitsDataCache>>,
@@ -775,76 +827,80 @@ fn receive_terrain_chunk_data(
     let Some(ref mut units_cache) = units_cache else { return };
     let Some(ref mut units_data_cache) = units_data_cache else { return };
 
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            // Decompress + deserialize
-            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
-                Ok(d) => d,
-                Err(e) => {
-                    warn!("Failed to decompress terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
-                    continue;
-                }
-            };
+    if pending.0.is_empty() {
+        return;
+    }
 
-            let (payload, _): (
-                (
-                    shared::TerrainChunkData,
-                    Vec<shared::BiomeChunkData>,
-                    Vec<shared::grid::CellData>,
-                    Vec<shared::BuildingData>,
-                    Vec<shared::UnitData>,
-                ),
-                _,
-            ) = match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!("Failed to decode terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
-                    continue;
-                }
-            };
+    let to_process = pending.0.len().min(MAX_TERRAIN_CHUNKS_PER_FRAME);
+    let batch: Vec<_> = pending.0.drain(..to_process).collect();
 
-            let (terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data) = payload;
-
-            if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
+    for msg in batch {
+        // Decompress + deserialize
+        let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!("Failed to decompress terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
                 continue;
             }
+        };
 
-            info!(
-                "✓ Received terrain via lightyear: {} with {} units",
-                terrain_chunk_data.name, unit_data.len()
-            );
-
-            let is_update = cache.insert_terrain(&terrain_chunk_data);
-            if is_update {
-                let terrain_name = &terrain_chunk_data.name;
-                let terrain_id = terrain_chunk_data.id;
-                for (entity, terrain) in terrain_query.iter() {
-                    if &terrain.name == terrain_name && terrain.id == terrain_id {
-                        commands.entity(entity).despawn();
-                        break;
-                    }
-                }
+        let (payload, _): (
+            (
+                shared::TerrainChunkData,
+                Vec<shared::BiomeChunkData>,
+                Vec<shared::grid::CellData>,
+                Vec<shared::BuildingData>,
+                Vec<shared::UnitData>,
+            ),
+            _,
+        ) = match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to decode terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
+                continue;
             }
+        };
 
-            for chunk_data in &biome_chunk_data {
-                cache.insert_biome(chunk_data);
-            }
-            cache.insert_cells(&cell_data);
-            cache.insert_buildings(&building_data);
+        let (terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data) = payload;
 
-            for unit in &unit_data {
-                let cell = unit.current_cell;
-                units_cache.add_unit(cell, unit.id);
+        if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
+            continue;
+        }
 
-                if let Some(slot_pos) = crate::networking::handlers::db_to_slot_position(
-                    unit.slot_type.clone(),
-                    unit.slot_index,
-                ) {
-                    units_cache.set_unit_slot(cell, slot_pos, unit.id);
+        let is_update = cache.insert_terrain(&terrain_chunk_data);
+        if is_update {
+            let terrain_name = &terrain_chunk_data.name;
+            let terrain_id = terrain_chunk_data.id;
+            for (entity, terrain) in terrain_query.iter() {
+                if &terrain.name == terrain_name && terrain.id == terrain_id {
+                    commands.entity(entity).despawn();
+                    break;
                 }
-                units_data_cache.insert_unit(unit.clone());
             }
         }
+
+        for chunk_data in &biome_chunk_data {
+            cache.insert_biome(chunk_data);
+        }
+        cache.insert_cells(&cell_data);
+        cache.insert_buildings(&building_data);
+
+        for unit in &unit_data {
+            let cell = unit.current_cell;
+            units_cache.add_unit(cell, unit.id);
+
+            if let Some(slot_pos) = crate::networking::handlers::db_to_slot_position(
+                unit.slot_type.clone(),
+                unit.slot_index,
+            ) {
+                units_cache.set_unit_slot(cell, slot_pos, unit.id);
+            }
+            units_data_cache.insert_unit(unit.clone());
+        }
+    }
+
+    if !pending.0.is_empty() {
+        info!("🔄 {} terrain chunks still pending for next frame", pending.0.len());
     }
 }
 
@@ -948,13 +1004,252 @@ fn receive_exploration_patch(
                 Ok(d) => d,
                 Err(e) => { warn!("Failed to decompress exploration patch: {}", e); continue; }
             };
-            info!(
-                "✓ Exploration patch via lightyear at ({},{}) size {}×{}",
-                msg.patch_x, msg.patch_y, msg.patch_width, msg.patch_height
-            );
             cache.apply_exploration_patch(
                 msg.patch_x, msg.patch_y, msg.patch_width, msg.patch_height, &data,
             );
+        }
+    }
+}
+
+// ─── Step 2: Request send systems ────────────────────────────────────
+
+fn send_inventory_requests(
+    mut events: MessageReader<SendRequestInventory>,
+    mut senders: Query<&mut MessageSender<RequestInventoryMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestInventoryMsg { unit_id: event.unit_id });
+            break;
+        }
+    }
+}
+
+fn send_organization_at_cell_requests(
+    mut events: MessageReader<SendRequestOrganizationAtCell>,
+    mut senders: Query<&mut MessageSender<RequestOrganizationAtCellMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(RequestOrganizationAtCellMsg { cell: event.cell });
+            break;
+        }
+    }
+}
+
+// ─── Step 2: Event receiver systems ──────────────────────────────────
+
+fn receive_inventory_data(
+    mut receivers: Query<&mut MessageReceiver<InventoryDataMsg>>,
+    mut cache: ResMut<InventoryCache>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            cache.set_inventory(msg.unit_id, msg.items);
+            info!("✓ Received inventory for unit {} via lightyear", msg.unit_id);
+        }
+    }
+}
+
+fn receive_inventory_update(
+    mut receivers: Query<&mut MessageReceiver<InventoryUpdateMsg>>,
+    mut cache: ResMut<InventoryCache>,
+    game_data: Res<GameDataCache>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            let item_info = game_data.get_item(msg.item_id);
+            let item_name = game_data.item_name(msg.item_id, 1);
+            let item_type = item_info
+                .map(|i| shared::ItemTypeEnum::from_id(i.item_type_id).unwrap_or(shared::ItemTypeEnum::Unknown))
+                .unwrap_or(shared::ItemTypeEnum::Unknown);
+            let weight = item_info.map(|i| i.weight_kg).unwrap_or(0.0);
+            cache.apply_update_with_info(msg.unit_id, msg.item_id, msg.new_total, &item_name, item_type, weight);
+            info!("✓ Inventory update via lightyear: unit {} item {} delta={} total={}", msg.unit_id, item_name, msg.quantity_delta, msg.new_total);
+        }
+    }
+}
+
+fn receive_unit_profession_changed(
+    mut receivers: Query<&mut MessageReceiver<UnitProfessionChangedMsg>>,
+    mut units_data_cache: Option<ResMut<UnitsDataCache>>,
+    mut commands: Commands,
+    unit_query: Query<(Entity, &crate::ui::components::SlotUnitSprite)>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Unit {} profession changed to {:?} via lightyear", msg.unit_id, msg.new_profession);
+            if let Some(ref mut data_cache) = units_data_cache {
+                if let Some(unit) = data_cache.get_unit_mut(msg.unit_id) {
+                    unit.profession = msg.new_profession;
+                    if let Some(url) = &msg.new_avatar_url {
+                        unit.avatar_url = Some(url.clone());
+                    }
+                }
+            }
+            // Despawn unit sprite to trigger re-render with new portrait
+            for (entity, sprite) in unit_query.iter() {
+                if sprite.unit_id == msg.unit_id {
+                    commands.entity(entity).despawn();
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn receive_unit_work_status_update(
+    mut receivers: Query<&mut MessageReceiver<UnitWorkStatusUpdateMsg>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("Unit {} work status: {:?} via lightyear", msg.unit_id, msg.working_on_action_id);
+        }
+    }
+}
+
+fn receive_road_chunk_sdf_update(
+    mut receivers: Query<&mut MessageReceiver<RoadChunkSdfUpdateMsg>>,
+    mut cache: Option<ResMut<WorldCache>>,
+    mut commands: Commands,
+    terrain_query: Query<(Entity, &crate::rendering::terrain::components::Terrain)>,
+) {
+    let Some(ref mut cache) = cache else { return };
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Road SDF update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
+            let storage_key = format!("{}_{}_{}", msg.terrain_name, msg.chunk_id.x, msg.chunk_id.y);
+            let terrain_chunk_opt = cache.loaded_terrains().find(|t| t.get_storage_key() == storage_key).cloned();
+            if let Some(mut updated_terrain) = terrain_chunk_opt {
+                updated_terrain.road_sdf_data = Some(msg.road_sdf_data);
+                cache.insert_terrain(&updated_terrain);
+                let terrain_id = updated_terrain.id;
+                for (entity, terrain) in terrain_query.iter() {
+                    if terrain.name == msg.terrain_name && terrain.id == terrain_id {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn receive_territory_contour_update(
+    mut receivers: Query<&mut MessageReceiver<TerritoryContourUpdateMsg>>,
+    mut contour_cache: ResMut<crate::rendering::territory::TerritoryContourCache>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Territory contour update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
+            for contour_data in &msg.contours {
+                contour_cache.add_contour(
+                    msg.chunk_id,
+                    contour_data.organization_id,
+                    contour_data.segments.iter().map(|s| s.to_contour_segment()).collect(),
+                    Color::linear_rgba(contour_data.border_color.r, contour_data.border_color.g, contour_data.border_color.b, contour_data.border_color.a),
+                    Color::linear_rgba(contour_data.fill_color.r, contour_data.fill_color.g, contour_data.fill_color.b, contour_data.fill_color.a),
+                );
+            }
+        }
+    }
+}
+
+fn receive_territory_border_sdf_update(
+    mut receivers: Query<&mut MessageReceiver<TerritoryBorderSdfUpdateMsg>>,
+    mut border_cache: ResMut<crate::rendering::territory::TerritoryBorderSdfCache>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("[DEPRECATED] Territory border SDF update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
+            border_cache.chunks.insert((msg.chunk_id.x, msg.chunk_id.y), msg.border_sdf_data_list);
+        }
+    }
+}
+
+fn receive_hamlet_founded(
+    mut receivers: Query<&mut MessageReceiver<HamletFoundedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Hamlet '{}' founded (org ID: {}) via lightyear", msg.name, msg.organization_id);
+            let lord_unit_id = player_info.lord.as_ref().map(|l| l.id);
+            player_info.organization = Some(shared::OrganizationSummary {
+                id: msg.organization_id,
+                name: msg.name.clone(),
+                organization_type: shared::OrganizationType::Hamlet,
+                leader_unit_id: lord_unit_id,
+                population: 0,
+                emblem_url: None,
+            });
+        }
+    }
+}
+
+fn receive_population_changed(
+    mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("Population changed: org {} now has {} members via lightyear", msg.organization_id, msg.new_population);
+        }
+    }
+}
+
+fn receive_organization_at_cell(
+    mut receivers: Query<&mut MessageReceiver<OrganizationAtCellMsg>>,
+    mut current_organization: Option<ResMut<CurrentOrganization>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            if let Some(ref mut current) = current_organization {
+                current.update(msg.cell, msg.organization.clone());
+            }
+        }
+    }
+}
+
+fn receive_unit_slot_updated(
+    mut receivers: Query<&mut MessageReceiver<UnitSlotUpdatedMsg>>,
+    mut units_cache: Option<ResMut<UnitsCache>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Unit {} slot updated at ({},{}) via lightyear", msg.unit_id, msg.cell.q, msg.cell.r);
+            if let Some(ref mut cache) = units_cache {
+                if let Some(slot_pos) = msg.slot_position {
+                    cache.set_unit_slot(msg.cell, slot_pos, msg.unit_id);
+                }
+            }
+        }
+    }
+}
+
+fn receive_debug_messages(
+    mut debug_created: Query<&mut MessageReceiver<DebugOrganizationCreatedMsg>>,
+    mut debug_deleted: Query<&mut MessageReceiver<DebugOrganizationDeletedMsg>>,
+    mut debug_error: Query<&mut MessageReceiver<DebugErrorMsg>>,
+    mut debug_spawned: Query<&mut MessageReceiver<DebugUnitSpawnedMsg>>,
+) {
+    for mut receiver in debug_created.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Debug: Organization '{}' created (ID: {}) via lightyear", msg.name, msg.organization_id);
+        }
+    }
+    for mut receiver in debug_deleted.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Debug: Organization {} deleted via lightyear", msg.organization_id);
+        }
+    }
+    for mut receiver in debug_error.iter_mut() {
+        for msg in receiver.receive() {
+            warn!("Debug error via lightyear: {}", msg.reason);
+        }
+    }
+    for mut receiver in debug_spawned.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Debug: Unit spawned: {} via lightyear", msg.unit_data.full_name());
         }
     }
 }

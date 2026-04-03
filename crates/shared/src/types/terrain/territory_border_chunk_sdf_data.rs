@@ -1,8 +1,9 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// SDF data for territory borders in a chunk
 /// Similar to TerrainChunkSdfData but for organization borders
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct TerritoryBorderChunkSdfData {
     /// Chunk coordinates
     pub chunk_x: i32,
