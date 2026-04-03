@@ -306,14 +306,21 @@ pub struct LightyearBridge {
 }
 
 impl LightyearBridge {
-    /// Non-blocking drain of all pending bridge events.
+    /// Max bridge events processed per Bevy tick (50ms at 20Hz).
+    /// Prevents frame spikes when many events accumulate.
+    const MAX_EVENTS_PER_TICK: usize = 128;
+
+    /// Non-blocking drain of pending bridge events, capped per tick.
     pub fn drain(&self) -> Vec<BridgeEvent> {
         let Ok(mut rx) = self.rx.try_lock() else {
             return vec![];
         };
-        let mut events = Vec::new();
-        while let Ok(event) = rx.try_recv() {
-            events.push(event);
+        let mut events = Vec::with_capacity(Self::MAX_EVENTS_PER_TICK);
+        while events.len() < Self::MAX_EVENTS_PER_TICK {
+            match rx.try_recv() {
+                Ok(event) => events.push(event),
+                Err(_) => break,
+            }
         }
         events
     }
