@@ -655,6 +655,15 @@ impl WorldCache {
         self.buildings.loaded.values()
     }
 
+    /// Get all buildings that belong to a specific terrain chunk.
+    pub fn buildings_for_chunk(&self, chunk_id: &TerrainChunkId) -> Vec<&BuildingData> {
+        self.buildings
+            .loaded
+            .values()
+            .filter(|b| b.base_data.chunk == *chunk_id)
+            .collect()
+    }
+
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
         self.buildings.get_building(cell)
     }
