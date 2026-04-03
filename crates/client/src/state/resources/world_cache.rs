@@ -5,6 +5,9 @@ use shared::{
     grid::{CellData, GridCell},
 };
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
+
+use super::streaming_config::LOAD_GRACE_PERIOD;
 
 #[derive(Resource, Default)]
 pub struct WorldCache {
@@ -24,6 +27,8 @@ pub struct WorldCache {
 #[derive(Default, Clone)]
 pub struct TerrainCache {
     loaded: HashMap<String, TerrainChunkData>,
+    /// When each chunk was loaded — used for unload grace period.
+    loaded_at: HashMap<String, Instant>,
     requested: HashSet<String>,
     requested_at: HashMap<String, f32>,
 }
@@ -51,7 +56,9 @@ impl TerrainCache {
         }
 
         self.loaded.insert(key.clone(), terrain_data.clone());
+        self.loaded_at.insert(key.clone(), Instant::now());
         self.requested.remove(key);
+        self.requested_at.remove(key);
 
         is_update
     }
@@ -104,22 +111,39 @@ impl TerrainCache {
 
         self.loaded.retain(|chunk_key, data| {
             let id = &data.id;
-            let keep =
+            let in_range =
                 (id.x - center.x).abs() <= max_distance && (id.y - center.y).abs() <= max_distance;
 
-            if !keep {
-                removed_ids.push(chunk_key.clone());
-                removed.push(data.clone());
+            if in_range {
+                return true; // Keep — in range
             }
 
-            keep
+            // Don't unload recently loaded chunks (grace period prevents thrashing)
+            if let Some(loaded_at) = self.loaded_at.get(chunk_key) {
+                if loaded_at.elapsed() < LOAD_GRACE_PERIOD {
+                    info!(
+                        "⏳ Grace period: keeping chunk ({},{}) (loaded {}ms ago)",
+                        id.x, id.y, loaded_at.elapsed().as_millis()
+                    );
+                    return true; // Keep — loaded too recently
+                }
+            }
+
+            removed_ids.push(chunk_key.clone());
+            removed.push(data.clone());
+            false
         });
 
+        // Clean up tracking for removed chunks
+        for key in &removed_ids {
+            self.loaded_at.remove(key);
+            self.requested_at.remove(key);
+        }
+
         if !removed_ids.is_empty() {
-            warn!(
-                "📦 Unloaded {} chunks: {:?}",
+            info!(
+                "📦 Unloaded {} chunks",
                 removed_ids.len(),
-                removed_ids
             );
         }
 

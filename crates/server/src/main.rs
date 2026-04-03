@@ -5,6 +5,9 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
+use std::fs;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
 mod action_processor;
 mod auth;
 mod database;
@@ -34,7 +37,26 @@ pub struct AsyncBridge {
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+// Set up dual logging: console + file (truncated on each launch)
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("server.log")
+        .expect("Failed to open server.log");
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(
+            "info,wgpu=error,naga=warn,lightyear=warn,sqlx=warn,hyper=warn",
+        ))
+        .with(fmt::layer().with_writer(std::io::stdout))
+        .with(
+            fmt::layer()
+                .with_writer(std::sync::Mutex::new(file))
+                .with_ansi(false),
+        )
+        .init();
+
     dotenv::dotenv().ok();
 
     // Build tokio runtime manually — Bevy owns the main thread,

@@ -13,6 +13,9 @@ pub mod states;
 mod ui;
 
 fn main() {
+    // Truncate the log file on each launch
+    let _ = std::fs::write("client.log", "");
+
     App::new()
         // .insert_resource(ClearColor(Color::srgb_u8(0, 15, 30)))
         .insert_resource(ClearColor(Color::srgb_u8(34, 58, 81)))
@@ -30,6 +33,25 @@ fn main() {
                 })
                 .set(AssetPlugin {
                     file_path: "../../assets".to_string(),
+                    ..default()
+                })
+                .set(bevy::log::LogPlugin {
+                    filter: "client=info,bevy_render=error,wgpu=error,naga=warn,lightyear=warn".to_string(),
+                    level: bevy::log::Level::INFO,
+                    custom_layer: |_app| {
+                        let file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .truncate(true)
+                            .open("client.log")
+                            .expect("Failed to open client.log");
+
+                        Some(Box::new(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(std::sync::Mutex::new(file))
+                                .with_ansi(false),
+                        ))
+                    },
                     ..default()
                 }),
             MeshPickingPlugin,

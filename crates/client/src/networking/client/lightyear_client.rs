@@ -815,6 +815,7 @@ fn receive_terrain_chunk_data(
 }
 
 /// Process up to N pending terrain chunks per frame.
+/// Drops stale chunks (camera moved away) BEFORE decompressing to save CPU/memory.
 fn process_pending_terrain_chunks(
     mut pending: ResMut<PendingTerrainChunks>,
     mut cache: Option<ResMut<WorldCache>>,
@@ -822,6 +823,8 @@ fn process_pending_terrain_chunks(
     mut units_data_cache: Option<ResMut<UnitsDataCache>>,
     mut commands: Commands,
     terrain_query: Query<(Entity, &crate::rendering::terrain::components::Terrain)>,
+    camera: Query<&Transform, With<crate::camera::MainCamera>>,
+    streaming_config: Res<crate::state::resources::StreamingConfig>,
 ) {
     let Some(ref mut cache) = cache else { return };
     let Some(ref mut units_cache) = units_cache else { return };
@@ -831,10 +834,44 @@ fn process_pending_terrain_chunks(
         return;
     }
 
+    // Compute current camera chunk to detect stale chunks
+    let camera_chunk = camera.single().ok().map(|transform| {
+        let pos = transform.translation.truncate();
+        TerrainChunkId {
+            x: pos.x.div_euclid(shared::constants::CHUNK_SIZE.x).ceil() as i32,
+            y: pos.y.div_euclid(shared::constants::CHUNK_SIZE.y).ceil() as i32,
+        }
+    });
+
+    let unload_dist = streaming_config.unload_distance;
+
+    // First pass: drop stale chunks from the pending queue (cheap — no decompression)
+    if let Some(ref cam) = camera_chunk {
+        let before = pending.0.len();
+        pending.0.retain(|msg| {
+            let dx = (msg.chunk_id.x - cam.x).abs();
+            let dy = (msg.chunk_id.y - cam.y).abs();
+            dx <= unload_dist && dy <= unload_dist
+        });
+        let dropped = before - pending.0.len();
+        if dropped > 0 {
+            info!("🗑️ Dropped {} stale pending chunks (camera moved away)", dropped);
+        }
+    }
+
     let to_process = pending.0.len().min(MAX_TERRAIN_CHUNKS_PER_FRAME);
     let batch: Vec<_> = pending.0.drain(..to_process).collect();
 
     for msg in batch {
+        // Double-check staleness for this specific chunk (camera may have moved during processing)
+        if let Some(ref cam) = camera_chunk {
+            let dx = (msg.chunk_id.x - cam.x).abs();
+            let dy = (msg.chunk_id.y - cam.y).abs();
+            if dx > unload_dist || dy > unload_dist {
+                continue;
+            }
+        }
+
         // Decompress + deserialize
         let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
             Ok(d) => d,

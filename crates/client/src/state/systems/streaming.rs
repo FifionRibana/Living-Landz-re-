@@ -6,10 +6,10 @@ use shared::{
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::lightyear_client::{SendRequestExplorationMap, SendRequestTerrainChunks};
+use crate::networking::client::lightyear_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
 use crate::rendering::terrain::components::{Biome, Building, Terrain};
-// use crate::rendering::terrain::components::Terrain;
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
+use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
 
 pub fn request_chunks_around_camera(
     camera: Query<&Transform, With<MainCamera>>,
@@ -19,6 +19,7 @@ pub fn request_chunks_around_camera(
     time: Res<Time>,
     mut exploration_events: MessageWriter<SendRequestExplorationMap>,
     mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
+    pending_chunks: Res<PendingTerrainChunks>,
 ) {
     let Some(mut world_cache) = world_cache_opt else {
         return;
@@ -59,6 +60,15 @@ pub fn request_chunks_around_camera(
         y: position.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
     };
 
+    // Prune stale entries from recently_unloaded
+    streaming_config.prune_old_unloads();
+
+    // Build set of chunk IDs already in the pending queue (received but not yet processed)
+    let pending_ids: HashSet<TerrainChunkId> = pending_chunks.0
+        .iter()
+        .map(|msg| msg.chunk_id)
+        .collect();
+
     let mut to_request = Vec::new();
 
     for dx in -streaming_config.view_radius..=streaming_config.view_radius {
@@ -67,46 +77,54 @@ pub fn request_chunks_around_camera(
                 x: terrain_chunk_id.x + dx,
                 y: terrain_chunk_id.y + dy,
             };
-   
+
             if !world_cache.is_chunk_near_explored(&id) && !world_cache.is_chunk_coastal(&id) {
                 continue;
             }
 
-            if !world_cache.is_terrain_loaded("Gaulyia", &id) {
-                let should_request = match world_cache.get_terrain_requested_time("Gaulyia", &id) {
-                    Some(requested_at) => {
-                        time.elapsed_secs() - requested_at > streaming_config.request_timeout
-                    }
-                    None => true,
-                };
-
-                if should_request {
-                    world_cache.mark_terrain_requested_at("Gaulyia", &id, time.elapsed_secs());
-                    to_request.push(id);
-                }
+            // Skip if already loaded
+            if world_cache.is_terrain_loaded("Gaulyia", &id) {
+                continue;
             }
 
-            for biome_type in BiomeTypeEnum::iter() {
-                let biome_id = BiomeChunkId::from_terrain(&id, biome_type);
+            // Skip if already in the pending queue (received, awaiting processing)
+            if pending_ids.contains(&id) {
+                continue;
+            }
 
-                if !world_cache.is_biome_loaded("Gaulyia", &biome_id)
-                    && !world_cache.is_biome_requested("Gaulyia", &biome_id)
-                {
-                    world_cache.mark_biome_requested("Gaulyia", &biome_id);
-                    // No additional requests as biomes are retrieved with RequstTerrainChunk too.
+            // Skip if recently unloaded (anti-thrash)
+            if streaming_config.was_recently_unloaded(&id) {
+                continue;
+            }
+
+            // Skip if recently requested and not yet timed out
+            let should_request = match world_cache.get_terrain_requested_time("Gaulyia", &id) {
+                Some(requested_at) => {
+                    time.elapsed_secs() - requested_at > streaming_config.request_timeout
                 }
+                None => true,
+            };
+
+            if should_request {
+                to_request.push(id);
             }
         }
     }
 
+    // Sort by distance from camera (closest first)
     to_request.sort_unstable_by_key(|id| {
         let dx = id.x - terrain_chunk_id.x;
         let dy = id.y - terrain_chunk_id.y;
         dx * dx + dy * dy
     });
 
+    // Cap in-flight requests to prevent flooding
+    to_request.truncate(MAX_IN_FLIGHT_CHUNKS);
+
     if !to_request.is_empty() {
-        info!("Requesting {} chunks via lightyear", to_request.len());
+        for id in &to_request {
+            world_cache.mark_terrain_requested_at("Gaulyia", id, time.elapsed_secs());
+        }
         terrain_events.write(SendRequestTerrainChunks {
             terrain_name: "Gaulyia".to_string(),
             chunk_ids: to_request,
@@ -122,7 +140,7 @@ pub fn unload_distant_chunks(
     biome_entities: Query<(Entity, &Biome)>,
     building_entities: Query<(Entity, &Building)>,
     world_cache_opt: Option<ResMut<WorldCache>>,
-    streaming_config: ResMut<StreamingConfig>,
+    mut streaming_config: ResMut<StreamingConfig>,
 ) {
     let Some(mut world_cache) = world_cache_opt else {
         return;
@@ -139,8 +157,13 @@ pub fn unload_distant_chunks(
         y: position.y.div_euclid(constants::CHUNK_SIZE.y).ceil() as i32,
     };
 
-    let (removed_keys, _) =
+    let (removed_keys, removed_chunks) =
         world_cache.unload_distant_terrain(terrain_chunk_id, streaming_config.unload_distance);
+
+    // Track recently unloaded chunks to prevent re-request thrashing
+    for chunk in &removed_chunks {
+        streaming_config.mark_unloaded(chunk.id);
+    }
 
     let mut entities: HashSet<_> = terrain_entities
         .iter()
