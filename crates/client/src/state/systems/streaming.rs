@@ -7,7 +7,7 @@ use shared::{
 
 use crate::camera::MainCamera;
 use crate::networking::client::lightyear_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
-use crate::rendering::terrain::components::{Biome, Building, Terrain};
+use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
 use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
 
@@ -139,6 +139,7 @@ pub fn unload_distant_chunks(
     terrain_entities: Query<(Entity, &Terrain)>,
     biome_entities: Query<(Entity, &Biome)>,
     building_entities: Query<(Entity, &Building)>,
+    tree_mesh_entities: Query<(Entity, &TreeChunkMesh)>,
     world_cache_opt: Option<ResMut<WorldCache>>,
     mut streaming_config: ResMut<StreamingConfig>,
 ) {
@@ -176,6 +177,14 @@ pub fn unload_distant_chunks(
     if !to_despawn.is_empty() {
         info!("Despawning {} terrain entities", to_despawn.len());
         for entity in to_despawn {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    // Despawn per-chunk tree meshes for unloaded chunks
+    let removed_chunk_ids: HashSet<_> = removed_chunks.iter().map(|c| c.id).collect();
+    for (entity, tree_mesh) in tree_mesh_entities.iter() {
+        if removed_chunk_ids.contains(&tree_mesh.chunk_id) {
             commands.entity(entity).despawn();
         }
     }

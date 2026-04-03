@@ -1526,7 +1526,8 @@ async fn handle_load_terrain_chunks(
     let mut cached = 0u32;
     let mut generated = 0u32;
 
-    // Phase 1: Load all cached chunks first (fast DB reads, no generation)
+    // Phase 1: Load cached chunks in distance order (closest first).
+    // chunk_ids arrive pre-sorted by distance from client camera.
     let mut to_generate = Vec::new();
 
     for chunk_id in chunk_ids {
@@ -1554,6 +1555,10 @@ async fn handle_load_terrain_chunks(
             chunk_id.x, chunk_id.y,
             chunk_start.elapsed().as_secs_f64() * 1000.0
         );
+
+        // Throttle: yield between chunks to prevent flooding the client.
+        // 50ms × 12 chunks = 600ms for a full batch — client processes 4/frame at 60fps.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
     // Phase 2: Generate missing chunks (slow — involves world gen)
