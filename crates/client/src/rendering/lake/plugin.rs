@@ -13,7 +13,6 @@ impl Plugin for LakePlugin {
             .add_systems(
                 Update,
                 (
-                    systems::request_lake_data,
                     systems::create_lake_textures,
                     systems::spawn_lake,
                 )

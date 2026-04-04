@@ -14,7 +14,6 @@ impl Plugin for MistPlugin {
             .add_systems(
                 Update,
                 (
-                    systems::request_exploration_map,
                     systems::spawn_mist,
                     systems::spawn_ground_fog,
                     systems::update_mist_texture,
