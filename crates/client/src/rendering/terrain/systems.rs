@@ -17,7 +17,6 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::camera::MainCamera;
-use crate::networking::client::game_client::SendRequestTerrainGlobalData;
 use crate::rendering::terrain::components::TreeChunkMesh;
 use crate::rendering::terrain::materials::{
     BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,
@@ -34,19 +33,6 @@ pub fn initialize_terrain(
 
     if !connection.is_ready() {
         return;
-    }
-}
-
-pub fn request_terrain_global_data(
-    mut cache: ResMut<WorldCache>,
-    mut events: MessageWriter<SendRequestTerrainGlobalData>,
-) {
-    if !cache.is_terrain_global_loaded() && !cache.is_terrain_global_requested() {
-        info!("Requesting terrain global data from server via lightyear");
-        events.write(SendRequestTerrainGlobalData {
-            world_name: "Gaulyia".to_string(),
-        });
-        cache.mark_terrain_global_requested();
     }
 }
 
