@@ -34,7 +34,7 @@ pub fn update_cell_action_display(
         r: selected_cell.y,
     };
 
-    // TODO: Make an utility function of this
+    // TODO: Extract this into a utility function
     let world_pos = grid_config.layout.hex_to_world_pos(*selected_cell);
 
     // Pour l'instant, on utilise un chunk par défaut
