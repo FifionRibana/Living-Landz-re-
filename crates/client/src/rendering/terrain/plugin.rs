@@ -25,7 +25,6 @@ impl Plugin for TerrainPlugin {
                     systems::request_terrain_global_data,
                     systems::create_terrain_global_textures,
                     systems::spawn_terrain,
-                    systems::rebuild_tree_mesh,
                     systems::spawn_building,
                     debug::toggle_chunk_debug,
                     debug::draw_chunk_gizmos,

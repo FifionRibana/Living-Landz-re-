@@ -1,7 +1,8 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 // ============ PROFESSIONS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum ProfessionEnum {
     Unknown = 0,
     Baker = 1,
@@ -173,7 +174,7 @@ impl ProfessionEnum {
 }
 
 // ============ SKILLS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum SkillEnum {
     // Force-based
     MeleeAttack = 1,
@@ -411,7 +412,7 @@ impl PrimaryStat {
 }
 
 // ============ ITEM TYPES ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum ItemTypeEnum {
     Unknown = 0,
     Resource = 1,
@@ -457,7 +458,7 @@ impl ItemTypeEnum {
 }
 
 // ============ EQUIPMENT SLOTS ============
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum EquipmentSlotEnum {
     Unknown = 0,
     Head = 1,

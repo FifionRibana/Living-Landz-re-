@@ -13,3 +13,5 @@ serde = { workspace = true }
 sqlx = { workspace = true }
 
 lz4_flex = { workspace = true }
+
+lightyear = { workspace = true }

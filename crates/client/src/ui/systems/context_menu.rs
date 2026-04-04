@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::networking::client::NetworkClient;
+use crate::networking::client::game_client::{SendActionBuildBuilding, SendActionMoveUnit, SendFoundHamlet};
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
 use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
 use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
@@ -146,7 +146,9 @@ pub fn handle_context_menu_click(
     unit_selection: Res<UnitSelectionState>,
     units_data_cache: Option<Res<UnitsDataCache>>,
     connection: Res<ConnectionStatus>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut move_events: MessageWriter<SendActionMoveUnit>,
+    mut build_events: MessageWriter<SendActionBuildBuilding>,
+    mut hamlet_events: MessageWriter<SendFoundHamlet>,
 ) {
     for (interaction, entry) in entry_query.iter() {
         if *interaction != Interaction::Pressed {
@@ -173,37 +175,29 @@ pub fn handle_context_menu_click(
                     target_cell.r
                 );
 
-                if let Some(ref mut client) = network_client {
-                    for unit_id in &selected_ids {
-                        // Vérifier que l'unité n'est pas déjà sur la cellule cible
-                        let already_there = units_data_cache
-                            .as_ref()
-                            .and_then(|cache| cache.get_unit(*unit_id))
-                            .map(|u| u.current_cell == target_cell)
-                            .unwrap_or(false);
+                for unit_id in &selected_ids {
+                    let already_there = units_data_cache
+                        .as_ref()
+                        .and_then(|cache| cache.get_unit(*unit_id))
+                        .map(|u| u.current_cell == target_cell)
+                        .unwrap_or(false);
 
-                        if already_there {
-                            info!("Unit {} already at target, skipping", unit_id);
-                            continue;
-                        }
-
-                        client.send_message(shared::protocol::ClientMessage::ActionMoveUnit {
-                            player_id,
-                            unit_id: *unit_id,
-                            chunk_id: target_chunk,
-                            cell: target_cell,
-                        });
-                        info!("Sent move command for unit {}", unit_id);
+                    if already_there {
+                        info!("Unit {} already at target, skipping", unit_id);
+                        continue;
                     }
+
+                    move_events.write(SendActionMoveUnit {
+                        unit_id: *unit_id,
+                        chunk_id: target_chunk,
+                        cell: target_cell,
+                    });
+                    info!("Sent move command for unit {}", unit_id);
                 }
             }
             ContextMenuAction::Found => {
-                info!("Founding hamlet!");
-
-                if let Some(ref mut client) = network_client {
-                    client.send_message(shared::protocol::ClientMessage::FoundHamlet);
-                    info!("Sent FoundHamlet to server");
-                }
+                hamlet_events.write(SendFoundHamlet);
+                info!("Sent FoundHamlet via lightyear");
             }
             ContextMenuAction::Build(building_type) => {
                 info!(
@@ -211,15 +205,12 @@ pub fn handle_context_menu_click(
                     building_type, target_cell.q, target_cell.r
                 );
 
-                if let Some(ref mut client) = network_client {
-                    client.send_message(shared::protocol::ClientMessage::ActionBuildBuilding {
-                        player_id,
-                        chunk_id: target_chunk,
-                        cell: target_cell,
-                        building_type,
-                    });
-                    info!("✓ Build {:?} request sent", building_type);
-                }
+                build_events.write(SendActionBuildBuilding {
+                    chunk_id: target_chunk,
+                    cell: target_cell,
+                    building_type,
+                });
+                info!("✓ Build {:?} request sent via lightyear", building_type);
             }
         }
 

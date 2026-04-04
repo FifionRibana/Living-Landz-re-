@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use shared::{
     ActionStatusEnum, ActionTypeEnum, TerrainChunkId,
     grid::{GridCell, GridConfig},
-    protocol::ServerMessage,
 };
 use sqlx::Row;
 use std::{
@@ -11,10 +10,9 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::dev::DevConfig;
-use crate::networking::Sessions;
 use crate::road::RoadSegment;
 use crate::{database::client::DatabaseTables, units::PortraitGenerator};
+use crate::{dev::DevConfig, networking::server::bridge::BridgeSender};
 use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
@@ -47,29 +45,29 @@ pub struct ActionInfo {
 
 pub struct ActionProcessor {
     db_tables: Arc<DatabaseTables>,
-    sessions: Sessions,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
     // Cache des actions actives en mémoire pour éviter les requêtes DB constantes
     active_actions: Arc<RwLock<HashMap<u64, ActionInfo>>>,
+    bridge_sender: Arc<BridgeSender>,
 }
 
 impl ActionProcessor {
     pub fn new(
         db_tables: Arc<DatabaseTables>,
-        sessions: Sessions,
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
         dev_config: Arc<DevConfig>,
+        bridge_sender: Arc<BridgeSender>,
     ) -> Self {
         Self {
             db_tables,
-            sessions,
             game_state,
             grid_config,
             dev_config,
             active_actions: Arc::new(RwLock::new(HashMap::new())),
+            bridge_sender,
         }
     }
 
@@ -166,43 +164,68 @@ impl ActionProcessor {
                 }
 
                 // Si c'est une action BuildBuilding, créer le bâtiment en construction
-                if action_info.action_type == ActionTypeEnum::BuildBuilding {
-                    if let Err(e) = self
+                if action_info.action_type == ActionTypeEnum::BuildBuilding
+                    && let Err(e) = self
                         .create_building_for_action(action_id, action_info)
                         .await
-                    {
-                        tracing::error!(
-                            "Failed to create building for action {}: {}",
-                            action_id,
-                            e
-                        );
-                        // Continue quand même, l'action peut se terminer mais sans bâtiment
-                    }
+                {
+                    tracing::error!("Failed to create building for action {}: {}", action_id, e);
+                    // Continue quand même, l'action peut se terminer mais sans bâtiment
                 }
 
                 // Si c'est une action BuildRoad, créer le segment de route
-                if action_info.action_type == ActionTypeEnum::BuildRoad {
-                    if let Err(e) = self.create_road_for_action(action_id, action_info).await {
-                        tracing::error!("Failed to create road for action {}: {}", action_id, e);
-                        // Continue quand même
-                    }
+                if action_info.action_type == ActionTypeEnum::BuildRoad
+                    && let Err(e) = self.create_road_for_action(action_id, action_info).await
+                {
+                    tracing::error!("Failed to create road for action {}: {}", action_id, e);
+                    // Continue quand même
                 }
 
-                // Envoyer notification au joueur
-                let message = ServerMessage::ActionStatusUpdate {
-                    action_id,
-                    player_id: action_info.player_id,
-                    chunk_id: action_info.chunk_id,
-                    cell: action_info.cell,
-                    status: ActionStatusEnum::InProgress,
-                    action_type: action_info.action_type,
-                    completion_time: action_info.completion_time,
-                    action_name: None,
-                    unit_ids: vec![],
-                };
+                // Envoyer notification au joueur via lightyear bridge
+                self.bridge_sender.send(
+                    crate::networking::server::bridge::BridgeEvent::SendActionStatus {
+                        player_id: action_info.player_id,
+                        action_id,
+                        chunk_id: action_info.chunk_id,
+                        cell: action_info.cell,
+                        status: ActionStatusEnum::InProgress,
+                        action_type: action_info.action_type,
+                        completion_time: action_info.completion_time,
+                        action_name: None,
+                        unit_ids: vec![],
+                    },
+                );
 
-                self.send_message_to_player(action_info.player_id, message)
-                    .await;
+                // Spawn moving unit entity in Bevy ECS for lightyear replication
+                if action_info.action_type == ActionTypeEnum::MoveUnit {
+                    match self.db_tables.actions.load_move_unit_data(action_id).await {
+                        Ok(Some((unit_id, _target_cell, _target_chunk))) => {
+                            // Load the unit's CURRENT position (starting point of the move)
+                            match self.db_tables.units.load_unit(unit_id).await {
+                                Ok(unit) => {
+                                    if !unit.is_lord {
+                                        // Lords already have a permanent entity — only spawn for non-lords
+                                        self.bridge_sender.send(
+                                            crate::networking::server::bridge::BridgeEvent::SpawnMovingUnit {
+                                                player_id: action_info.player_id,
+                                                unit_id,
+                                                chunk: unit.current_chunk,
+                                                cell: unit.current_cell,
+                                            },
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to load unit for moving spawn: {}", e);
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to load move_unit data for spawn: {}", e);
+                        }
+                    }
+                }
 
                 tracing::info!(
                     "Action {} started (InProgress) for player {}",
@@ -289,17 +312,15 @@ impl ActionProcessor {
                                                     .count_item_for_unit(lord_unit_id, cost.item_id)
                                                     .await
                                                     .unwrap_or(0);
-                                                let msg = ServerMessage::InventoryUpdate {
-                                                    unit_id: lord_unit_id,
-                                                    item_id: cost.item_id,
-                                                    quantity_delta: -cost.quantity,
-                                                    new_total: remaining,
-                                                };
-                                                self.send_message_to_player(
-                                                    action_info.player_id,
-                                                    msg,
-                                                )
-                                                .await;
+                                                self.bridge_sender.send(
+                                                    crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
+                                                        player_id: action_info.player_id,
+                                                        unit_id: lord_unit_id,
+                                                        item_id: cost.item_id,
+                                                        quantity_delta: -cost.quantity,
+                                                        new_total: remaining,
+                                                    },
+                                                );
                                             }
                                             Err(e) => {
                                                 tracing::error!(
@@ -410,13 +431,14 @@ impl ActionProcessor {
                                 };
 
                                 // Notify the player
-                                let profession_msg = ServerMessage::UnitProfessionChanged {
-                                    unit_id,
-                                    new_profession: target_profession,
-                                    new_avatar_url,
-                                };
-                                self.send_message_to_player(action_info.player_id, profession_msg)
-                                    .await;
+                                self.bridge_sender.send(
+                                    crate::networking::server::bridge::BridgeEvent::SendUnitProfessionChanged {
+                                        player_id: action_info.player_id,
+                                        unit_id,
+                                        new_profession: target_profession,
+                                        new_avatar_url,
+                                    },
+                                );
                             }
                         }
                         Ok(None) => {
@@ -479,16 +501,45 @@ impl ActionProcessor {
                                     action_id
                                 );
 
-                                // Notifier le joueur
-                                let move_msg = ServerMessage::UnitPositionUpdated {
-                                    unit_id,
-                                    from_cell,
-                                    from_chunk,
-                                    to_cell: target_cell,
-                                    to_chunk: target_chunk,
+                                // Check if this unit is a lord
+                                let is_lord = match self.db_tables.units.load_unit(unit_id).await {
+                                    Ok(unit) => unit.is_lord,
+                                    Err(_) => false,
                                 };
-                                self.send_message_to_player(action_info.player_id, move_msg)
-                                    .await;
+
+                                tracing::info!(
+                                    "DEBUG: unit {} is_lord={} — about to send bridge event",
+                                    unit_id, is_lord
+                                );
+
+                                if is_lord {
+                                    // Lord position → lightyear replication (bridge event)
+                                    self.bridge_sender.send(
+                                        crate::networking::server::bridge::BridgeEvent::UpdateLordPosition {
+                                            player_id: action_info.player_id,
+                                            to_chunk: target_chunk,
+                                            to_cell: target_cell,
+                                        },
+                                    );
+                                } else {
+                                    // Non-lord → lightyear position update + despawn moving entity
+                                    self.bridge_sender.send(
+                                        crate::networking::server::bridge::BridgeEvent::SendUnitPositionUpdated {
+                                            player_id: action_info.player_id,
+                                            unit_id,
+                                            from_cell,
+                                            from_chunk,
+                                            to_cell: target_cell,
+                                            to_chunk: target_chunk,
+                                        },
+                                    );
+
+                                    self.bridge_sender.send(
+                                        crate::networking::server::bridge::BridgeEvent::DespawnMovingUnit {
+                                            unit_id,
+                                        },
+                                    );
+                                }
                             }
                         }
                         Ok(None) => {
@@ -546,11 +597,7 @@ impl ActionProcessor {
                                                         lord_unit_id
                                                     );
 
-                                                    let inv_msg = ServerMessage::InventoryUpdate {
-                                                        unit_id: lord_unit_id,
-                                                        item_id: hy.result_item_id,
-                                                        quantity_delta: quantity,
-                                                        new_total: self
+                                                    let new_total = self
                                                             .db_tables
                                                             .resources
                                                             .count_item_for_unit(
@@ -558,13 +605,16 @@ impl ActionProcessor {
                                                                 hy.result_item_id,
                                                             )
                                                             .await
-                                                            .unwrap_or(quantity),
-                                                    };
-                                                    self.send_message_to_player(
-                                                        action_info.player_id,
-                                                        inv_msg,
-                                                    )
-                                                    .await;
+                                                            .unwrap_or(quantity);
+                                                    self.bridge_sender.send(
+                                                        crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
+                                                            player_id: action_info.player_id,
+                                                            unit_id: lord_unit_id,
+                                                            item_id: hy.result_item_id,
+                                                            quantity_delta: quantity,
+                                                            new_total,
+                                                        },
+                                                    );
                                                 }
                                                 Err(e) => {
                                                     tracing::error!(
@@ -692,18 +742,15 @@ impl ActionProcessor {
                                                                 )
                                                                 .await
                                                                 .unwrap_or(0);
-                                                            let ing_msg =
-                                                                ServerMessage::InventoryUpdate {
+                                                            self.bridge_sender.send(
+                                                                crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
+                                                                    player_id: action_info.player_id,
                                                                     unit_id: lord_unit_id,
                                                                     item_id: ingredient.item_id,
                                                                     quantity_delta: -needed,
                                                                     new_total: remaining,
-                                                                };
-                                                            self.send_message_to_player(
-                                                                action_info.player_id,
-                                                                ing_msg,
-                                                            )
-                                                            .await;
+                                                                },
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -731,12 +778,7 @@ impl ActionProcessor {
                                                             lord_unit_id
                                                         );
 
-                                                        let inv_msg =
-                                                            ServerMessage::InventoryUpdate {
-                                                                unit_id: lord_unit_id,
-                                                                item_id: recipe.result_item_id,
-                                                                quantity_delta: result_qty,
-                                                                new_total: self
+                                                        let new_total = self
                                                                     .db_tables
                                                                     .resources
                                                                     .count_item_for_unit(
@@ -744,13 +786,16 @@ impl ActionProcessor {
                                                                         recipe.result_item_id,
                                                                     )
                                                                     .await
-                                                                    .unwrap_or(result_qty),
-                                                            };
-                                                        self.send_message_to_player(
-                                                            action_info.player_id,
-                                                            inv_msg,
-                                                        )
-                                                        .await;
+                                                                    .unwrap_or(result_qty);
+                                                        self.bridge_sender.send(
+                                                            crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
+                                                                player_id: action_info.player_id,
+                                                                unit_id: lord_unit_id,
+                                                                item_id: recipe.result_item_id,
+                                                                quantity_delta: result_qty,
+                                                                new_total,
+                                                            },
+                                                        );
                                                     }
                                                     Err(e) => {
                                                         tracing::error!(
@@ -806,12 +851,13 @@ impl ActionProcessor {
                 match self.db_tables.units.clear_units_working_on(action_id).await {
                     Ok(freed_unit_ids) => {
                         for uid in &freed_unit_ids {
-                            let msg = ServerMessage::UnitWorkStatusUpdate {
-                                unit_id: *uid,
-                                working_on_action_id: None,
-                            };
-                            self.send_message_to_player(action_info.player_id, msg)
-                                .await;
+                            self.bridge_sender.send(
+                                crate::networking::server::bridge::BridgeEvent::SendUnitWorkStatusUpdate {
+                                    player_id: action_info.player_id,
+                                    unit_id: *uid,
+                                    working_on_action_id: None,
+                                },
+                            );
                         }
                         tracing::info!(
                             "Freed {} units from action {}",
@@ -824,33 +870,30 @@ impl ActionProcessor {
                     }
                 }
 
-                // Envoyer notification au joueur qui a lancé l'action
-                let status_message = ServerMessage::ActionStatusUpdate {
-                    action_id,
-                    player_id: action_info.player_id,
-                    chunk_id: action_info.chunk_id,
-                    cell: action_info.cell,
-                    status: ActionStatusEnum::Completed,
-                    action_type: action_info.action_type,
-                    completion_time: action_info.completion_time,
-                    action_name: None,
-                    unit_ids: vec![],
-                };
+                // Envoyer notification au joueur qui a lancé l'action via lightyear bridge
+                self.bridge_sender.send(
+                    crate::networking::server::bridge::BridgeEvent::SendActionStatus {
+                        player_id: action_info.player_id,
+                        action_id,
+                        chunk_id: action_info.chunk_id,
+                        cell: action_info.cell,
+                        status: ActionStatusEnum::Completed,
+                        action_type: action_info.action_type,
+                        completion_time: action_info.completion_time,
+                        action_name: None,
+                        unit_ids: vec![],
+                    },
+                );
 
-                self.send_message_to_player(action_info.player_id, status_message)
-                    .await;
-
-                // Au prochain tick, on enverra le résultat aux joueurs du chunk
-                // Pour l'instant on envoie immédiatement
-                let completion_message = ServerMessage::ActionCompleted {
-                    action_id,
-                    chunk_id: action_info.chunk_id,
-                    cell: action_info.cell,
-                    action_type: action_info.action_type,
-                };
-
-                self.broadcast_to_chunk(&action_info.chunk_id, completion_message)
-                    .await;
+                // Broadcast action completion to all clients via lightyear bridge
+                self.bridge_sender.send(
+                    crate::networking::server::bridge::BridgeEvent::BroadcastActionCompleted {
+                        action_id,
+                        chunk_id: action_info.chunk_id,
+                        cell: action_info.cell,
+                        action_type: action_info.action_type,
+                    },
+                );
 
                 tracing::info!(
                     "Action {} completed for player {} at chunk ({}, {}) cell ({}, {})",
@@ -1893,13 +1936,13 @@ impl ActionProcessor {
                 );
 
                 // Envoyer la mise à jour de la SDF à tous les joueurs du chunk
-                let road_update = shared::protocol::ServerMessage::RoadChunkSdfUpdate {
-                    terrain_name: "Gaulyia".to_string(),
-                    chunk_id: *chunk_id,
-                    road_sdf_data: road_sdf,
-                };
-
-                self.broadcast_to_chunk(chunk_id, road_update).await;
+                self.bridge_sender.send(
+                    crate::networking::server::bridge::BridgeEvent::BroadcastRoadChunkSdfUpdate {
+                        terrain_name: "Gaulyia".to_string(),
+                        chunk_id: *chunk_id,
+                        road_sdf_data: road_sdf,
+                    },
+                );
             }
             Ok(_) => {
                 tracing::debug!(
@@ -1947,21 +1990,20 @@ impl ActionProcessor {
                 }
             }
 
-            // Notifier le joueur
-            let message = ServerMessage::ActionStatusUpdate {
-                action_id,
-                player_id: action_info.player_id,
-                chunk_id: action_info.chunk_id.clone(),
-                cell: action_info.cell.clone(),
-                status: ActionStatusEnum::Failed,
-                action_type: action_info.action_type,
-                completion_time: action_info.completion_time,
-                action_name: None,
-                unit_ids: vec![],
-            };
-
-            self.send_message_to_player(action_info.player_id, message)
-                .await;
+            // Notifier le joueur via lightyear bridge
+            self.bridge_sender.send(
+                crate::networking::server::bridge::BridgeEvent::SendActionStatus {
+                    player_id: action_info.player_id,
+                    action_id,
+                    chunk_id: action_info.chunk_id,
+                    cell: action_info.cell,
+                    status: ActionStatusEnum::Failed,
+                    action_type: action_info.action_type,
+                    completion_time: action_info.completion_time,
+                    action_name: None,
+                    unit_ids: vec![],
+                },
+            );
 
             tracing::info!(
                 "Action {} failed for player {}",
@@ -1971,99 +2013,6 @@ impl ActionProcessor {
         }
 
         Ok(())
-    }
-
-    /// Envoie un message à un joueur spécifique
-    async fn send_message_to_player(&self, player_id: u64, message: ServerMessage) {
-        let message_type = match &message {
-            ServerMessage::LoginSuccess { .. } => "LoginSuccess",
-            ServerMessage::LoginError { .. } => "LoginError",
-            ServerMessage::RegisterSuccess { .. } => "RegisterSuccess",
-            ServerMessage::RegisterError { .. } => "RegisterError",
-            ServerMessage::LordData { .. } => "LordData",
-            ServerMessage::LordCreated { .. } => "LordCreated",
-            ServerMessage::LordCreateError { .. } => "LordCreateError",
-            ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
-            ServerMessage::OceanData { .. } => "OceanData",
-            ServerMessage::LakeData { .. } => "LakeData",
-            ServerMessage::TerrainGlobalData { .. } => "TerrainGlobalData",
-            ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
-                tracing::info!(
-                    "Sending RoadChunkSdfUpdate to player {} for chunk ({},{})",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y
-                );
-                "RoadChunkSdfUpdate"
-            }
-            ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
-                tracing::info!(
-                    "Sending TerritoryContourUpdate to player {} for chunk ({},{}) with {} contours",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y,
-                    contours.len()
-                );
-                "TerritoryContourUpdate"
-            }
-            ServerMessage::TerritoryBorderSdfUpdate { chunk_id, .. } => {
-                tracing::info!(
-                    "Sending TerritoryBorderSdfUpdate to player {} for chunk ({},{})",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y
-                );
-                "TerritoryBorderSdfUpdate"
-            }
-            ServerMessage::TerritoryBorderCells {
-                organization_id,
-                border_cells,
-            } => {
-                tracing::info!(
-                    "Sending TerritoryBorderCells to player {} for org {} ({} cells)",
-                    player_id,
-                    organization_id,
-                    border_cells.len()
-                );
-                "TerritoryBorderCells"
-            }
-            ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
-            ServerMessage::ActionCompleted { .. } => "ActionCompleted",
-            ServerMessage::ActionSuccess { .. } => "ActionSuccess",
-            ServerMessage::ActionError { .. } => "ActionError",
-            ServerMessage::DebugOrganizationCreated { .. } => "DebugOrganizationCreated",
-            ServerMessage::DebugOrganizationDeleted { .. } => "DebugOrganizationDeleted",
-            ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
-            ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
-            ServerMessage::DebugError { .. } => "DebugError",
-            ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
-            ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
-            ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
-            ServerMessage::UnitWorkStatusUpdate { .. } => "UnitWorkStatusUpdate",
-            ServerMessage::HamletFounded { .. } => "HamletFounded",
-            ServerMessage::HamletFoundError { .. } => "HamletFoundError",
-            ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
-            ServerMessage::PopulationChanged { .. } => "PouplationChanged",
-            ServerMessage::InventoryData { .. } => "InventoryData",
-            ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
-            ServerMessage::GameData { .. } => "GameData",
-            ServerMessage::ExplorationMap { .. } => "ExplorationMap",
-            ServerMessage::ExplorationPatch { .. } => "ExplorationPatch",
-            ServerMessage::Pong => "Pong",
-        };
-
-        if !matches!(message, ServerMessage::RoadChunkSdfUpdate { .. }) {
-            tracing::debug!("Sending {} to player {}", message_type, player_id);
-        }
-
-        if let Err(e) = self.sessions.send_to_player(player_id, message).await {
-            tracing::warn!(
-                "Failed to send {} to player {}: {}",
-                message_type,
-                player_id,
-                e
-            );
-        }
     }
 
     /// Trouve le Lord (unité principale) d'un joueur
@@ -2077,16 +2026,6 @@ impl ActionProcessor {
         .map_err(|e| format!("Failed to find lord: {}", e))?;
 
         Ok(row.map(|id| id as u64))
-    }
-
-    /// Broadcast un message à tous les joueurs qui ont chargé un chunk
-    async fn broadcast_to_chunk(&self, _chunk_id: &TerrainChunkId, message: ServerMessage) {
-        // TODO: Implémenter le broadcast aux joueurs d'un chunk spécifique
-        // Pour l'instant on broadcast à tous les joueurs
-        tracing::debug!(
-            "Broadcasting message to all players (chunk-specific broadcast not yet implemented)"
-        );
-        self.sessions.broadcast(message).await;
     }
 
     /// Count active (Pending + InProgress) production actions on a cell.
@@ -2108,6 +2047,35 @@ impl ActionProcessor {
                     )
             })
             .count()
+    }
+    /// Add an action from a lightyear RPC: insert in DB + add to in-memory cache.
+    /// Equivalent to the `add_action_and_cache` helper in handlers.rs.
+    pub async fn add_action_from_rpc(
+        &self,
+        action_table: &crate::database::tables::ScheduledActionsTable,
+        action_data: &shared::ActionData,
+        action_type: shared::ActionTypeEnum,
+    ) -> Result<u64, String> {
+        // Insert into DB
+        let action_id = action_table.add_scheduled_action(action_data).await?;
+
+        // Add to in-memory cache for the tick processor
+        let completion_time =
+            action_data.base_data.start_time + (action_data.base_data.duration_ms / 1000);
+        self.add_action(ActionInfo {
+            action_id,
+            player_id: action_data.base_data.player_id,
+            chunk_id: action_data.base_data.chunk,
+            cell: action_data.base_data.cell,
+            action_type,
+            status: shared::ActionStatusEnum::Pending,
+            start_time: action_data.base_data.start_time,
+            duration_ms: action_data.base_data.duration_ms,
+            completion_time,
+        })
+        .await;
+
+        Ok(action_id)
     }
 }
 

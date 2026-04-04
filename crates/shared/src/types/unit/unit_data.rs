@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::grid::GridCell;
@@ -7,7 +8,7 @@ use crate::TerrainChunkId;
 use super::{EquipmentSlotEnum, ProfessionEnum, SkillEnum};
 
 // ============ UNIT (Unité/Personnage) ============
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct UnitData {
     pub id: u64,
     pub player_id: Option<u64>, // None si NPC
@@ -70,7 +71,7 @@ impl UnitData {
 }
 
 // ============ BASE STATS (Statistiques de base) ============
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
 pub struct UnitBaseStats {
     pub strength: i32,
     pub agility: i32,
@@ -115,7 +116,7 @@ impl UnitBaseStats {
 }
 
 // ============ DERIVED STATS (Statistiques dérivées) ============
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
 pub struct UnitDerivedStats {
     pub max_hp: i32,
     pub current_hp: i32,
@@ -159,7 +160,7 @@ impl UnitDerivedStats {
 }
 
 // ============ UNIT SKILL (Compétence d'une unité) ============
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
 pub struct UnitSkill {
     pub skill: SkillEnum,
     pub xp: i64,
@@ -187,21 +188,21 @@ impl UnitSkill {
 }
 
 // ============ INVENTORY ITEM (Item dans l'inventaire) ============
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct InventoryItem {
     pub item_id: i32,
     pub quantity: i32,
 }
 
 // ============ EQUIPPED ITEM (Item équipé) ============
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
 pub struct EquippedItem {
     pub slot: EquipmentSlotEnum,
     pub item_id: i32,
 }
 
 // ============ AUTOMATED ACTION (Action automatisée) ============
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct AutomatedAction {
     pub id: u64,
     pub action_type: String, // Ex: "auto_craft_bread"
@@ -210,7 +211,7 @@ pub struct AutomatedAction {
 }
 
 // ============ CONSUMPTION DEMAND (Demande de consommation) ============
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct ConsumptionDemand {
     pub item_id: i32,
     pub quantity_per_day: f32,
@@ -220,7 +221,7 @@ pub struct ConsumptionDemand {
 // ============ FULL UNIT (Unité complète avec toutes ses données) ============
 /// Structure complète d'une unité avec toutes ses informations
 /// Utilisée pour la synchronisation client-serveur
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct FullUnitData {
     pub unit: UnitData,
     pub base_stats: UnitBaseStats,
