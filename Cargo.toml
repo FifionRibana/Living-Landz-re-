@@ -6,7 +6,7 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 authors = ["O'Brian"]
-license = "MIT"
+license = "LicenseRef-Proprietary"
 
 
 [workspace.dependencies]
