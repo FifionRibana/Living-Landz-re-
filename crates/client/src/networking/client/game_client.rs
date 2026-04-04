@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::tasks::block_on;
+use bevy::tasks::IoTaskPool;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use shared::TerrainChunkId;
@@ -7,6 +8,10 @@ use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
 use crate::networking::client::auth_task::AuthTask;
+use crate::networking::client::http_client::{
+    HttpBulkClient, HttpGlobalReceiver, HttpGlobalResult, HttpGlobalSender,
+    HttpTerrainReceiver, HttpTerrainSender,
+};
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, GameDataCache, InventoryCache,
     NotificationState, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache,
@@ -171,8 +176,17 @@ pub struct GameClientPlugin;
 
 impl Plugin for GameClientPlugin {
     fn build(&self, app: &mut App) {
+        // HTTP bulk channels
+        let (terrain_tx, terrain_rx) = std::sync::mpsc::channel();
+        let (global_tx, global_rx) = std::sync::mpsc::channel();
+
         app.init_resource::<AuthTask>()
             .init_resource::<PendingTerrainChunks>()
+            .insert_resource(HttpBulkClient::new())
+            .insert_resource(HttpTerrainSender { tx: terrain_tx })
+            .insert_resource(HttpTerrainReceiver::new(terrain_rx))
+            .insert_resource(HttpGlobalSender { tx: global_tx })
+            .insert_resource(HttpGlobalReceiver::new(global_rx))
             .add_systems(
                 Update,
                 (
@@ -259,6 +273,8 @@ impl Plugin for GameClientPlugin {
             (
                 receive_terrain_chunk_data,
                 process_pending_terrain_chunks,
+                poll_http_terrain_results,
+                poll_http_global_results,
                 receive_ocean_data,
                 receive_lake_data,
                 receive_terrain_global_data,
@@ -266,6 +282,12 @@ impl Plugin for GameClientPlugin {
                 receive_exploration_patch,
                 receive_inventory_data,
                 receive_inventory_update,
+            )
+                .run_if(in_state(AppState::InGame)),
+        );
+        app.add_systems(
+            Update,
+            (
                 receive_unit_profession_changed,
                 receive_unit_work_status_update,
                 receive_road_chunk_sdf_update,
@@ -527,11 +549,12 @@ fn receive_unit_position_updated(
 }
 
 /// Receive ActionCompletedMsg from server via lightyear.
-/// Triggers a chunk data refresh so the client sees new buildings/roads/etc.
+/// Triggers a chunk data refresh via HTTP so the client sees new buildings/roads/etc.
 fn receive_action_completed(
     mut receivers: Query<&mut MessageReceiver<ActionCompletedMsg>>,
     mut notifications: ResMut<NotificationState>,
-    mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
+    http_client: Res<HttpBulkClient>,
+    http_sender: Res<HttpTerrainSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -542,11 +565,36 @@ fn receive_action_completed(
 
             notifications.push_success(format!("{} terminée !", msg.action_type.to_name()));
 
-            // Request chunk data refresh so the client sees the result
-            terrain_events.write(SendRequestTerrainChunks {
-                terrain_name: "Gaulyia".to_string(),
-                chunk_ids: vec![msg.chunk_id],
-            });
+            // Request chunk data refresh via HTTP so the client sees the result
+            let sender = http_sender.clone();
+            let client = http_client.client.clone();
+            let base_url = http_client.base_url.clone();
+            let chunk_id = msg.chunk_id;
+
+            IoTaskPool::get()
+                .spawn(async move {
+                    let body = serde_json::json!({
+                        "terrain_name": "Gaulyia",
+                        "chunk_ids": [[chunk_id.x, chunk_id.y]],
+                    });
+                    match client.post(format!("{}/api/terrain/chunks", base_url))
+                        .json(&body)
+                        .send()
+                        .await
+                    {
+                        Ok(response) => match response.bytes().await {
+                            Ok(bytes) => {
+                                match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
+                                    Ok(parsed) => { let _ = sender.tx.send(parsed); }
+                                    Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+                                }
+                            }
+                            Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                        },
+                        Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+                    }
+                })
+                .detach();
         }
     }
 }
@@ -586,11 +634,14 @@ fn receive_login_success(
 
 /// Receive LordDataMsg from server via lightyear.
 /// Transitions to InGame if lord exists, or CharacterCreation if not.
+/// When entering InGame, spawns HTTP fetches for global bulk data (ocean, lake, terrain-global, exploration).
 fn receive_lord_data(
     mut receivers: Query<&mut MessageReceiver<LordDataMsg>>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
     mut inventory_events: MessageWriter<SendRequestInventory>,
+    http_client: Res<HttpBulkClient>,
+    global_sender: Res<HttpGlobalSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -609,6 +660,42 @@ fn receive_lord_data(
 
                 player_info.set_lord(lord_data);
                 next_app_state.set(AppState::InGame);
+
+                // Spawn HTTP fetches for global bulk data in parallel
+                let client = http_client.clone();
+                let sender = global_sender.clone();
+                IoTaskPool::get()
+                    .spawn(async move {
+                        let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                            client.fetch_ocean("Gaulyia"),
+                            client.fetch_lake("Gaulyia"),
+                            client.fetch_terrain_global("Gaulyia"),
+                            client.fetch_exploration("Gaulyia"),
+                        )
+                        .await;
+
+                        if let Ok(data) = ocean {
+                            let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                        } else if let Err(e) = ocean {
+                            bevy::log::error!("HTTP ocean fetch failed: {}", e);
+                        }
+                        if let Ok(data) = lake {
+                            let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                        } else if let Err(e) = lake {
+                            bevy::log::error!("HTTP lake fetch failed: {}", e);
+                        }
+                        if let Ok(data) = terrain_global {
+                            let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                        } else if let Err(e) = terrain_global {
+                            bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
+                        }
+                        if let Ok(data) = exploration {
+                            let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                        } else if let Err(e) = exploration {
+                            bevy::log::error!("HTTP exploration fetch failed: {}", e);
+                        }
+                    })
+                    .detach();
             } else {
                 info!("No lord — entering character creation (via lightyear)");
                 next_app_state.set(AppState::CharacterCreation);
@@ -1110,6 +1197,92 @@ fn receive_exploration_patch(
     }
 }
 
+// ─── HTTP bulk poll systems ─────────────────────────────────────────
+
+/// Poll terrain chunk results from HTTP async tasks and push into PendingTerrainChunks.
+fn poll_http_terrain_results(
+    http_receiver: Res<HttpTerrainReceiver>,
+    mut pending: ResMut<PendingTerrainChunks>,
+) {
+    while let Some(chunks) = http_receiver.try_recv() {
+        for (chunk_id, compressed_data) in chunks {
+            pending.0.push(TerrainChunkDataMsg {
+                chunk_id,
+                compressed_data,
+            });
+        }
+    }
+}
+
+/// Poll global data results from HTTP async tasks and insert into WorldCache.
+fn poll_http_global_results(
+    http_receiver: Res<HttpGlobalReceiver>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+
+    while let Some(result) = http_receiver.try_recv() {
+        match result {
+            HttpGlobalResult::Ocean(compressed_data) => {
+                let decompressed = match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                    Ok(d) => d,
+                    Err(e) => { warn!("Failed to decompress HTTP ocean data: {}", e); continue; }
+                };
+                let (ocean_data, _): (shared::OceanData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => { warn!("Failed to decode HTTP ocean data: {}", e); continue; }
+                    };
+                info!("✓ Received ocean data via HTTP: {}", ocean_data.name);
+                cache.insert_ocean(ocean_data);
+            }
+            HttpGlobalResult::Lake(compressed_data) => {
+                let decompressed = match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                    Ok(d) => d,
+                    Err(e) => { warn!("Failed to decompress HTTP lake data: {}", e); continue; }
+                };
+                let (lake_data, _): (shared::LakeData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => { warn!("Failed to decode HTTP lake data: {}", e); continue; }
+                    };
+                info!("✓ Received lake data via HTTP: {}", lake_data.name);
+                cache.insert_lake(lake_data);
+            }
+            HttpGlobalResult::TerrainGlobal(compressed_data) => {
+                let decompressed = match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                    Ok(d) => d,
+                    Err(e) => { warn!("Failed to decompress HTTP terrain global data: {}", e); continue; }
+                };
+                let (data, _): (shared::TerrainGlobalData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => { warn!("Failed to decode HTTP terrain global data: {}", e); continue; }
+                    };
+                info!(
+                    "✓ Received terrain global data via HTTP: biome {}x{}, heightmap {}x{}",
+                    data.biome_width, data.biome_height, data.heightmap_width, data.heightmap_height
+                );
+                cache.insert_terrain_global(data);
+            }
+            HttpGlobalResult::Exploration(exploration) => {
+                let data = match shared::protocol::bulk_compress::decompress(&exploration.compressed_data) {
+                    Ok(d) => d,
+                    Err(e) => { warn!("Failed to decompress HTTP exploration map: {}", e); continue; }
+                };
+                info!(
+                    "✓ Received exploration map via HTTP: {}×{} ({} bytes)",
+                    exploration.width, exploration.height, data.len()
+                );
+                cache.set_exploration_map(
+                    exploration.width, exploration.height, data,
+                    exploration.n_chunk_x, exploration.n_chunk_y,
+                );
+            }
+        }
+    }
+}
+
 // ─── Step 2: Request send systems ────────────────────────────────────
 
 fn send_inventory_requests(
@@ -1243,6 +1416,8 @@ fn receive_lord_created(
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
     mut inventory_events: MessageWriter<SendRequestInventory>,
+    http_client: Res<HttpBulkClient>,
+    global_sender: Res<HttpGlobalSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -1251,6 +1426,25 @@ fn receive_lord_created(
             player_info.set_lord(msg.unit_data);
             inventory_events.write(SendRequestInventory { unit_id });
             next_app_state.set(AppState::InGame);
+
+            // Spawn HTTP fetches for global bulk data
+            let client = http_client.clone();
+            let sender = global_sender.clone();
+            IoTaskPool::get()
+                .spawn(async move {
+                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                        client.fetch_ocean("Gaulyia"),
+                        client.fetch_lake("Gaulyia"),
+                        client.fetch_terrain_global("Gaulyia"),
+                        client.fetch_exploration("Gaulyia"),
+                    )
+                    .await;
+                    if let Ok(data) = ocean { let _ = sender.tx.send(HttpGlobalResult::Ocean(data)); }
+                    if let Ok(data) = lake { let _ = sender.tx.send(HttpGlobalResult::Lake(data)); }
+                    if let Ok(data) = terrain_global { let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data)); }
+                    if let Ok(data) = exploration { let _ = sender.tx.send(HttpGlobalResult::Exploration(data)); }
+                })
+                .detach();
         }
     }
 }

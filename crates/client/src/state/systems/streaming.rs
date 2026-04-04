@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use shared::{
     BiomeChunkData, BiomeChunkId, BiomeTypeEnum, TerrainChunkData, TerrainChunkId, constants,
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::game_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
+use crate::networking::client::game_client::PendingTerrainChunks;
+use crate::networking::client::http_client::{HttpBulkClient, HttpTerrainSender};
 use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
 use crate::state::resources::{StreamingConfig, WorldCache};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
@@ -16,9 +18,9 @@ pub fn request_chunks_around_camera(
     world_cache_opt: Option<ResMut<WorldCache>>,
     mut streaming_config: ResMut<StreamingConfig>,
     time: Res<Time>,
-    mut exploration_events: MessageWriter<SendRequestExplorationMap>,
-    mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
     pending_chunks: Res<PendingTerrainChunks>,
+    http_client: Res<HttpBulkClient>,
+    http_sender: Res<HttpTerrainSender>,
 ) {
     let Some(mut world_cache) = world_cache_opt else {
         return;
@@ -30,16 +32,6 @@ pub fn request_chunks_around_camera(
 
     if time.elapsed_secs() - streaming_config.last_request < streaming_config.request_cooldown {
         return;
-    }
-
-    if !world_cache.is_exploration_loaded() {
-        if !world_cache.is_exploration_requested() {
-            exploration_events.write(SendRequestExplorationMap {
-                terrain_name: "Gaulyia".to_string(),
-            });
-            world_cache.mark_exploration_requested();
-        }
-        return; // Don't request any chunks until we know what's explored
     }
 
     // Don't request chunks until terrain global data (biome + heightmap textures) is loaded.
@@ -73,7 +65,12 @@ pub fn request_chunks_around_camera(
                 y: terrain_chunk_id.y + dy,
             };
 
-            if !world_cache.is_chunk_near_explored(&id) && !world_cache.is_chunk_coastal(&id) {
+            // If exploration map is loaded, filter by explored/coastal.
+            // If not loaded yet, still request chunks (they'll arrive when ready).
+            if world_cache.is_exploration_loaded()
+                && !world_cache.is_chunk_near_explored(&id)
+                && !world_cache.is_chunk_coastal(&id)
+            {
                 continue;
             }
 
@@ -120,10 +117,42 @@ pub fn request_chunks_around_camera(
         for id in &to_request {
             world_cache.mark_terrain_requested_at("Gaulyia", id, time.elapsed_secs());
         }
-        terrain_events.write(SendRequestTerrainChunks {
-            terrain_name: "Gaulyia".to_string(),
-            chunk_ids: to_request,
-        });
+
+        // Spawn HTTP request via IoTaskPool
+        let sender = http_sender.clone();
+        let client = http_client.client.clone();
+        let base_url = http_client.base_url.clone();
+        let chunk_tuples: Vec<(i32, i32)> = to_request.iter().map(|id| (id.x, id.y)).collect();
+
+        IoTaskPool::get()
+            .spawn(async move {
+                let body = serde_json::json!({
+                    "terrain_name": "Gaulyia",
+                    "chunk_ids": chunk_tuples,
+                });
+
+                match client
+                    .post(format!("{}/api/terrain/chunks", base_url))
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    Ok(response) => match response.bytes().await {
+                        Ok(bytes) => {
+                            match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
+                                Ok(parsed) => {
+                                    let _ = sender.tx.send(parsed);
+                                }
+                                Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+                            }
+                        }
+                        Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                    },
+                    Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+                }
+            })
+            .detach();
+
         streaming_config.last_request = time.elapsed_secs();
     }
 }
