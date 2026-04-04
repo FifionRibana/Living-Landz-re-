@@ -10,8 +10,8 @@ use crate::camera::MainCamera;
 use crate::networking::client::game_client::PendingTerrainChunks;
 use crate::networking::client::http_client::{HttpBulkClient, HttpTerrainSender};
 use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
-use crate::state::resources::{StreamingConfig, WorldCache};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
+use crate::state::resources::{StreamingConfig, WorldCache};
 
 pub fn request_chunks_around_camera(
     camera: Query<&Transform, With<MainCamera>>,
@@ -51,10 +51,8 @@ pub fn request_chunks_around_camera(
     streaming_config.prune_old_unloads();
 
     // Build set of chunk IDs already in the pending queue (received but not yet processed)
-    let pending_ids: HashSet<TerrainChunkId> = pending_chunks.0
-        .iter()
-        .map(|msg| msg.chunk_id)
-        .collect();
+    let pending_ids: HashSet<TerrainChunkId> =
+        pending_chunks.0.iter().map(|msg| msg.chunk_id).collect();
 
     let mut to_request = Vec::new();
 
@@ -124,34 +122,34 @@ pub fn request_chunks_around_camera(
         let base_url = http_client.base_url.clone();
         let chunk_tuples: Vec<(i32, i32)> = to_request.iter().map(|id| (id.x, id.y)).collect();
 
-        IoTaskPool::get()
-            .spawn(async move {
-                let body = serde_json::json!({
-                    "terrain_name": "Gaulyia",
-                    "chunk_ids": chunk_tuples,
-                });
+        IoTaskPool::get().spawn(async_compat::Compat::new(async move {
+            let body = serde_json::json!({
+                "terrain_name": "Gaulyia",
+                "chunk_ids": chunk_tuples,
+            });
 
-                match client
-                    .post(format!("{}/api/terrain/chunks", base_url))
-                    .json(&body)
-                    .send()
-                    .await
-                {
-                    Ok(response) => match response.bytes().await {
-                        Ok(bytes) => {
-                            match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
-                                Ok(parsed) => {
-                                    let _ = sender.tx.send(parsed);
-                                }
-                                Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+            match client
+                .post(format!("{}/api/terrain/chunks", base_url))
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(response) => match response.bytes().await {
+                    Ok(bytes) => {
+                        match crate::networking::client::http_client::parse_terrain_response_pub(
+                            &bytes,
+                        ) {
+                            Ok(parsed) => {
+                                let _ = sender.tx.send(parsed);
                             }
+                            Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
                         }
-                        Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
-                    },
-                    Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
-                }
-            })
-            .detach();
+                    }
+                    Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                },
+                Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+            }
+        })).detach();
 
         streaming_config.last_request = time.elapsed_secs();
     }
