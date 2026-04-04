@@ -166,7 +166,7 @@ pub fn update_cell_details_content(
                 //     }
                 // }
                 // Hide building image and gauge for trees
-                // TODO: Hide if the panel is hidden
+                // TODO: Hide cell details when the panel is hidden
                 if let Ok((_, mut visibility)) = building_image_query.single_mut() {
                     *visibility = Visibility::Hidden;
                 }

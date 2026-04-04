@@ -477,7 +477,7 @@ pub fn poll_bridge_events(
             BridgeEvent::BroadcastRoadChunkSdfUpdate { terrain_name, chunk_id, road_sdf_data } => {
                 let Some(srv) = srv else { continue; };
                 let msg = RoadChunkSdfUpdateMsg { terrain_name, chunk_id, road_sdf_data };
-                // TODO: target by room instead of all
+                // NOTE: broadcasts to all clients — room-based targeting planned for later
                 if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
                     tracing::error!("Failed to broadcast RoadChunkSdfUpdateMsg: {:?}", e);
                 }
@@ -486,7 +486,7 @@ pub fn poll_bridge_events(
             BridgeEvent::BroadcastTerritoryContourUpdate { chunk_id, contours } => {
                 let Some(srv) = srv else { continue; };
                 let msg = TerritoryContourUpdateMsg { chunk_id, contours };
-                // TODO: target by room instead of all
+                // NOTE: broadcasts to all clients — room-based targeting planned for later
                 if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
                     tracing::error!("Failed to broadcast TerritoryContourUpdateMsg: {:?}", e);
                 }
@@ -495,7 +495,7 @@ pub fn poll_bridge_events(
             BridgeEvent::BroadcastTerritoryBorderSdfUpdate { chunk_id, border_sdf_data_list } => {
                 let Some(srv) = srv else { continue; };
                 let msg = TerritoryBorderSdfUpdateMsg { chunk_id, border_sdf_data_list };
-                // TODO: target by room instead of all
+                // NOTE: broadcasts to all clients — room-based targeting planned for later
                 if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &NetworkTarget::All) {
                     tracing::error!("Failed to broadcast TerritoryBorderSdfUpdateMsg: {:?}", e);
                 }

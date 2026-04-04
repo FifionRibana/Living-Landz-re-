@@ -31,7 +31,7 @@ pub struct BuildBuildingAction {
     pub cell: GridCell,
     pub building_type: BuildingTypeEnum,
     pub building_specific_type: BuildingSpecificTypeEnum,
-    // TODO: Add the recipe and resources used
+    // TODO: Add recipe and resource fields used in crafting actions
 }
 
 impl SpecificActionData for BuildBuildingAction {
@@ -223,7 +223,7 @@ impl SpecificActionData for TrainUnitAction {
     }
 
     fn duration_ms(&self, _context: &ActionContext) -> u64 {
-        // TODO: Move to DB (profession training durations)
+        // TODO: Move profession training durations to database
         30_000
     }
 

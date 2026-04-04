@@ -70,7 +70,7 @@ pub fn setup_camera(
 }
 
 
-// TODO : Move to a correct place
+// TODO: Move this constant to a shared config module
 pub fn center_camera_on_lord(
     player_info: Res<PlayerInfo>,
     grid_config: Res<GridConfig>,

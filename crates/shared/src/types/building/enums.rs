@@ -334,7 +334,7 @@ impl BuildingTypeEnum {
         }
     }
 
-    // TODO : Move this to database
+    // TODO: Move building enum data to database
     /// Nombre d'unités que ce bâtiment peut loger
     pub fn housing_capacity(&self) -> u32 {
         match self {
@@ -397,8 +397,7 @@ impl BuildingTypeEnum {
         }
     }
     
-    // TODO : This will be "What unit this building can train."
-    // TODO : The base unit should simply be: Settler then the settler has to be trained
+    // TODO: Define trainable unit types per building — base unit should be Settler
     /// Professions pertinentes pour ce bâtiment (pour le spawn d'immigrants)
     pub fn relevant_professions(&self) -> &'static [crate::ProfessionEnum] {
         use crate::ProfessionEnum::*;

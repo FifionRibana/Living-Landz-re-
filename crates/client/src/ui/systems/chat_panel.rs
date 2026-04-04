@@ -23,7 +23,7 @@ pub fn handle_chat_send_button(
                     let text = buffer.get_text();
                     if !text.is_empty() {
                         info!("Sending chat message: {}", text);
-                        // TODO: Actually send the message to the server
+                        // TODO: Send chat message to the server (not implemented yet)
                         queue.add(TextInputAction::Submit);
                     }
                 }

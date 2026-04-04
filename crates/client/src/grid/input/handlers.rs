@@ -141,10 +141,9 @@ pub fn handle_cell_view_entry(
     }
 }
 
-// TODO : Lord movement should be done only if the lord is selected.
-// TODO : Furthermore, every selected units that can actually move should move toward the target cell
-// TODO : Unit that can move: No pending action (move, train, production, building, attack, etc..), not stuck for any reason, alive, ...
-/// Clic droit sur la carte = ouvrir le menu contextuel (si unités sélectionnées)
+// Selected movable units should all move toward the target cell.
+// A unit can move if: no pending action, not stuck, alive, etc.
+/// Right click on a cell = open the menu only if selected units.
 pub fn handle_map_right_click(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
