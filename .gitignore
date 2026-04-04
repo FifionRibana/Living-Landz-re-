@@ -5,3 +5,5 @@ archive
 *.psd
 assets/maps
 *.onetoc2
+
+*.one
