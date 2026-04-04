@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::ui::resources::CellState;
 use crate::state::resources::{UnitsCache, WorldCache};
-use crate::networking::client::lightyear_client::SendAssignUnitToSlot;
+use crate::networking::client::game_client::SendAssignUnitToSlot;
 use shared::{SlotPosition, SlotType, SlotConfiguration, BiomeTypeEnum};
 
 /// Auto-assign units without slots to random free slots when entering cell view

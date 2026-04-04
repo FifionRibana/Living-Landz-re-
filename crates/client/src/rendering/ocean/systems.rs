@@ -5,7 +5,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 
-use crate::networking::client::lightyear_client::SendRequestOceanData;
+use crate::networking::client::game_client::SendRequestOceanData;
 use crate::rendering::ocean::materials::{OceanMaterial, OceanParams};
 use crate::state::resources::WorldCache;
 

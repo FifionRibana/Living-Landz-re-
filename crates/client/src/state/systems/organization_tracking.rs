@@ -3,7 +3,7 @@ use bevy::window::PrimaryWindow;
 use hexx::Hex;
 
 use crate::camera::MainCamera;
-use crate::networking::client::lightyear_client::SendRequestOrganizationAtCell;
+use crate::networking::client::game_client::SendRequestOrganizationAtCell;
 use crate::state::resources::CurrentOrganization;
 use shared::grid::{GridCell, GridConfig};
 

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::networking::client::lightyear_client::{SendActionBuildBuilding, SendActionMoveUnit, SendFoundHamlet};
+use crate::networking::client::game_client::{SendActionBuildBuilding, SendActionMoveUnit, SendFoundHamlet};
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
 use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
 use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};

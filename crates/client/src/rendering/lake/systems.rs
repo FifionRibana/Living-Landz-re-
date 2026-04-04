@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::sprite_render::MeshMaterial2d;
 
-use crate::networking::client::lightyear_client::SendRequestLakeData;
+use crate::networking::client::game_client::SendRequestLakeData;
 use crate::rendering::lake::materials::{LakeMaterial, LakeParams};
 use crate::state::resources::WorldCache;
 

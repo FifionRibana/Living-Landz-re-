@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use crate::road::RoadSegment;
 use crate::{database::client::DatabaseTables, units::PortraitGenerator};
-use crate::{dev::DevConfig, networking::server::lightyear::bridge::BridgeSender};
+use crate::{dev::DevConfig, networking::server::bridge::BridgeSender};
 use shared::GameState;
 
 /// Convertit une cellule hexagonale en position monde (en pixels)
@@ -183,7 +183,7 @@ impl ActionProcessor {
 
                 // Envoyer notification au joueur via lightyear bridge
                 self.bridge_sender.send(
-                    crate::networking::server::lightyear::bridge::BridgeEvent::SendActionStatus {
+                    crate::networking::server::bridge::BridgeEvent::SendActionStatus {
                         player_id: action_info.player_id,
                         action_id,
                         chunk_id: action_info.chunk_id,
@@ -206,7 +206,7 @@ impl ActionProcessor {
                                     if !unit.is_lord {
                                         // Lords already have a permanent entity — only spawn for non-lords
                                         self.bridge_sender.send(
-                                            crate::networking::server::lightyear::bridge::BridgeEvent::SpawnMovingUnit {
+                                            crate::networking::server::bridge::BridgeEvent::SpawnMovingUnit {
                                                 player_id: action_info.player_id,
                                                 unit_id,
                                                 chunk: unit.current_chunk,
@@ -313,7 +313,7 @@ impl ActionProcessor {
                                                     .await
                                                     .unwrap_or(0);
                                                 self.bridge_sender.send(
-                                                    crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                    crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
                                                         player_id: action_info.player_id,
                                                         unit_id: lord_unit_id,
                                                         item_id: cost.item_id,
@@ -432,7 +432,7 @@ impl ActionProcessor {
 
                                 // Notify the player
                                 self.bridge_sender.send(
-                                    crate::networking::server::lightyear::bridge::BridgeEvent::SendUnitProfessionChanged {
+                                    crate::networking::server::bridge::BridgeEvent::SendUnitProfessionChanged {
                                         player_id: action_info.player_id,
                                         unit_id,
                                         new_profession: target_profession,
@@ -515,7 +515,7 @@ impl ActionProcessor {
                                 if is_lord {
                                     // Lord position → lightyear replication (bridge event)
                                     self.bridge_sender.send(
-                                        crate::networking::server::lightyear::bridge::BridgeEvent::UpdateLordPosition {
+                                        crate::networking::server::bridge::BridgeEvent::UpdateLordPosition {
                                             player_id: action_info.player_id,
                                             to_chunk: target_chunk,
                                             to_cell: target_cell,
@@ -524,7 +524,7 @@ impl ActionProcessor {
                                 } else {
                                     // Non-lord → lightyear position update + despawn moving entity
                                     self.bridge_sender.send(
-                                        crate::networking::server::lightyear::bridge::BridgeEvent::SendUnitPositionUpdated {
+                                        crate::networking::server::bridge::BridgeEvent::SendUnitPositionUpdated {
                                             player_id: action_info.player_id,
                                             unit_id,
                                             from_cell,
@@ -535,7 +535,7 @@ impl ActionProcessor {
                                     );
 
                                     self.bridge_sender.send(
-                                        crate::networking::server::lightyear::bridge::BridgeEvent::DespawnMovingUnit {
+                                        crate::networking::server::bridge::BridgeEvent::DespawnMovingUnit {
                                             unit_id,
                                         },
                                     );
@@ -607,7 +607,7 @@ impl ActionProcessor {
                                                             .await
                                                             .unwrap_or(quantity);
                                                     self.bridge_sender.send(
-                                                        crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                        crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
                                                             player_id: action_info.player_id,
                                                             unit_id: lord_unit_id,
                                                             item_id: hy.result_item_id,
@@ -743,7 +743,7 @@ impl ActionProcessor {
                                                                 .await
                                                                 .unwrap_or(0);
                                                             self.bridge_sender.send(
-                                                                crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                                crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
                                                                     player_id: action_info.player_id,
                                                                     unit_id: lord_unit_id,
                                                                     item_id: ingredient.item_id,
@@ -788,7 +788,7 @@ impl ActionProcessor {
                                                                     .await
                                                                     .unwrap_or(result_qty);
                                                         self.bridge_sender.send(
-                                                            crate::networking::server::lightyear::bridge::BridgeEvent::SendInventoryUpdate {
+                                                            crate::networking::server::bridge::BridgeEvent::SendInventoryUpdate {
                                                                 player_id: action_info.player_id,
                                                                 unit_id: lord_unit_id,
                                                                 item_id: recipe.result_item_id,
@@ -852,7 +852,7 @@ impl ActionProcessor {
                     Ok(freed_unit_ids) => {
                         for uid in &freed_unit_ids {
                             self.bridge_sender.send(
-                                crate::networking::server::lightyear::bridge::BridgeEvent::SendUnitWorkStatusUpdate {
+                                crate::networking::server::bridge::BridgeEvent::SendUnitWorkStatusUpdate {
                                     player_id: action_info.player_id,
                                     unit_id: *uid,
                                     working_on_action_id: None,
@@ -872,7 +872,7 @@ impl ActionProcessor {
 
                 // Envoyer notification au joueur qui a lancé l'action via lightyear bridge
                 self.bridge_sender.send(
-                    crate::networking::server::lightyear::bridge::BridgeEvent::SendActionStatus {
+                    crate::networking::server::bridge::BridgeEvent::SendActionStatus {
                         player_id: action_info.player_id,
                         action_id,
                         chunk_id: action_info.chunk_id,
@@ -887,7 +887,7 @@ impl ActionProcessor {
 
                 // Broadcast action completion to all clients via lightyear bridge
                 self.bridge_sender.send(
-                    crate::networking::server::lightyear::bridge::BridgeEvent::BroadcastActionCompleted {
+                    crate::networking::server::bridge::BridgeEvent::BroadcastActionCompleted {
                         action_id,
                         chunk_id: action_info.chunk_id,
                         cell: action_info.cell,
@@ -1937,7 +1937,7 @@ impl ActionProcessor {
 
                 // Envoyer la mise à jour de la SDF à tous les joueurs du chunk
                 self.bridge_sender.send(
-                    crate::networking::server::lightyear::bridge::BridgeEvent::BroadcastRoadChunkSdfUpdate {
+                    crate::networking::server::bridge::BridgeEvent::BroadcastRoadChunkSdfUpdate {
                         terrain_name: "Gaulyia".to_string(),
                         chunk_id: *chunk_id,
                         road_sdf_data: road_sdf,
@@ -1992,7 +1992,7 @@ impl ActionProcessor {
 
             // Notifier le joueur via lightyear bridge
             self.bridge_sender.send(
-                crate::networking::server::lightyear::bridge::BridgeEvent::SendActionStatus {
+                crate::networking::server::bridge::BridgeEvent::SendActionStatus {
                     player_id: action_info.player_id,
                     action_id,
                     chunk_id: action_info.chunk_id,

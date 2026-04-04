@@ -11,7 +11,7 @@ use shared::protocol::{
         TerrainChunkChannel, TerrainGlobalChannel,
     },
     components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer},
-    lightyear_messages::{
+    messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
         ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
@@ -31,8 +31,7 @@ use shared::protocol::{
     },
 };
 
-use super::bridge::{BridgeEvent, LightyearBridge};
-// use crate::lightyear_bridge::{LightyearBridge, BridgeEvent};
+use super::bridge::{BridgeEvent, NetworkBridge};
 
 // ─── Server-only components (not replicated) ────────────────────────
 
@@ -73,9 +72,9 @@ const ROOM_VIEW_RADIUS: i32 = 4;
 
 // ─── Plugin ─────────────────────────────────────────────────────────
 
-pub struct LightyearGamePlugin;
+pub struct NetworkGamePlugin;
 
-impl Plugin for LightyearGamePlugin {
+impl Plugin for NetworkGamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RoomPlugin)
             .init_resource::<ChunkRooms>()
@@ -145,7 +144,7 @@ fn on_lightyear_connected(
     lords: Query<(&ServerPlayerId, &LordPosition)>,
     mut commands: Commands,
     mut chunk_rooms: ResMut<ChunkRooms>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
@@ -177,7 +176,7 @@ fn on_lightyear_connected(
 /// Main system: poll bridge events from tokio and apply to ECS.
 pub fn poll_bridge_events(
     mut commands: Commands,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
     mut lords: Query<(Entity, &ServerPlayerId, &mut LordPosition)>,
     moving_units: Query<(Entity, &ServerMovingUnitId)>,
     mut chunk_rooms: ResMut<ChunkRooms>,
@@ -890,7 +889,7 @@ fn remove_sender_from_all_rooms(
 
 fn receive_move_unit_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionMoveUnitMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -911,7 +910,7 @@ fn receive_move_unit_messages(
 
 fn receive_build_building_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionBuildBuildingMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -932,7 +931,7 @@ fn receive_build_building_messages(
 
 fn receive_build_road_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionBuildRoadMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -952,7 +951,7 @@ fn receive_build_road_messages(
 
 fn receive_harvest_resource_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionHarvestResourceMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -974,7 +973,7 @@ fn receive_harvest_resource_messages(
 
 fn receive_craft_resource_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionCraftResourceMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -997,7 +996,7 @@ fn receive_craft_resource_messages(
 
 fn receive_train_unit_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionTrainUnitMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1019,7 +1018,7 @@ fn receive_train_unit_messages(
 
 fn receive_explore_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<ActionExploreMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1039,7 +1038,7 @@ fn receive_explore_messages(
 
 fn receive_inventory_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestInventoryMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1058,7 +1057,7 @@ fn receive_inventory_requests(
 
 fn receive_organization_at_cell_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestOrganizationAtCellMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1075,7 +1074,7 @@ fn receive_organization_at_cell_requests(
 
 fn receive_terrain_chunk_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainChunksMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1091,7 +1090,7 @@ fn receive_terrain_chunk_requests(
 
 fn receive_ocean_data_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestOceanDataMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1106,7 +1105,7 @@ fn receive_ocean_data_requests(
 
 fn receive_lake_data_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestLakeDataMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1121,7 +1120,7 @@ fn receive_lake_data_requests(
 
 fn receive_terrain_global_data_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainGlobalDataMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1136,7 +1135,7 @@ fn receive_terrain_global_data_requests(
 
 fn receive_exploration_map_requests(
     mut receivers: Query<(Entity, &mut MessageReceiver<RequestExplorationMapMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1153,7 +1152,7 @@ fn receive_exploration_map_requests(
 
 fn receive_create_lord_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<CreateLordMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1170,7 +1169,7 @@ fn receive_create_lord_messages(
 
 fn receive_found_hamlet_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<FoundHamletMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1182,7 +1181,7 @@ fn receive_found_hamlet_messages(
 
 fn receive_move_unit_to_slot_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<MoveUnitToSlotMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1200,7 +1199,7 @@ fn receive_move_unit_to_slot_messages(
 
 fn receive_assign_unit_to_slot_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<AssignUnitToSlotMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1217,7 +1216,7 @@ fn receive_assign_unit_to_slot_messages(
 
 fn receive_debug_create_organization_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<DebugCreateOrganizationMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1235,7 +1234,7 @@ fn receive_debug_create_organization_messages(
 
 fn receive_debug_delete_organization_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<DebugDeleteOrganizationMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();
@@ -1250,7 +1249,7 @@ fn receive_debug_delete_organization_messages(
 
 fn receive_debug_spawn_unit_messages(
     mut receivers: Query<(Entity, &mut MessageReceiver<DebugSpawnUnitMsg>, &RemoteId)>,
-    bridge: Res<LightyearBridge>,
+    bridge: Res<NetworkBridge>,
 ) {
     for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
         let player_id = remote_id.0.to_bits();

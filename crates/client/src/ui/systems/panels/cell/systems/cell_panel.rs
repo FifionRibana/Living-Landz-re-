@@ -6,7 +6,7 @@ use shared::SlotPosition;
 
 use crate::camera;
 use crate::camera::resources::CELL_SCENE_LAYER;
-use crate::networking::client::lightyear_client::SendMoveUnitToSlot;
+use crate::networking::client::game_client::SendMoveUnitToSlot;
 use crate::state::resources::UnitWorkState;
 use crate::ui::components::{
     CellSceneSlotSprite, CellSceneVisual, DragTargetValidity, Slot, SlotVisualState,

@@ -4,7 +4,7 @@ use bevy::state::state_scoped::DespawnOnExit;
 use shared::{ActionEntry, ActionModeEnum, GameDataRef};
 
 use crate::camera::resources::{CellSceneRenderTarget, SceneRenderTarget};
-use crate::networking::client::lightyear_client::{
+use crate::networking::client::game_client::{
     SendActionBuildBuilding, SendActionBuildRoad, SendActionCraftResource, SendActionTrainUnit,
 };
 use crate::state::resources::{GameDataCache, InventoryCache, PlayerInfo, UnitsDataCache};

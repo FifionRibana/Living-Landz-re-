@@ -9,7 +9,7 @@ pub struct AuthResult {
 }
 
 /// Resource that holds the in-flight auth task.
-/// Set by the login/register UI, polled by `poll_auth_task` in lightyear_client.
+/// Set by the login/register UI, polled by `poll_auth_task` in game_client.
 #[derive(Resource, Default)]
 pub struct AuthTask {
     pub task: Option<Task<Result<AuthResult, String>>>,

@@ -17,7 +17,7 @@ use shared::{
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::camera::MainCamera;
-use crate::networking::client::lightyear_client::SendRequestTerrainGlobalData;
+use crate::networking::client::game_client::SendRequestTerrainGlobalData;
 use crate::rendering::terrain::components::TreeChunkMesh;
 use crate::rendering::terrain::materials::{
     BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,

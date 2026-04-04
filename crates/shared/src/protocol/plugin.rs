@@ -7,7 +7,7 @@ use crate::protocol::{
         TerrainChunkChannel, TerrainGlobalChannel,
     },
     components::{LordPosition, OwnedByPlayer},
-    lightyear_messages::{
+    messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
         ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
