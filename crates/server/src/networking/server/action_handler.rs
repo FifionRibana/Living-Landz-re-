@@ -1412,7 +1412,7 @@ async fn handle_load_player_data(
 
     let lord = db_tables.units.load_lord_for_player(player_id).await.unwrap_or(None);
 
-    crate::networking::server::handlers::ensure_spawn_explored(
+    crate::exploration::ensure_spawn_explored(
         lord.clone(), db_tables, player_id_i64, grid_config,
     ).await;
 
@@ -1436,7 +1436,7 @@ async fn handle_load_player_data(
         }
     } else { None };
 
-    let game_data = crate::networking::server::handlers::build_game_data_payload(game_state, dev_config);
+    let game_data = crate::game_data::build_game_data_payload(game_state, dev_config);
 
     bridge_sender.send(BridgeEvent::SendLoginData {
         player_id, player: player_data, character: character_data, lord, organization, game_data,
@@ -1618,16 +1618,16 @@ async fn handle_found_hamlet(
                         let _ = sqlx::query("UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2")
                             .bind(zone_id).bind(org_id as i64).execute(&db_tables.pool).await;
                     } else {
-                        crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                        crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
                     }
                 }
                 _ => {
-                    crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                    crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
                 }
             }
         }
         _ => {
-            crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+            crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
         }
     }
 
@@ -1757,7 +1757,7 @@ async fn handle_debug_create_organization(
                 }
             }
             if claimed_cells.is_empty() {
-                crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
             }
 
             // Generate contours
