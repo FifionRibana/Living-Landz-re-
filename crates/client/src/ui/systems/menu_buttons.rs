@@ -17,6 +17,7 @@ pub fn handle_menu_button_interactions(
                 image_node.color = CLICK_COLOR;
                 info!("Menu button {} clicked!", button.button_id);
                 // TODO: Handle button actions based on button_id
+
             }
             Interaction::Hovered => {
                 image_node.color = HOVER_COLOR;

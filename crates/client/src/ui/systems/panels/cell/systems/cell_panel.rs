@@ -832,7 +832,7 @@ pub fn sync_slot_visuals(
         let is_working = unit_work_state.is_working(unit_sprite.unit_id);
         let is_being_dragged = dragged_unit_id == Some(unit_sprite.unit_id);
 
-        // TODO: When changing slot, the border is not "selected anymore if the unit is selected
+        // TODO: Keep selected border when unit changes slot
         // Find if this unit's slot is hovered
         let is_hovered = slot_query
             .iter()

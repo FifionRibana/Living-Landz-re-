@@ -112,6 +112,7 @@ pub fn handle_coa_validate_click(
         );
 
         // TODO: Send CreateCoatOfArms message to server when protocol is ready
+
         // For now, go back to login
         next_state.set(AppState::Login);
     }

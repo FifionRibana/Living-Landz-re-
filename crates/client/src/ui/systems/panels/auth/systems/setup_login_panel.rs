@@ -171,7 +171,7 @@ pub fn setup_login_panel(
                         },
                     ));
 
-                    // Password input (TODO: Implement masking)
+                    // TODO: Implement password input masking
                     form.spawn((
                         TextInputNode {
                             clear_on_submit: false,

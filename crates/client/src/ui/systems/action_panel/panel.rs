@@ -310,7 +310,7 @@ pub fn update_action_panel_content(
     let new_ids: Vec<String> = actions.iter().map(|a| a.id.clone()).collect();
     if *last_action_ids == new_ids {
         // Actions haven't changed — don't rebuild carousel
-        // TODO: update executable state on existing cards if inventory changed
+        // TODO: Update executable state on existing cards when inventory changes
         return;
     }
     *last_action_ids = new_ids;

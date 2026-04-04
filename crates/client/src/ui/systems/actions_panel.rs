@@ -16,7 +16,6 @@ pub fn handle_action_button_interactions(
             Interaction::Pressed => {
                 *background_color = BackgroundColor(Color::srgb_u8(80, 70, 50));
                 info!("Action button pressed: {}", action_button.action_type);
-                // TODO: Trigger the actual action
             }
             Interaction::Hovered => {
                 *background_color = BackgroundColor(Color::srgb_u8(120, 110, 90));

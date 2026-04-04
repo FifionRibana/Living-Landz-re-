@@ -47,6 +47,7 @@ pub fn compute_action_context(
     };
 
     // TODO: Check adjacent roads from road data when available
+
     let has_adjacent_road = false;
 
     action_context.update(view, building, terrain, professions, has_adjacent_road);

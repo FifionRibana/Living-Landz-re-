@@ -13,4 +13,4 @@ pub struct Carousel {
     pub snap_timer: f32, // Temps écoulé depuis le dernier input
 }
 
-// TODO: Create a default
+// TODO: Implement Default trait for Carousel

@@ -9,7 +9,7 @@ pub const PROTOCOL_ID: u64 = 0x4C495645_4C414E44; // "LIVELAND" in ASCII hex
 /// Private key for netcode token signing/verification.
 /// 32 bytes. Server and auth endpoint must use the same key.
 ///
-/// TODO: In production, load from NETCODE_PRIVATE_KEY env var (hex-encoded).
+/// TODO(#194): In production, load from NETCODE_PRIVATE_KEY env var.
 /// For now, uses a fixed dev key.
 pub fn private_key() -> [u8; 32] {
     // Default dev key — NOT secure, for local testing only

@@ -186,7 +186,7 @@ fn spawn_action_indicator(
         }
 
         // Action type icon (left of bar)
-        // TODO: Probably add icons
+        // TODO: Add icons for action indicators
         // let icon_path = match action_type {
         //     ActionTypeEnum::BuildBuilding => "ui/icons/action_build.png",
         //     ActionTypeEnum::BuildRoad => "ui/icons/action_road.png",
