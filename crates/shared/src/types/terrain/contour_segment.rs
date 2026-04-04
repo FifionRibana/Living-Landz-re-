@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bincode::{Encode, Decode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct ContourSegmentData {
     pub start: [f32; 2],
     pub end: [f32; 2],

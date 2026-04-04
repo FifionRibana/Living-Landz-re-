@@ -9,7 +9,7 @@ mod inventory_cache;
 mod moon_atlas;
 mod notification_state;
 mod player_info;
-mod streaming_config;
+pub mod streaming_config;
 mod tree_atlas;
 mod unit_work_state;
 mod units_cache;

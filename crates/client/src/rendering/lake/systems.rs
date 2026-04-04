@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::sprite_render::MeshMaterial2d;
 
-use crate::networking::client::NetworkClient;
+use crate::networking::client::game_client::SendRequestLakeData;
 use crate::rendering::lake::materials::{LakeMaterial, LakeParams};
 use crate::state::resources::WorldCache;
 
@@ -13,19 +13,14 @@ pub struct LakeEntity;
 
 pub fn request_lake_data(
     mut cache: ResMut<WorldCache>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
+    mut events: MessageWriter<SendRequestLakeData>,
 ) {
-    let Some(mut network_client) = network_client_opt else {
-        return;
-    };
-
-    // Request lake data only once
     if cache.is_lake_loaded() || cache.is_lake_requested() {
         return;
     }
 
-    info!("Requesting lake data from server");
-    network_client.send_message(shared::protocol::ClientMessage::RequestLakeData {
+    info!("Requesting lake data from server via lightyear");
+    events.write(SendRequestLakeData {
         world_name: "Gaulyia".to_string(),
     });
     cache.mark_lake_requested();

@@ -3,7 +3,7 @@ use bevy_ui_text_input::{
     TextInputBuffer, TextInputQueue, actions::TextInputAction, actions::TextInputEdit,
 };
 
-use crate::networking::client::NetworkClient;
+use crate::networking::client::game_client::SendCreateLord;
 use crate::state::resources::ConnectionStatus;
 use crate::states::AppState;
 
@@ -207,7 +207,7 @@ pub fn update_back_hover(
 pub fn handle_validate_click(
     query: Query<&Interaction, (Changed<Interaction>, With<ValidateButton>)>,
     creation_state: Res<CharacterCreationState>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut create_lord_events: MessageWriter<SendCreateLord>,
 ) {
     for interaction in query.iter() {
         if *interaction != Interaction::Pressed {
@@ -220,12 +220,6 @@ pub fn handle_validate_click(
             return;
         }
 
-        info!(
-            "Creating lord: '{}' ({:?})",
-            first_name, creation_state.gender
-        );
-
-        // Encoder les sélections de couches en string "bust,face,clothes,hair"
         let portrait_layers = creation_state
             .layers
             .iter()
@@ -238,19 +232,12 @@ pub fn handle_validate_click(
             super::resources::Gender::Female => "female",
         };
 
-        info!("Portrait layers: {}", portrait_layers);
-
-        // Envoyer au serveur
-        if let Some(ref mut client) = network_client {
-            client.send_message(shared::protocol::ClientMessage::CreateLord {
-                first_name: first_name.to_string(),
-                gender: gender.to_string(),
-                portrait_layers,
-            });
-            info!("CreateLord message sent to server");
-        } else {
-            warn!("No network client available — cannot create lord");
-        }
+        create_lord_events.write(SendCreateLord {
+            first_name: first_name.to_string(),
+            gender: gender.to_string(),
+            portrait_layers,
+        });
+        info!("CreateLord sent via lightyear");
     }
 }
 

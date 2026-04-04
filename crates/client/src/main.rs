@@ -1,6 +1,10 @@
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use std::time::Duration;
+
+use crate::networking::client::auth_task::AuthTask;
+
 mod camera;
 mod grid;
 // mod input;
@@ -11,6 +15,9 @@ pub mod states;
 mod ui;
 
 fn main() {
+    // Truncate the log file on each launch
+    let _ = std::fs::write("client.log", "");
+
     App::new()
         // .insert_resource(ClearColor(Color::srgb_u8(0, 15, 30)))
         .insert_resource(ClearColor(Color::srgb_u8(34, 58, 81)))
@@ -29,6 +36,25 @@ fn main() {
                 .set(AssetPlugin {
                     file_path: "../../assets".to_string(),
                     ..default()
+                })
+                .set(bevy::log::LogPlugin {
+                    filter: "client=info,wgpu=error,bevy_render=error,naga=warn,lightyear=warn".to_string(),
+                    level: bevy::log::Level::INFO,
+                    custom_layer: |_app| {
+                        let file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .truncate(true)
+                            .open("client.log")
+                            .expect("Failed to open client.log");
+
+                        Some(Box::new(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(std::sync::Mutex::new(file))
+                                .with_ansi(false),
+                        ))
+                    },
+                    ..default()
                 }),
             MeshPickingPlugin,
         ))
@@ -37,6 +63,8 @@ fn main() {
         .add_sub_state::<states::AuthScreen>()
         .add_sub_state::<states::GameView>()
         .add_sub_state::<states::Overlay>()
+        //
+        .init_resource::<AuthTask>()
         //
         .add_plugins((
             camera::CameraPlugin,
@@ -53,6 +81,13 @@ fn main() {
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
         ))
+        // 🔧 LIGHTYEAR: Client plugins + protocol
+        .add_plugins(lightyear::prelude::client::ClientPlugins {
+            tick_duration: Duration::from_millis(50), // 20Hz, must match server
+        })
+        .add_plugins(shared::protocol::plugin::ProtocolPlugin)
+        .add_plugins(networking::client::game_client::GameClientPlugin)
+        //
         .add_plugins((
             // LogDiagnosticsPlugin::default(),
             FrameTimeDiagnosticsPlugin::default(),

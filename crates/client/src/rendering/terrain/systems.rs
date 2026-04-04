@@ -9,16 +9,16 @@ use shared::atlas::{BuildingAtlas, TreeAtlas};
 use shared::grid::GridConfig;
 use shared::{
     AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
-    BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData, CultData,
-    EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
+    BuildingData, BuildingSpecific, BuildingSpecificTypeEnum, BuildingTypeEnum, CommerceData,
+    CultData, EntertainmentData, ManufacturingWorkshopData, TerrainChunkData, TerrainChunkId,
     TerrainChunkSdfData, TreeAge, TreeTypeEnum, constants, get_biome_color,
 };
 
 use super::components::{Biome, Building, Terrain};
 use super::materials::TerrainMaterial;
 use crate::camera::MainCamera;
-use crate::networking::client::NetworkClient;
-use crate::rendering::terrain::components::TreeGlobalMesh;
+use crate::networking::client::game_client::SendRequestTerrainGlobalData;
+use crate::rendering::terrain::components::TreeChunkMesh;
 use crate::rendering::terrain::materials::{
     BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,
 };
@@ -26,13 +26,8 @@ use crate::state::resources::{ConnectionStatus, WorldCache};
 
 pub fn initialize_terrain(
     connection: Res<ConnectionStatus>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
     world_cache_opt: Option<ResMut<WorldCache>>,
-    // terrains: Query<&Terrain>,
 ) {
-    let Some(_network_client) = network_client_opt else {
-        return;
-    };
     let Some(_world_cache) = world_cache_opt else {
         return;
     };
@@ -44,15 +39,11 @@ pub fn initialize_terrain(
 
 pub fn request_terrain_global_data(
     mut cache: ResMut<WorldCache>,
-    network_client_opt: Option<ResMut<NetworkClient>>,
+    mut events: MessageWriter<SendRequestTerrainGlobalData>,
 ) {
-    let Some(mut network_client) = network_client_opt else {
-        return;
-    };
-
     if !cache.is_terrain_global_loaded() && !cache.is_terrain_global_requested() {
-        info!("Requesting terrain global data from server");
-        network_client.send_message(shared::protocol::ClientMessage::RequestTerrainGlobalData {
+        info!("Requesting terrain global data from server via lightyear");
+        events.write(SendRequestTerrainGlobalData {
             world_name: "Gaulyia".to_string(),
         });
         cache.mark_terrain_global_requested();
@@ -112,9 +103,14 @@ pub fn spawn_terrain(
     world_cache_opt: Option<Res<WorldCache>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut terrain_materials: ResMut<Assets<TerrainMaterial>>,
+    mut tree_materials: ResMut<Assets<TreeMaterial>>,
     mut images: ResMut<Assets<Image>>,
     terrains: Query<&Terrain>,
+    tree_meshes: Query<&TreeChunkMesh>,
     camera: Query<&Transform, With<MainCamera>>,
+    tree_atlas: Res<TreeAtlas>,
+    grid_config: Res<GridConfig>,
+    mut shared_tree_material: Local<Option<MeshMaterial2d<TreeMaterial>>>,
 ) {
     let Some(world_cache) = world_cache_opt else {
         return;
@@ -373,6 +369,46 @@ pub fn spawn_terrain(
                 id: terrain.id,
             },
         ));
+
+        // Spawn per-chunk tree mesh (if not already spawned)
+        let already_has_trees = tree_meshes.iter().any(|tm| tm.chunk_id == terrain.id);
+        if !already_has_trees {
+            if let Some(atlas_image) = &tree_atlas.atlas_image {
+                let tree_material = shared_tree_material
+                    .get_or_insert_with(|| {
+                        MeshMaterial2d(tree_materials.add(TreeMaterial {
+                            texture: atlas_image.clone(),
+                        }))
+                    })
+                    .clone();
+
+                let chunk_buildings = world_cache.buildings_for_chunk(&terrain.id);
+                if let Some(tree_mesh) =
+                    build_tree_mesh_for_chunk(&chunk_buildings, &grid_config, &tree_atlas)
+                {
+                    let quad_count = tree_mesh
+                        .attribute(Mesh::ATTRIBUTE_POSITION)
+                        .map(|a| a.len() / 4)
+                        .unwrap_or(0);
+                    info!(
+                        "🌲 TreeMesh ({},{}) spawned: {} quads",
+                        terrain.id.x, terrain.id.y, quad_count
+                    );
+                    commands.spawn((
+                        Name::new(format!(
+                            "TreeMesh_{}_{}",
+                            terrain.id.x, terrain.id.y
+                        )),
+                        Mesh2d(meshes.add(tree_mesh)),
+                        tree_material,
+                        Transform::from_translation(Vec3::ZERO),
+                        TreeChunkMesh {
+                            chunk_id: terrain.id,
+                        },
+                    ));
+                }
+            }
+        }
 
         spawned_this_frame += 1;
     }
@@ -901,65 +937,26 @@ pub fn build_tree_atlas(
 }
 
 /// Single merged mesh for ALL visible trees. Rebuilt when building cache changes.
-pub fn rebuild_tree_mesh(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut tree_materials: ResMut<Assets<TreeMaterial>>,
-    mut world_cache: Option<ResMut<WorldCache>>,
-    tree_atlas: Res<TreeAtlas>,
-    grid_config: Res<GridConfig>,
-    existing: Query<Entity, With<TreeGlobalMesh>>,
-    mut shared_material: Local<Option<MeshMaterial2d<TreeMaterial>>>,
-    time: Res<Time>,
-    mut pending_rebuild: Local<f64>,
-) {
-    let Some(ref mut world_cache) = world_cache else {
-        return;
-    };
-    let Some(atlas_image) = &tree_atlas.atlas_image else {
-        return;
-    };
+// ─── Per-chunk tree mesh builder ─────────────────────────────────────
 
-    // Track dirty → set rebuild timer
-    if world_cache.is_buildings_dirty() {
-        *pending_rebuild = time.elapsed_secs_f64();
-        world_cache.clear_buildings_dirty();
-    }
+struct TreeQuad {
+    pos: Vec2,
+    size: f32,
+    uvs: [f32; 4], // u_min, v_min, u_max, v_max
+    flip_x: bool,
+}
 
-    // Nothing pending
-    if *pending_rebuild == 0.0 && existing.iter().count() > 0 {
-        return;
-    }
+/// Build a tree mesh for a single chunk's buildings.
+/// Returns None if the chunk has no trees.
+/// Vertex Z = -world_y * 0.0001 for depth-buffer Y-sorting (same as building sprites).
+fn build_tree_mesh_for_chunk(
+    buildings: &[&BuildingData],
+    grid_config: &GridConfig,
+    tree_atlas: &TreeAtlas,
+) -> Option<Mesh> {
+    let mut quads: Vec<TreeQuad> = Vec::new();
 
-    // Still waiting for debounce (0.5s after last dirty)
-    if *pending_rebuild > 0.0 && time.elapsed_secs_f64() - *pending_rebuild < 0.5 {
-        return;
-    }
-
-    // First load: no existing mesh and no pending → need initial dirty
-    if *pending_rebuild == 0.0 && existing.iter().count() == 0 {
-        return;
-    }
-
-    *pending_rebuild = 0.0;
-
-    // Despawn old
-    for entity in existing.iter() {
-        commands.entity(entity).despawn();
-    }
-
-    let material = shared_material
-        .get_or_insert_with(|| {
-            MeshMaterial2d(tree_materials.add(TreeMaterial {
-                texture: atlas_image.clone(),
-            }))
-        })
-        .clone();
-
-    // Collect ALL tree quads
-    let mut quads: Vec<TreeQuad> = Vec::with_capacity(100000);
-
-    for building in world_cache.loaded_buildings() {
+    for building in buildings {
         let shared::BuildingSpecific::Tree(tree_data) = &building.specific_data else {
             continue;
         };
@@ -969,7 +966,6 @@ pub fn rebuild_tree_mesh(
         let variation = tree_data.variant;
         let building_id = building.base_data.id;
 
-        // Fast numeric lookup — no format!, no HashMap<String>
         let Some(uvs) = tree_atlas
             .get_atlas_index_fast(age_idx, variation)
             .and_then(|idx| tree_atlas.get_atlas_uvs_by_index(idx))
@@ -1002,7 +998,6 @@ pub fn rebuild_tree_mesh(
             let scale_var: f32 = sub_rng.random_range(0.85..=1.15);
             let flip_x: bool = sub_rng.random_bool(0.5);
 
-            // Sub-tree variant — fast numeric path
             let sub_uvs = if tree_i > 0 {
                 let alt_var = sub_rng.random_range(1..=3i32);
                 let alt_age_raw =
@@ -1028,26 +1023,28 @@ pub fn rebuild_tree_mesh(
     }
 
     if quads.is_empty() {
-        return;
+        return None;
     }
 
-    // Global sort back-to-front: higher Y drawn first
-    quads.sort_unstable_by_key(|q| (-q.pos.y * 100.0) as i32);
+    // Sort by Y ascending for front-to-back draw (optimal early-Z rejection)
+    quads.sort_by(|a, b| a.pos.y.partial_cmp(&b.pos.y).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Build single mesh
-    let num_quads = quads.len();
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(num_quads * 4);
-    let mut uvs_out: Vec<[f32; 2]> = Vec::with_capacity(num_quads * 4);
-    let mut indices: Vec<u32> = Vec::with_capacity(num_quads * 6);
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(quads.len() * 4);
+    let mut uvs_out: Vec<[f32; 2]> = Vec::with_capacity(quads.len() * 4);
+    let mut indices: Vec<u32> = Vec::with_capacity(quads.len() * 6);
 
-    for (qi, quad) in quads.iter().enumerate() {
+    for quad in &quads {
+        let base_idx = positions.len() as u32;
         let half = quad.size / 2.0;
-        let base_idx = (qi * 4) as u32;
 
-        positions.push([quad.pos.x - half, quad.pos.y - half, 0.0]);
-        positions.push([quad.pos.x + half, quad.pos.y - half, 0.0]);
-        positions.push([quad.pos.x + half, quad.pos.y + half, 0.0]);
-        positions.push([quad.pos.x - half, quad.pos.y + half, 0.0]);
+        // Z = -world_y * 0.0001 for depth-buffer Y-sorting
+        // Matches building sprite convention (lines 503/545/568)
+        let z = -quad.pos.y * 0.0001;
+
+        positions.push([quad.pos.x - half, quad.pos.y - half, z]);
+        positions.push([quad.pos.x + half, quad.pos.y - half, z]);
+        positions.push([quad.pos.x + half, quad.pos.y + half, z]);
+        positions.push([quad.pos.x - half, quad.pos.y + half, z]);
 
         let [u_min, v_min, u_max, v_max] = quad.uvs;
         let (ul, ur) = if quad.flip_x {
@@ -1071,33 +1068,14 @@ pub fn rebuild_tree_mesh(
 
     let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
 
-    let mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
+    Some(
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs_out)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_indices(Indices::U32(indices)),
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs_out)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_indices(Indices::U32(indices));
-
-    info!(
-        "✓ Tree mesh rebuilt: {} quads {} vertices",
-        quads.len(),
-        quads.len() * 4
-    );
-
-    commands.spawn((
-        Name::new("TreeGlobalMesh"),
-        Mesh2d(meshes.add(mesh)),
-        material,
-        Transform::from_translation(Vec3::new(0.0, 0.0, -0.5)),
-        TreeGlobalMesh,
-    ));
-}
-
-struct TreeQuad {
-    pos: Vec2,
-    size: f32,
-    uvs: [f32; 4], // u_min, v_min, u_max, v_max
-    flip_x: bool,
 }

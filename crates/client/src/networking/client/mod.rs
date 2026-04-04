@@ -1,3 +1,2 @@
-mod network_client;
-
-pub use network_client::NetworkClient;
+pub mod auth_task;
+pub mod game_client;

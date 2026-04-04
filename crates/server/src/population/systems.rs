@@ -3,24 +3,24 @@ use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 use crate::database::client::DatabaseTables;
-use crate::networking::Sessions;
+use crate::networking::server::bridge::{BridgeEvent, BridgeSender};
 use crate::units::{NameGenerator, PortraitGenerator};
 
 pub struct PopulationSystem {
     db_tables: Arc<DatabaseTables>,
-    sessions: Sessions,
+    bridge_sender: Arc<BridgeSender>,
     name_generator: Arc<NameGenerator>,
 }
 
 impl PopulationSystem {
     pub fn new(
         db_tables: Arc<DatabaseTables>,
-        sessions: Sessions,
+        bridge_sender: Arc<BridgeSender>,
         name_generator: Arc<NameGenerator>,
     ) -> Self {
         Self {
             db_tables,
-            sessions,
+            bridge_sender,
             name_generator,
         }
     }
@@ -106,18 +106,17 @@ impl PopulationSystem {
                     // Trouver le player_id du leader
                     if let Ok(leader) = self.db_tables.units.load_unit(leader_unit_id).await {
                         if let Some(player_id) = leader.player_id {
-                            let msg = shared::protocol::ServerMessage::PopulationChanged {
+                            self.bridge_sender.send(BridgeEvent::SendPopulationChanged {
+                                player_id,
                                 organization_id: org_id,
                                 new_population: new_pop as i32,
                                 immigrant: Some(unit_data.clone()),
-                            };
-                            let _ = self.sessions.send_to_player(player_id, msg).await;
+                            });
 
-                            // Envoyer aussi DebugUnitSpawned pour que le client
-                            // ajoute l'unité à ses caches
-                            let spawn_msg =
-                                shared::protocol::ServerMessage::DebugUnitSpawned { unit_data };
-                            let _ = self.sessions.send_to_player(player_id, spawn_msg).await;
+                            self.bridge_sender.send(BridgeEvent::SendDebugUnitSpawned {
+                                player_id,
+                                unit_data,
+                            });
                         }
                     }
                 }

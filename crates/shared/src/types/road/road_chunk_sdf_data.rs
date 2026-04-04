@@ -1,8 +1,9 @@
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// Données SDF des routes pour un chunk
 /// Format optimisé pour le transfert réseau et le rendu GPU
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct RoadChunkSdfData {
     /// Résolution de la grille SDF (typiquement 64-128)
     pub resolution_x: u16,
