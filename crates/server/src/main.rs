@@ -13,6 +13,7 @@ mod auth;
 mod database;
 mod dev;
 mod exploration;
+mod game_data;
 mod http;
 mod networking;
 mod population;

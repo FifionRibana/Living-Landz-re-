@@ -8,6 +8,52 @@ pub use contour_generation::*;
 
 use std::hash::{Hash, Hasher};
 
+use shared::grid::GridCell;
+use sqlx::Row;
+
+use crate::database::client::DatabaseTables;
+
+/// Claim a cell and its 6 hex neighbors for an organization's territory.
+pub async fn claim_cell_and_neighbors(
+    db_tables: &DatabaseTables,
+    org_id: u64,
+    center: &GridCell,
+    claimed_cells: &mut Vec<GridCell>,
+) {
+    if db_tables
+        .organizations
+        .add_territory_cell(org_id, center)
+        .await
+        .is_ok()
+    {
+        claimed_cells.push(*center);
+    }
+
+    for neighbor in center.neighbors() {
+        let already_taken = sqlx::query_scalar::<_, i64>(
+            "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2"
+        )
+        .bind(neighbor.q)
+        .bind(neighbor.r)
+        .fetch_optional(&db_tables.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+        if !already_taken {
+            if db_tables
+                .organizations
+                .add_territory_cell(org_id, &neighbor)
+                .await
+                .is_ok()
+            {
+                claimed_cells.push(neighbor);
+            }
+        }
+    }
+}
+
 /// Generate pseudo-random colors for an organization based on its ID
 /// Returns (border_color, fill_color) as RGBA tuples
 pub fn generate_org_colors(org_id: u64) -> ([f32; 4], [f32; 4]) {
