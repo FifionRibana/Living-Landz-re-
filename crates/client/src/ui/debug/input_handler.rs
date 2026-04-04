@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     grid::resources::SelectedHexes,
-    networking::client::lightyear_client::{
+    networking::client::game_client::{
         SendDebugCreateOrganization, SendDebugDeleteOrganization, SendDebugSpawnUnit,
     },
     state::resources::CurrentOrganization,

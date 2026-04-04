@@ -86,7 +86,7 @@ fn main() {
             tick_duration: Duration::from_millis(50), // 20Hz, must match server
         })
         .add_plugins(shared::protocol::plugin::ProtocolPlugin)
-        .add_plugins(networking::client::lightyear_client::LightyearClientPlugin)
+        .add_plugins(networking::client::game_client::GameClientPlugin)
         //
         .add_plugins((
             // LogDiagnosticsPlugin::default(),

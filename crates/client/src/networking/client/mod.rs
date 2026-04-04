@@ -1,2 +1,2 @@
 pub mod auth_task;
-pub mod lightyear_client;
+pub mod game_client;

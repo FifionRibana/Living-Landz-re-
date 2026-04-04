@@ -6,7 +6,7 @@ use shared::{
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::lightyear_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
+use crate::networking::client::game_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
 use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
 use crate::state::resources::{StreamingConfig, WorldCache};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;

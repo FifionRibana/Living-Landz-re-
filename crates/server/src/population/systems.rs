@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 use crate::database::client::DatabaseTables;
-use crate::networking::server::lightyear::bridge::{BridgeEvent, BridgeSender};
+use crate::networking::server::bridge::{BridgeEvent, BridgeSender};
 use crate::units::{NameGenerator, PortraitGenerator};
 
 pub struct PopulationSystem {

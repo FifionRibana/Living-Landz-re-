@@ -6,7 +6,7 @@ use bevy::{
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::lightyear_client::SendRequestExplorationMap;
+use crate::networking::client::game_client::SendRequestExplorationMap;
 use crate::rendering::mist::materials::{
     GroundFogMaterial, GroundFogParams, MistMaterial, MistParams,
 };

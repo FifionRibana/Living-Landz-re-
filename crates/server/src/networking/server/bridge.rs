@@ -349,14 +349,14 @@ pub enum ActionRequest {
 // ─── Bridge resource (Bevy side) ────────────────────────────────────
 
 #[derive(bevy::prelude::Resource)]
-pub struct LightyearBridge {
+pub struct NetworkBridge {
     /// tokio → Bevy: bridge events (spawn, despawn, position updates, action responses)
     rx: std::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BridgeEvent>>,
     /// Bevy → tokio: action requests pushed by Bevy systems when lightyear messages arrive
     action_tx: tokio::sync::mpsc::UnboundedSender<ActionRequest>,
 }
 
-impl LightyearBridge {
+impl NetworkBridge {
     /// Max bridge events processed per Bevy tick (50ms at 20Hz).
     /// Prevents frame spikes when many events accumulate.
     const MAX_EVENTS_PER_TICK: usize = 128;
@@ -395,7 +395,7 @@ pub struct BridgeSender {
 impl BridgeSender {
     pub fn send(&self, event: BridgeEvent) {
         if self.tx.send(event).is_err() {
-            tracing::warn!("LightyearBridge receiver dropped — event lost");
+            tracing::warn!("NetworkBridge receiver dropped — event lost");
         }
     }
 }
@@ -408,15 +408,15 @@ pub struct ActionRequestReceiver {
 // ─── Bridge creation ────────────────────────────────────────────────
 
 /// Create the full bridge. Returns:
-/// - `LightyearBridge`: Bevy resource
+/// - `NetworkBridge`: Bevy resource
 /// - `BridgeSender`: cloned into tungstenite handlers and ActionProcessor
 /// - `ActionRequestReceiver`: consumed by the tokio action handler task
-pub fn create_bridge() -> (LightyearBridge, BridgeSender, ActionRequestReceiver) {
+pub fn create_bridge() -> (NetworkBridge, BridgeSender, ActionRequestReceiver) {
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
     let (action_tx, action_rx) = tokio::sync::mpsc::unbounded_channel();
 
     (
-        LightyearBridge {
+        NetworkBridge {
             rx: std::sync::Mutex::new(event_rx),
             action_tx,
         },

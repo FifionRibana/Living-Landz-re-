@@ -13,7 +13,7 @@ use crate::state::resources::{
 };
 use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
-use shared::protocol::lightyear_messages::{
+use shared::protocol::messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
     ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
@@ -167,9 +167,9 @@ pub struct SendDebugSpawnUnit {
     pub cell: GridCell,
 }
 
-pub struct LightyearClientPlugin;
+pub struct GameClientPlugin;
 
-impl Plugin for LightyearClientPlugin {
+impl Plugin for GameClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AuthTask>()
             .init_resource::<PendingTerrainChunks>()

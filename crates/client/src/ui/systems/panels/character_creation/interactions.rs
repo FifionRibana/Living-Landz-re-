@@ -3,7 +3,7 @@ use bevy_ui_text_input::{
     TextInputBuffer, TextInputQueue, actions::TextInputAction, actions::TextInputEdit,
 };
 
-use crate::networking::client::lightyear_client::SendCreateLord;
+use crate::networking::client::game_client::SendCreateLord;
 use crate::state::resources::ConnectionStatus;
 use crate::states::AppState;
 

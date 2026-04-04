@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
 
 use crate::camera::resources::SceneRenderTarget;
-use crate::networking::client::lightyear_client::SendRequestInventory;
+use crate::networking::client::game_client::SendRequestInventory;
 use crate::state::resources::{InventoryCache, PlayerInfo};
 use crate::states::GameView;
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};

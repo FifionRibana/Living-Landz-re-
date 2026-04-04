@@ -22,8 +22,8 @@ mod utils;
 mod world;
 
 // Convenience aliases for the new lightyear module
-use networking::server::lightyear::bridge;
-use networking::server::lightyear::systems::LightyearGamePlugin;
+use networking::server::bridge;
+use networking::server::systems::NetworkGamePlugin;
 
 /// Gives Bevy systems access to the tokio runtime and shared server state.
 /// Kept for future use — any Bevy system that needs async DB access can use this.
@@ -195,7 +195,7 @@ fn main() {
         action_processor::start_action_processor(action_processor.clone());
 
         // Start action RPC handler (Bevy→tokio bridge for lightyear action messages)
-        networking::server::lightyear::action_handler::start_action_rpc_handler(
+        networking::server::action_handler::start_action_rpc_handler(
             action_request_receiver,
             bridge_sender_arc.clone(),
             db_tables_arc.clone(),
@@ -236,7 +236,7 @@ fn main() {
             tick_duration: Duration::from_millis(50),
         })
         .add_plugins(shared::protocol::plugin::ProtocolPlugin)
-        .add_plugins(LightyearGamePlugin)
+        .add_plugins(NetworkGamePlugin)
         .insert_resource(lightyear_bridge_res)
         .insert_resource(AsyncBridge {
             runtime: rt_handle,
