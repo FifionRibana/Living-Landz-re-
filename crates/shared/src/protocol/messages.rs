@@ -145,70 +145,15 @@ pub struct GameDataMsg {
     pub payload: GameDataPayload,
 }
 
-// ─── Bulk data request Messages (client → server) ────────────────────
+// ─── Bulk data Messages ─────────────────────────────────────────────
+// Bulk terrain/ocean/lake/global data now travels via HTTP (see #193).
+// Only exploration patches remain on lightyear (incremental updates).
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RequestTerrainChunksMsg {
-    pub terrain_name: String,
-    pub chunk_ids: Vec<TerrainChunkId>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RequestOceanDataMsg {
-    pub world_name: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RequestLakeDataMsg {
-    pub world_name: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RequestTerrainGlobalDataMsg {
-    pub world_name: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RequestExplorationMapMsg {
-    pub terrain_name: String,
-}
-
-// ─── Bulk data response Messages (server → client) ───────────────────
-// All payloads are LZ4-compressed bincode blobs.
-
-/// A single terrain chunk — sent on TerrainChunkChannel.
-/// `compressed_data` is LZ4(bincode(TerrainChunkData + BiomeChunkData + CellData + BuildingData + UnitData)).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Internal struct used by the client to buffer terrain chunk data from HTTP.
+/// Not a lightyear message — kept here for shared access between game_client and streaming.
+#[derive(Clone, Debug, PartialEq)]
 pub struct TerrainChunkDataMsg {
     pub chunk_id: TerrainChunkId,
-    pub compressed_data: Vec<u8>,
-}
-
-/// Ocean SDF + heightmap — sent on OceanDataChannel.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct OceanDataMsg {
-    pub compressed_data: Vec<u8>,
-}
-
-/// Lake mask + SDF — sent on LakeDataChannel.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct LakeDataMsg {
-    pub compressed_data: Vec<u8>,
-}
-
-/// Biome + heightmap global textures — sent on TerrainGlobalChannel.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct TerrainGlobalDataMsg {
-    pub compressed_data: Vec<u8>,
-}
-
-/// Full exploration map — sent on ExplorationChannel.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ExplorationMapMsg {
-    pub width: i32,
-    pub height: i32,
-    pub n_chunk_x: i32,
-    pub n_chunk_y: i32,
     pub compressed_data: Vec<u8>,
 }
 

@@ -3,21 +3,20 @@ use lightyear::prelude::*;
 
 use crate::protocol::{
     channels::{
-        ExplorationChannel, LakeDataChannel, OceanDataChannel, ReliableGameChannel,
-        TerrainChunkChannel, TerrainGlobalChannel,
+        ExplorationChannel, ReliableGameChannel,
     },
     components::{LordPosition, OwnedByPlayer},
     messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
         ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
-        DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationMapMsg, ExplorationPatchMsg,
+        DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationPatchMsg,
         GameDataMsg, HamletFoundErrorMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
-        LakeDataMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg, OrganizationAtCellMsg,
-        PlayerOrganizationDataMsg, PopulationChangedMsg, RequestExplorationMapMsg,
-        RequestInventoryMsg, RequestLakeDataMsg, RequestOceanDataMsg,
-        RequestOrganizationAtCellMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
-        RoadChunkSdfUpdateMsg, TerrainChunkDataMsg, TerrainGlobalDataMsg,
+        LoginSuccessMsg, LordDataMsg,
+        OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg,
+        RequestInventoryMsg,
+        RequestOrganizationAtCellMsg,
+        RoadChunkSdfUpdateMsg,
         TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg,
         UnitPositionUpdatedMsg, UnitProfessionChangedMsg, UnitSlotUpdatedMsg,
         UnitWorkStatusUpdateMsg,
@@ -44,31 +43,7 @@ impl Plugin for ProtocolPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
 
-        // Bulk data channels: server → client
-        app.add_channel::<TerrainChunkChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ServerToClient);
-
-        app.add_channel::<OceanDataChannel>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ServerToClient);
-
-        app.add_channel::<LakeDataChannel>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ServerToClient);
-
-        app.add_channel::<TerrainGlobalChannel>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ServerToClient);
-
+        // Exploration patches remain on lightyear (incremental updates)
         app.add_channel::<ExplorationChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..default()
@@ -91,18 +66,6 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<ActionExploreMsg>()
             .add_direction(NetworkDirection::ClientToServer);
 
-        // Bulk data requests: client → server
-        app.register_message::<RequestTerrainChunksMsg>()
-            .add_direction(NetworkDirection::ClientToServer);
-        app.register_message::<RequestOceanDataMsg>()
-            .add_direction(NetworkDirection::ClientToServer);
-        app.register_message::<RequestLakeDataMsg>()
-            .add_direction(NetworkDirection::ClientToServer);
-        app.register_message::<RequestTerrainGlobalDataMsg>()
-            .add_direction(NetworkDirection::ClientToServer);
-        app.register_message::<RequestExplorationMapMsg>()
-            .add_direction(NetworkDirection::ClientToServer);
-
         // Messages: server → client
         app.register_message::<ActionStatusMsg>()
             .add_direction(NetworkDirection::ServerToClient);
@@ -123,17 +86,7 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<GameDataMsg>()
             .add_direction(NetworkDirection::ServerToClient);
 
-        // Bulk data responses: server → client
-        app.register_message::<TerrainChunkDataMsg>()
-            .add_direction(NetworkDirection::ServerToClient);
-        app.register_message::<OceanDataMsg>()
-            .add_direction(NetworkDirection::ServerToClient);
-        app.register_message::<LakeDataMsg>()
-            .add_direction(NetworkDirection::ServerToClient);
-        app.register_message::<TerrainGlobalDataMsg>()
-            .add_direction(NetworkDirection::ServerToClient);
-        app.register_message::<ExplorationMapMsg>()
-            .add_direction(NetworkDirection::ServerToClient);
+        // Exploration patches remain on lightyear (incremental updates)
         app.register_message::<ExplorationPatchMsg>()
             .add_direction(NetworkDirection::ServerToClient);
 

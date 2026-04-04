@@ -7,22 +7,21 @@ use lightyear::prelude::*;
 
 use shared::protocol::{
     channels::{
-        ExplorationChannel, LakeDataChannel, OceanDataChannel, ReliableGameChannel,
-        TerrainChunkChannel, TerrainGlobalChannel,
+        ExplorationChannel, ReliableGameChannel,
     },
     components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer},
     messages::{
         ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
         ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
         ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
-        DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationMapMsg, ExplorationPatchMsg,
+        DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationPatchMsg,
         GameDataMsg, HamletFoundErrorMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
-        LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
+        LoginSuccessMsg, LordDataMsg,
         OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg,
-        RequestExplorationMapMsg, RequestInventoryMsg, RequestLakeDataMsg,
-        RequestOceanDataMsg, RequestOrganizationAtCellMsg, RequestTerrainChunksMsg,
-        RequestTerrainGlobalDataMsg, RoadChunkSdfUpdateMsg, TerrainChunkDataMsg,
-        TerrainGlobalDataMsg, TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg,
+        RequestInventoryMsg,
+        RequestOrganizationAtCellMsg,
+        RoadChunkSdfUpdateMsg,
+        TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg,
         TerritoryContourUpdateMsg, UnitPositionUpdatedMsg, UnitProfessionChangedMsg,
         UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
         CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
@@ -95,11 +94,6 @@ impl Plugin for NetworkGamePlugin {
                     receive_explore_messages,
                     receive_inventory_requests,
                     receive_organization_at_cell_requests,
-                    receive_terrain_chunk_requests,
-                    receive_ocean_data_requests,
-                    receive_lake_data_requests,
-                    receive_terrain_global_data_requests,
-                    receive_exploration_map_requests,
                 ),
             )
             .add_systems(
@@ -433,48 +427,6 @@ pub fn poll_bridge_events(
                 tracing::info!("📦 Sent login data to player {} via lightyear", player_id);
             }
 
-            // ── Step 1 (#137): Bulk data responses ──
-
-            BridgeEvent::SendTerrainChunk { player_id, chunk_id, compressed_data } => {
-                let Some(srv) = srv else { continue; };
-                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = TerrainChunkDataMsg { chunk_id, compressed_data };
-                if let Err(e) = msg_sender.send::<_, TerrainChunkChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send terrain chunk: {:?}", e);
-                }
-            }
-            BridgeEvent::SendOceanData { player_id, compressed_data } => {
-                let Some(srv) = srv else { continue; };
-                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = OceanDataMsg { compressed_data };
-                if let Err(e) = msg_sender.send::<_, OceanDataChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send ocean data: {:?}", e);
-                }
-            }
-            BridgeEvent::SendLakeData { player_id, compressed_data } => {
-                let Some(srv) = srv else { continue; };
-                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = LakeDataLyMsg { compressed_data };
-                if let Err(e) = msg_sender.send::<_, LakeDataChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send lake data: {:?}", e);
-                }
-            }
-            BridgeEvent::SendTerrainGlobalData { player_id, compressed_data } => {
-                let Some(srv) = srv else { continue; };
-                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = TerrainGlobalDataMsg { compressed_data };
-                if let Err(e) = msg_sender.send::<_, TerrainGlobalChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send terrain global data: {:?}", e);
-                }
-            }
-            BridgeEvent::SendExplorationMap { player_id, width, height, n_chunk_x, n_chunk_y, compressed_data } => {
-                let Some(srv) = srv else { continue; };
-                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = ExplorationMapMsg { width, height, n_chunk_x, n_chunk_y, compressed_data };
-                if let Err(e) = msg_sender.send::<_, ExplorationChannel>(&msg, srv, &target) {
-                    tracing::error!("Failed to send exploration map: {:?}", e);
-                }
-            }
             BridgeEvent::SendExplorationPatch { player_id, patch_x, patch_y, patch_width, patch_height, compressed_data } => {
                 let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
@@ -1065,84 +1017,6 @@ fn receive_organization_at_cell_requests(
             bridge.send_action(super::bridge::ActionRequest::LoadOrganizationAtCell {
                 player_id,
                 cell: msg.cell,
-            });
-        }
-    }
-}
-
-// ─── Bulk data request receivers (#137 Step 1) ───────────────────────
-
-fn receive_terrain_chunk_requests(
-    mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainChunksMsg>, &RemoteId)>,
-    bridge: Res<NetworkBridge>,
-) {
-    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
-        let player_id = remote_id.0.to_bits();
-        for msg in receiver.receive() {
-            bridge.send_action(super::bridge::ActionRequest::LoadTerrainChunks {
-                player_id,
-                terrain_name: msg.terrain_name.clone(),
-                chunk_ids: msg.chunk_ids.clone(),
-            });
-        }
-    }
-}
-
-fn receive_ocean_data_requests(
-    mut receivers: Query<(Entity, &mut MessageReceiver<RequestOceanDataMsg>, &RemoteId)>,
-    bridge: Res<NetworkBridge>,
-) {
-    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
-        let player_id = remote_id.0.to_bits();
-        for msg in receiver.receive() {
-            bridge.send_action(super::bridge::ActionRequest::LoadOceanData {
-                player_id,
-                world_name: msg.world_name.clone(),
-            });
-        }
-    }
-}
-
-fn receive_lake_data_requests(
-    mut receivers: Query<(Entity, &mut MessageReceiver<RequestLakeDataMsg>, &RemoteId)>,
-    bridge: Res<NetworkBridge>,
-) {
-    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
-        let player_id = remote_id.0.to_bits();
-        for msg in receiver.receive() {
-            bridge.send_action(super::bridge::ActionRequest::LoadLakeData {
-                player_id,
-                world_name: msg.world_name.clone(),
-            });
-        }
-    }
-}
-
-fn receive_terrain_global_data_requests(
-    mut receivers: Query<(Entity, &mut MessageReceiver<RequestTerrainGlobalDataMsg>, &RemoteId)>,
-    bridge: Res<NetworkBridge>,
-) {
-    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
-        let player_id = remote_id.0.to_bits();
-        for msg in receiver.receive() {
-            bridge.send_action(super::bridge::ActionRequest::LoadTerrainGlobalData {
-                player_id,
-                world_name: msg.world_name.clone(),
-            });
-        }
-    }
-}
-
-fn receive_exploration_map_requests(
-    mut receivers: Query<(Entity, &mut MessageReceiver<RequestExplorationMapMsg>, &RemoteId)>,
-    bridge: Res<NetworkBridge>,
-) {
-    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
-        let player_id = remote_id.0.to_bits();
-        for msg in receiver.receive() {
-            bridge.send_action(super::bridge::ActionRequest::LoadExplorationMap {
-                player_id,
-                terrain_name: msg.terrain_name.clone(),
             });
         }
     }
