@@ -6,6 +6,7 @@ pub mod auth;
 pub mod database;
 pub mod dev;
 pub mod exploration;
+pub mod game_data;
 pub mod http;
 pub mod networking;
 pub mod road;

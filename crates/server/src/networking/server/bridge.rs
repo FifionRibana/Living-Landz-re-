@@ -23,8 +23,6 @@ pub enum BridgeEvent {
     /// Player disconnected — despawn their lord entity.
     DespawnLord { player_id: u64 },
 
-    // ── NEW: Action responses to forward to client via lightyear ──
-
     /// Send an ActionStatusMsg to a specific player via lightyear.
     SendActionStatus {
         player_id: u64,
@@ -80,33 +78,8 @@ pub enum BridgeEvent {
         game_data: shared::protocol::GameDataPayload,
     },
 
-    // ── Bulk data responses (#137 Step 1) ──
+    // ── Exploration patches (incremental updates, remain on lightyear) ──
 
-    SendTerrainChunk {
-        player_id: u64,
-        chunk_id: TerrainChunkId,
-        compressed_data: Vec<u8>,
-    },
-    SendOceanData {
-        player_id: u64,
-        compressed_data: Vec<u8>,
-    },
-    SendLakeData {
-        player_id: u64,
-        compressed_data: Vec<u8>,
-    },
-    SendTerrainGlobalData {
-        player_id: u64,
-        compressed_data: Vec<u8>,
-    },
-    SendExplorationMap {
-        player_id: u64,
-        width: i32,
-        height: i32,
-        n_chunk_x: i32,
-        n_chunk_y: i32,
-        compressed_data: Vec<u8>,
-    },
     SendExplorationPatch {
         player_id: u64,
         patch_x: i32,
@@ -115,8 +88,6 @@ pub enum BridgeEvent {
         patch_height: i32,
         compressed_data: Vec<u8>,
     },
-
-    // ── Step 2 events: remaining server→client messages ──
 
     SendInventoryData {
         player_id: u64,
@@ -269,32 +240,6 @@ pub enum ActionRequest {
     LoadPlayerData {
         player_id: u64,
     },
-
-    // ── Bulk data requests (#137 Step 1) ──
-
-    LoadTerrainChunks {
-        player_id: u64,
-        terrain_name: String,
-        chunk_ids: Vec<TerrainChunkId>,
-    },
-    LoadOceanData {
-        player_id: u64,
-        world_name: String,
-    },
-    LoadLakeData {
-        player_id: u64,
-        world_name: String,
-    },
-    LoadTerrainGlobalData {
-        player_id: u64,
-        world_name: String,
-    },
-    LoadExplorationMap {
-        player_id: u64,
-        terrain_name: String,
-    },
-
-    // ── Step 2 requests ──
 
     LoadInventory {
         player_id: u64,
