@@ -261,7 +261,7 @@ impl ActionManager {
             .await?;
 
             for row in rows {
-                // TODO: Charger l'action spécifique depuis la bonne table
+                // TODO: Load specific action from the appropriate table
                 // Pour l'instant c'est un placeholder
             }
         }

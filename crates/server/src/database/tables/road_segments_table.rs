@@ -265,7 +265,7 @@ impl RoadSegmentsTable {
                     }
                 };
 
-                // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+                // TODO: Load road category/variant from lookup table instead of hardcoding
                 let road_type = match road_type_id {
                     1 => shared::RoadType::dirt_path(1),
                     2 => shared::RoadType::paved_road(2),
@@ -356,7 +356,7 @@ impl RoadSegmentsTable {
                     }
                 };
 
-                // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+                // TODO: Load road category/variant from lookup table instead of hardcoding
                 let road_type = match road_type_id {
                     1 => shared::RoadType::dirt_path(1),
                     2 => shared::RoadType::paved_road(2),
@@ -433,7 +433,7 @@ impl RoadSegmentsTable {
                 }
             };
 
-            // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+            // TODO: Load road category/variant from lookup table instead of hardcoding
             let road_type = match road_type_id {
                 1 => shared::RoadType::dirt_path(1),
                 2 => shared::RoadType::paved_road(2),
@@ -528,7 +528,7 @@ impl RoadSegmentsTable {
                     }
                 };
 
-                // Construire le RoadType depuis l'ID (TODO: charger category/variant depuis lookup)
+                // TODO: Load road category/variant from lookup table instead of hardcoding
                 let road_type = match road_type_id {
                     1 => shared::RoadType::dirt_path(1),
                     2 => shared::RoadType::paved_road(2),

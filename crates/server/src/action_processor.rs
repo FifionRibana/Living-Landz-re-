@@ -40,7 +40,7 @@ pub struct ActionInfo {
     pub start_time: u64,
     pub duration_ms: u64,
     pub completion_time: u64,
-    // TODO: Ajouter action_name et unit_ids
+    // TODO: Add action_name and unit_ids fields
 }
 
 pub struct ActionProcessor {

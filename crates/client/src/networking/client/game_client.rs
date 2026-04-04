@@ -314,7 +314,6 @@ fn poll_auth_task(
         }
         Err(e) => {
             warn!("❌ Auth failed: {}", e);
-            // TODO: show error in UI
         }
     }
 }

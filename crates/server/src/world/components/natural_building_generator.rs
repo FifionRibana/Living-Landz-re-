@@ -7,7 +7,7 @@ use shared::{
     BiomeTypeEnum, BuildingBaseData, BuildingCategoryEnum, BuildingData, BuildingSpecific, BuildingSpecificTypeEnum, GameState, TreeAge, TreeData, TreeTypeEnum, grid::{CellData, GridCell}
 };
 
-// TODO Move into utils
+// TODO: Move noise/random utility functions to a shared utils module
 struct NoiseGenerator {
     distribution: Perlin,
     quality: Perlin,
@@ -153,7 +153,6 @@ impl NaturalBuildingGenerator {
         }
     }
 
-    // TODO: Move to utils
     fn generate_building_id(cell: &GridCell) -> u64 {
         let mut hash = 0x517cc1b727220a95u64;
         hash ^= cell.q as u64;
@@ -177,7 +176,6 @@ impl NaturalBuildingGenerator {
         }
     }
 
-    // TODO: Move to utils
     fn timestamp() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
