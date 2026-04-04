@@ -32,7 +32,6 @@ pub struct AsyncBridge {
     pub runtime: tokio::runtime::Handle,
     pub db_tables: Arc<database::client::DatabaseTables>,
     pub game_state: Arc<shared::GameState>,
-    pub sessions: networking::Sessions,
     pub grid_config: Arc<shared::grid::GridConfig>,
 }
 
@@ -150,7 +149,6 @@ fn main() {
         tracing::info!("✓ World globals loaded");
 
         // ── Shared state ──
-        let sessions = networking::Sessions::default();
         let db_tables_arc = Arc::new(db_tables);
         let game_state_arc = Arc::new(game_state);
         let grid_config_arc = Arc::new(grid_config);
@@ -171,29 +169,15 @@ fn main() {
         // ── Action processor (receives bridge_sender to push position updates) ──
         let action_processor = Arc::new(action_processor::ActionProcessor::new(
             db_tables_arc.clone(),
-            sessions.clone(),
             game_state_arc.clone(),
             grid_config_arc.clone(),
             dev_config_arc.clone(),
-            bridge_sender_arc.clone(), // NEW — for UpdateLordPosition events
+            bridge_sender_arc.clone(),
         ));
 
         if let Err(e) = action_processor.load_active_actions().await {
             tracing::error!("Failed to load active actions: {}", e);
         }
-
-        // ── Tungstenite server (receives bridge_sender to push SpawnLord/DespawnLord) ──
-        networking::server::initialize_server(
-            sessions.clone(),
-            db_tables_arc.clone(),
-            action_processor.clone(),
-            name_generator.clone(),
-            game_state_arc.clone(),
-            grid_config_arc.clone(),
-            dev_config_arc.clone(),
-            world_global_state_arc.clone(),
-            bridge_sender_arc.clone(), // NEW
-        );
 
         // ── HTTP auth server (shares tokio runtime) ──
         let game_server_addr: std::net::SocketAddr = format!(
@@ -224,7 +208,7 @@ fn main() {
 
         let population_system = Arc::new(population::PopulationSystem::new(
             db_tables_arc.clone(),
-            sessions.clone(),
+            bridge_sender_arc.clone(),
             name_generator.clone(),
         ));
         population::start_population_tick(population_system);
@@ -233,15 +217,14 @@ fn main() {
         (
             db_tables_arc,
             game_state_arc,
-            sessions,
             grid_config_arc,
-            lightyear_bridge_res, // NEW
+            lightyear_bridge_res,
         )
     });
 
-    let (db_tables_arc, game_state_arc, sessions, grid_config_arc, lightyear_bridge_res) = init;
+    let (db_tables_arc, game_state_arc, grid_config_arc, lightyear_bridge_res) = init;
 
-    // Keep tokio runtime alive — background tasks (tungstenite, action processor,
+    // Keep tokio runtime alive — background tasks (action processor,
     // population ticks) must survive beyond this point.
     let rt_handle = rt.handle().clone();
     std::mem::forget(rt);
@@ -249,26 +232,18 @@ fn main() {
     // === Build Bevy App with Lightyear ===
     App::new()
         .add_plugins(MinimalPlugins)
-        // Lightyear server plugins at 20Hz tick rate
         .add_plugins(ServerPlugins {
             tick_duration: Duration::from_millis(50),
         })
-        // Shared protocol (LordPosition, OwnedByPlayer, channels)
         .add_plugins(shared::protocol::plugin::ProtocolPlugin)
-        // Phase 2: game logic — bridge polling, rooms, observers
         .add_plugins(LightyearGamePlugin)
-        // Bridge: async world → ECS
         .insert_resource(lightyear_bridge_res)
-        // Legacy bridge: gives Bevy systems access to tokio/DB if needed
         .insert_resource(AsyncBridge {
             runtime: rt_handle,
             db_tables: db_tables_arc,
             game_state: game_state_arc,
-            sessions: sessions.clone(),
             grid_config: grid_config_arc,
         })
-        .insert_resource(sessions)
-        // Lightyear UDP server setup
         .add_systems(Startup, setup_lightyear_server)
         .run();
 }

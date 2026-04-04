@@ -812,6 +812,10 @@ impl WorldCache {
     pub fn is_exploration_loaded(&self) -> bool {
         self.exploration.is_loaded()
     }
+    /// Diagnostic: number of coastal chunks known.
+    pub fn coastal_chunk_count(&self) -> usize {
+        self.coastal_chunks.len()
+    }
     pub fn is_exploration_requested(&self) -> bool {
         self.exploration.is_requested()
     }

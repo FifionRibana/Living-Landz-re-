@@ -6,7 +6,6 @@ use shared::{
 
 use crate::{
     grid::resources::SelectedHexes,
-    networking::client::NetworkClient,
     networking::client::lightyear_client::{SendActionBuildBuilding, SendActionBuildRoad},
     state::resources::{ConnectionStatus, GameDataCache},
     ui::{

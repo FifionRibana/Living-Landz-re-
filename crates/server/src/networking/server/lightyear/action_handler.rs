@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
 use shared::grid::GridCell;
+use shared::protocol::ColorData;
 use shared::{
-    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, GameState, ProfessionEnum,
-    ResourceSpecificTypeEnum, TerrainChunkId,
+    ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ContourSegmentData, GameState,
+    OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, SlotPosition, TerrainChunkId,
 };
 use crate::action_processor::ActionProcessor;
 use crate::database::client::DatabaseTables;
 use crate::dev::DevConfig;
+use crate::units::PortraitGenerator;
 use crate::world::resources::WorldGlobalState;
+use crate::world;
 
 use super::bridge::{ActionRequest, ActionRequestReceiver, BridgeEvent, BridgeSender};
 
@@ -254,6 +257,64 @@ pub fn start_action_rpc_handler(
                         &db_tables,
                     )
                     .await;
+                }
+
+                // ── Remaining commands migrated from tungstenite (#138) ──
+
+                ActionRequest::CreateLord {
+                    player_id,
+                    first_name,
+                    gender,
+                    portrait_layers,
+                } => {
+                    handle_create_lord(
+                        player_id, &first_name, &gender, &portrait_layers,
+                        &bridge_sender, &db_tables,
+                    ).await;
+                }
+                ActionRequest::FoundHamlet { player_id } => {
+                    handle_found_hamlet(
+                        player_id,
+                        &bridge_sender, &db_tables, &grid_config, &world_global_state,
+                    ).await;
+                }
+                ActionRequest::MoveUnitToSlot {
+                    player_id, unit_id, cell, from_slot, to_slot,
+                } => {
+                    handle_move_unit_to_slot(
+                        player_id, unit_id, cell, from_slot, to_slot,
+                        &bridge_sender, &db_tables,
+                    ).await;
+                }
+                ActionRequest::AssignUnitToSlot {
+                    player_id, unit_id, cell, slot,
+                } => {
+                    handle_assign_unit_to_slot(
+                        player_id, unit_id, cell, slot,
+                        &bridge_sender, &db_tables,
+                    ).await;
+                }
+                ActionRequest::DebugCreateOrganization {
+                    player_id, name, organization_type, cell, parent_organization_id,
+                } => {
+                    handle_debug_create_organization(
+                        player_id, &name, organization_type, cell, parent_organization_id,
+                        &bridge_sender, &db_tables, &grid_config, &world_global_state,
+                    ).await;
+                }
+                ActionRequest::DebugDeleteOrganization {
+                    player_id, organization_id,
+                } => {
+                    handle_debug_delete_organization(
+                        player_id, organization_id,
+                        &bridge_sender, &db_tables,
+                    ).await;
+                }
+                ActionRequest::DebugSpawnUnit { player_id, cell } => {
+                    handle_debug_spawn_unit(
+                        player_id, cell,
+                        &bridge_sender, &db_tables,
+                    ).await;
                 }
             }
         }
@@ -1602,4 +1663,407 @@ fn send_terrain_chunk(
         raw.len() as f64 / compressed.len().max(1) as f64
     );
     bridge_sender.send(BridgeEvent::SendTerrainChunk { player_id, chunk_id, compressed_data: compressed });
+}
+
+// ─── Remaining command handlers (#138) ──────────────────────────────
+
+async fn handle_create_lord(
+    player_id: u64, first_name: &str, gender: &str, portrait_layers: &str,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+) {
+    tracing::info!("Player {} creating lord: {} ({})", player_id, first_name, gender);
+
+    // Check no existing lord
+    match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(_)) => {
+            bridge_sender.send(BridgeEvent::SendLordCreateError {
+                player_id, reason: "Vous avez déjà un Lord/Lady".to_string(),
+            });
+            return;
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendLordCreateError {
+                player_id, reason: format!("Erreur: {}", e),
+            });
+            return;
+        }
+        Ok(None) => {}
+    }
+
+    let family_name = match shared::types::game::methods::get_player_by_id(&db_tables.pool, player_id as i64).await {
+        Ok(Some(p)) => p.family_name,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendLordCreateError {
+                player_id, reason: "Joueur introuvable".to_string(),
+            });
+            return;
+        }
+    };
+
+    let starting_cell = GridCell { q: 0, r: 0 };
+    let starting_chunk = TerrainChunkId { x: 0, y: 0 };
+    let avatar_url = format!("lord_{}_{}", gender, player_id);
+
+    match db_tables.units.create_unit(
+        Some(player_id), first_name.to_string(), family_name.clone(), gender.to_string(),
+        "lord".to_string(), avatar_url, starting_cell, starting_chunk,
+        ProfessionEnum::Unknown, true, Some(portrait_layers.to_string()),
+    ).await {
+        Ok(unit_id) => {
+            let _ = shared::types::game::methods::create_character(
+                &db_tables.pool, player_id as i64, first_name, &family_name,
+                None, None, None,
+            ).await;
+            match db_tables.units.load_unit(unit_id).await {
+                Ok(unit_data) => {
+                    bridge_sender.send(BridgeEvent::SendLordCreated { player_id, unit_data });
+                }
+                Err(e) => {
+                    bridge_sender.send(BridgeEvent::SendLordCreateError {
+                        player_id, reason: format!("Lord créé mais erreur au chargement: {}", e),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendLordCreateError {
+                player_id, reason: format!("Erreur lors de la création: {}", e),
+            });
+        }
+    }
+}
+
+async fn handle_found_hamlet(
+    player_id: u64,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    grid_config: &shared::grid::GridConfig, world_global_state: &WorldGlobalState,
+) {
+    tracing::info!("Player {} requesting to found a hamlet", player_id);
+
+    let lord = match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(lord)) => lord,
+        Ok(None) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: "Vous n'avez pas de Lord/Lady".to_string(),
+            });
+            return;
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: format!("Erreur: {}", e),
+            });
+            return;
+        }
+    };
+
+    let cell = lord.current_cell;
+
+    // Check cell not already in a territory
+    match sqlx::query_scalar::<_, i64>(
+        "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2"
+    ).bind(cell.q).bind(cell.r).fetch_optional(&db_tables.pool).await {
+        Ok(Some(_)) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: "Cette cellule appartient déjà à un territoire".to_string(),
+            });
+            return;
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: format!("Erreur DB: {}", e),
+            });
+            return;
+        }
+        Ok(None) => {}
+    }
+
+    // Check player doesn't already have an org
+    match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1"
+    ).bind(lord.id as i64).fetch_optional(&db_tables.pool).await {
+        Ok(Some(id)) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: format!("Vous avez déjà une organisation (ID: {})", id),
+            });
+            return;
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: format!("Erreur DB: {}", e),
+            });
+            return;
+        }
+        Ok(None) => {}
+    }
+
+    let family_name = match shared::types::game::methods::get_player_by_id(
+        &db_tables.pool, player_id as i64,
+    ).await {
+        Ok(Some(p)) => p.family_name,
+        _ => "Inconnu".to_string(),
+    };
+
+    let hamlet_name = format!("Hameau de {}", family_name);
+
+    let request = shared::CreateOrganizationRequest {
+        name: hamlet_name.clone(),
+        organization_type: OrganizationType::Hamlet,
+        headquarters_cell: Some(cell),
+        parent_organization_id: None,
+        founder_unit_id: lord.id,
+    };
+
+    let org_id = match db_tables.organizations.create_organization(request).await {
+        Ok(id) => id,
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendHamletFoundError {
+                player_id, reason: format!("Échec de la création: {}", e),
+            });
+            return;
+        }
+    };
+
+    // Claim territory via Voronoi zones
+    let mut claimed_cells = Vec::new();
+    match db_tables.voronoi_zones.get_zone_at_cell(cell).await {
+        Ok(Some(zone_id)) => {
+            match db_tables.voronoi_zones.is_zone_available(zone_id).await {
+                Ok(true) => {
+                    if let Ok(zone_cells) = db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                        for zone_cell in &zone_cells {
+                            if db_tables.organizations.add_territory_cell(org_id, zone_cell).await.is_ok() {
+                                claimed_cells.push(*zone_cell);
+                            }
+                        }
+                        let _ = sqlx::query("UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2")
+                            .bind(zone_id).bind(org_id as i64).execute(&db_tables.pool).await;
+                    } else {
+                        crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                    }
+                }
+                _ => {
+                    crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                }
+            }
+        }
+        _ => {
+            crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+        }
+    }
+
+    // Generate territory contours
+    if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await {
+        if !territory_cells.is_empty() {
+            use hexx::Hex;
+            let territory_hex: std::collections::HashSet<Hex> =
+                territory_cells.iter().map(|c| c.to_hex()).collect();
+            let contour_points = &world::territory::build_contour(
+                &grid_config.layout, &territory_hex, 0.0, org_id as u64,
+            );
+            let contour_chunks = crate::utils::chunks::split_contour_into_chunks(contour_points);
+            for (chunk_id, contour_segments) in &contour_chunks {
+                let _ = db_tables.territory_contours.store_contour(org_id, chunk_id.x, chunk_id.y, contour_segments).await;
+                let (border_color, fill_color) = world::territory::generate_org_colors(org_id);
+                bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
+                    chunk_id: *chunk_id,
+                    contours: vec![shared::protocol::TerritoryContourChunkData {
+                        organization_id: org_id,
+                        chunk_id: *chunk_id,
+                        segments: contour_segments.iter().map(ContourSegmentData::from_contour_segment).collect(),
+                        border_color: ColorData::from_array(border_color),
+                        fill_color: ColorData::from_array(fill_color),
+                    }],
+                });
+            }
+        }
+    }
+
+    bridge_sender.send(BridgeEvent::SendHamletFounded {
+        player_id, organization_id: org_id, name: hamlet_name,
+        headquarters: cell, territory_cells: claimed_cells,
+    });
+}
+
+async fn handle_move_unit_to_slot(
+    player_id: u64, unit_id: u64, cell: GridCell, _from_slot: SlotPosition, to_slot: SlotPosition,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+) {
+    let slot_type_str = match to_slot.slot_type {
+        shared::SlotType::Interior => "interior",
+        shared::SlotType::Exterior => "exterior",
+    };
+    match db_tables.units.update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(to_slot.index as i32)).await {
+        Ok(_) => {
+            bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
+                player_id, unit_id, cell, slot_position: Some(to_slot),
+            });
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id, reason: format!("Failed to update slot position: {}", e),
+            });
+        }
+    }
+}
+
+async fn handle_assign_unit_to_slot(
+    player_id: u64, unit_id: u64, cell: GridCell, slot: SlotPosition,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+) {
+    let slot_type_str = match slot.slot_type {
+        shared::SlotType::Interior => "interior",
+        shared::SlotType::Exterior => "exterior",
+    };
+    match db_tables.units.update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(slot.index as i32)).await {
+        Ok(_) => {
+            bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
+                player_id, unit_id, cell, slot_position: Some(slot),
+            });
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id, reason: format!("Failed to assign slot position: {}", e),
+            });
+        }
+    }
+}
+
+async fn handle_debug_create_organization(
+    player_id: u64, name: &str, organization_type: OrganizationType,
+    cell: GridCell, parent_organization_id: Option<u64>,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    grid_config: &shared::grid::GridConfig, world_global_state: &WorldGlobalState,
+) {
+    tracing::info!("DEBUG: Creating org '{}' type {:?} at {:?}", name, organization_type, cell);
+
+    // Create leader unit
+    let (first, last) = (format!("Leader_{}", name), "Debug".to_string());
+    let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Merchant);
+
+    let founder_unit_id = match db_tables.units.create_unit(
+        None, first, last, "male".to_string(), variant_id, avatar_url,
+        cell, TerrainChunkId { x: 0, y: 0 }, ProfessionEnum::Merchant, false, None,
+    ).await {
+        Ok(id) => id,
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendDebugError {
+                player_id, reason: format!("Failed to create leader unit: {}", e),
+            });
+            return;
+        }
+    };
+
+    let request = shared::CreateOrganizationRequest {
+        name: name.to_string(), organization_type,
+        headquarters_cell: Some(cell), parent_organization_id,
+        founder_unit_id,
+    };
+
+    match db_tables.organizations.create_organization(request).await {
+        Ok(org_id) => {
+            // Claim Voronoi zone territory
+            let mut claimed_cells = Vec::new();
+            if let Ok(Some(zone_id)) = db_tables.voronoi_zones.get_zone_at_cell(cell).await {
+                if let Ok(true) = db_tables.voronoi_zones.is_zone_available(zone_id).await {
+                    if let Ok(zone_cells) = db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                        for zc in &zone_cells {
+                            if db_tables.organizations.add_territory_cell(org_id, zc).await.is_ok() {
+                                claimed_cells.push(*zc);
+                            }
+                        }
+                        let _ = sqlx::query("UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2")
+                            .bind(zone_id).bind(org_id as i64).execute(&db_tables.pool).await;
+                    }
+                }
+            }
+            if claimed_cells.is_empty() {
+                crate::networking::server::handlers::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+            }
+
+            // Generate contours
+            if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await {
+                if !territory_cells.is_empty() {
+                    use hexx::Hex;
+                    let territory_hex: std::collections::HashSet<Hex> = territory_cells.iter().map(|c| c.to_hex()).collect();
+                    let contour_points = &world::territory::build_contour(&grid_config.layout, &territory_hex, 0.0, org_id as u64);
+                    let contour_chunks = crate::utils::chunks::split_contour_into_chunks(contour_points);
+                    for (chunk_id, segs) in &contour_chunks {
+                        let _ = db_tables.territory_contours.store_contour(org_id, chunk_id.x, chunk_id.y, segs).await;
+                        let (bc, fc) = world::territory::generate_org_colors(org_id);
+                        bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
+                            chunk_id: *chunk_id,
+                            contours: vec![shared::protocol::TerritoryContourChunkData {
+                                organization_id: org_id, chunk_id: *chunk_id,
+                                segments: segs.iter().map(ContourSegmentData::from_contour_segment).collect(),
+                                border_color: ColorData::from_array(bc), fill_color: ColorData::from_array(fc),
+                            }],
+                        });
+                    }
+                }
+            }
+
+            bridge_sender.send(BridgeEvent::SendDebugOrganizationCreated {
+                player_id, organization_id: org_id, name: name.to_string(),
+            });
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendDebugError {
+                player_id, reason: format!("Failed to create org: {}", e),
+            });
+        }
+    }
+}
+
+async fn handle_debug_delete_organization(
+    player_id: u64, organization_id: u64,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+) {
+    tracing::info!("DEBUG: Deleting organization {}", organization_id);
+    match sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
+        .bind(organization_id as i64)
+        .execute(&db_tables.pool)
+        .await
+    {
+        Ok(_) => {
+            bridge_sender.send(BridgeEvent::SendDebugOrganizationDeleted {
+                player_id, organization_id,
+            });
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendDebugError {
+                player_id, reason: format!("Failed to delete org: {}", e),
+            });
+        }
+    }
+}
+
+async fn handle_debug_spawn_unit(
+    player_id: u64, cell: GridCell,
+    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+) {
+    tracing::info!("DEBUG: Spawning unit at {:?}", cell);
+    let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Settler);
+    match db_tables.units.create_unit(
+        Some(player_id), "Debug".to_string(), "Unit".to_string(), "male".to_string(),
+        variant_id, avatar_url, cell, TerrainChunkId { x: 0, y: 0 },
+        ProfessionEnum::Settler, false, None,
+    ).await {
+        Ok(unit_id) => {
+            match db_tables.units.load_unit(unit_id).await {
+                Ok(unit_data) => {
+                    bridge_sender.send(BridgeEvent::SendDebugUnitSpawned { player_id, unit_data });
+                }
+                Err(e) => {
+                    bridge_sender.send(BridgeEvent::SendDebugError {
+                        player_id, reason: format!("Unit created but failed to load: {}", e),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            bridge_sender.send(BridgeEvent::SendDebugError {
+                player_id, reason: format!("Failed to spawn unit: {}", e),
+            });
+        }
+    }
 }

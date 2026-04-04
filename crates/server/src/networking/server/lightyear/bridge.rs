@@ -204,6 +204,17 @@ pub enum BridgeEvent {
         player_id: u64,
         reason: String,
     },
+
+    // ── Lord lifecycle / remaining responses (#138) ──
+
+    SendLordCreated {
+        player_id: u64,
+        unit_data: shared::UnitData,
+    },
+    SendLordCreateError {
+        player_id: u64,
+        reason: String,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────
@@ -290,6 +301,46 @@ pub enum ActionRequest {
         unit_id: u64,
     },
     LoadOrganizationAtCell {
+        player_id: u64,
+        cell: GridCell,
+    },
+
+    // ── Remaining commands migrated from tungstenite (#138) ──
+
+    CreateLord {
+        player_id: u64,
+        first_name: String,
+        gender: String,
+        portrait_layers: String,
+    },
+    FoundHamlet {
+        player_id: u64,
+    },
+    MoveUnitToSlot {
+        player_id: u64,
+        unit_id: u64,
+        cell: GridCell,
+        from_slot: shared::SlotPosition,
+        to_slot: shared::SlotPosition,
+    },
+    AssignUnitToSlot {
+        player_id: u64,
+        unit_id: u64,
+        cell: GridCell,
+        slot: shared::SlotPosition,
+    },
+    DebugCreateOrganization {
+        player_id: u64,
+        name: String,
+        organization_type: shared::OrganizationType,
+        cell: GridCell,
+        parent_organization_id: Option<u64>,
+    },
+    DebugDeleteOrganization {
+        player_id: u64,
+        organization_id: u64,
+    },
+    DebugSpawnUnit {
         player_id: u64,
         cell: GridCell,
     },

@@ -1,25 +1,27 @@
 use bevy::prelude::*;
-// use hexx::Hex;
 
 use crate::{
-    grid::resources::SelectedHexes, networking::client::NetworkClient,
+    grid::resources::SelectedHexes,
+    networking::client::lightyear_client::{
+        SendDebugCreateOrganization, SendDebugDeleteOrganization, SendDebugSpawnUnit,
+    },
     state::resources::CurrentOrganization,
 };
 use shared::{
     OrganizationType,
     grid::{GridCell, GridConfig},
-    protocol::ClientMessage,
 };
 
-/// Système pour gérer les raccourcis clavier de debug
+/// Debug keyboard shortcuts system
 pub fn handle_debug_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     selected_hexes: Res<SelectedHexes>,
     current_organization: Option<Res<CurrentOrganization>>,
     _grid_config: Res<GridConfig>,
-    mut network_client: ResMut<NetworkClient>,
+    mut create_org_events: MessageWriter<SendDebugCreateOrganization>,
+    mut delete_org_events: MessageWriter<SendDebugDeleteOrganization>,
+    mut spawn_unit_events: MessageWriter<SendDebugSpawnUnit>,
 ) {
-    // Vérifier si Shift est maintenu
     let shift_pressed =
         keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
@@ -27,119 +29,84 @@ pub fn handle_debug_input(
         return;
     }
 
-    // Shift + H: Créer un Hamlet (hameau)
+    // Shift + M: Create Hamlet
     if keyboard.just_pressed(KeyCode::KeyM) {
         if let Some(selected_hex) = selected_hexes.ids.iter().next() {
-            let cell = GridCell {
-                q: selected_hex.x,
-                r: selected_hex.y,
-            };
-
-            network_client.send_message(ClientMessage::DebugCreateOrganization {
+            let cell = GridCell { q: selected_hex.x, r: selected_hex.y };
+            create_org_events.write(SendDebugCreateOrganization {
                 name: format!("Hamlet_{}", selected_hex.x),
                 organization_type: OrganizationType::Hamlet,
-                cell: cell.clone(),
+                cell,
                 parent_organization_id: None,
             });
             info!("Debug: Creating Hamlet at ({}, {})", cell.q, cell.r);
-        } else {
-            warn!("Debug: No cell selected to create organization");
         }
     }
 
-    // Shift + V: Créer un Village
+    // Shift + V: Create Village
     if keyboard.just_pressed(KeyCode::KeyV) {
         if let Some(selected_hex) = selected_hexes.ids.iter().next() {
-            let cell = GridCell {
-                q: selected_hex.x,
-                r: selected_hex.y,
-            };
-
-            network_client.send_message(ClientMessage::DebugCreateOrganization {
+            let cell = GridCell { q: selected_hex.x, r: selected_hex.y };
+            create_org_events.write(SendDebugCreateOrganization {
                 name: format!("Village_{}", selected_hex.x),
                 organization_type: OrganizationType::Village,
-                cell: cell.clone(),
+                cell,
                 parent_organization_id: None,
             });
             info!("Debug: Creating Village at ({}, {})", cell.q, cell.r);
-        } else {
-            warn!("Debug: No cell selected to create organization");
         }
     }
 
-    // Shift + T: Créer une Town (ville)
+    // Shift + T: Create Town
     if keyboard.just_pressed(KeyCode::KeyT) {
         if let Some(selected_hex) = selected_hexes.ids.iter().next() {
-            let cell = GridCell {
-                q: selected_hex.x,
-                r: selected_hex.y,
-            };
-
-            network_client.send_message(ClientMessage::DebugCreateOrganization {
+            let cell = GridCell { q: selected_hex.x, r: selected_hex.y };
+            create_org_events.write(SendDebugCreateOrganization {
                 name: format!("Town_{}", selected_hex.x),
                 organization_type: OrganizationType::Town,
-                cell: cell.clone(),
+                cell,
                 parent_organization_id: None,
             });
             info!("Debug: Creating Town at ({}, {})", cell.q, cell.r);
-        } else {
-            warn!("Debug: No cell selected to create organization");
         }
     }
 
-    // Shift + C: Créer une City (cité)
+    // Shift + C: Create City
     if keyboard.just_pressed(KeyCode::KeyC) {
         if let Some(selected_hex) = selected_hexes.ids.iter().next() {
-            let cell = GridCell {
-                q: selected_hex.x,
-                r: selected_hex.y,
-            };
-
-            network_client.send_message(ClientMessage::DebugCreateOrganization {
+            let cell = GridCell { q: selected_hex.x, r: selected_hex.y };
+            create_org_events.write(SendDebugCreateOrganization {
                 name: format!("City_{}", selected_hex.x),
                 organization_type: OrganizationType::City,
-                cell: cell.clone(),
+                cell,
                 parent_organization_id: None,
             });
             info!("Debug: Creating City at ({}, {})", cell.q, cell.r);
-        } else {
-            warn!("Debug: No cell selected to create organization");
         }
     }
 
-    // Shift + U: Spawn une unité aléatoire
+    // Shift + U: Spawn unit
     if keyboard.just_pressed(KeyCode::KeyU) {
         if let Some(selected_hex) = selected_hexes.ids.iter().next() {
-            let cell = GridCell {
-                q: selected_hex.x,
-                r: selected_hex.y,
-            };
-
-            network_client.send_message(ClientMessage::DebugSpawnUnit { cell: cell.clone() });
+            let cell = GridCell { q: selected_hex.x, r: selected_hex.y };
+            spawn_unit_events.write(SendDebugSpawnUnit { cell });
             info!("Debug: Spawning unit at ({}, {})", cell.q, cell.r);
-        } else {
-            warn!("Debug: No cell selected to spawn unit");
         }
     }
 
-    // Shift + D: Supprimer l'organisation sur la cellule actuelle
+    // Shift + D: Delete organization
     if keyboard.just_pressed(KeyCode::KeyD) {
         if let Some(current_organization) = current_organization
             && let Some(org) = &current_organization.organization
         {
-            network_client.send_message(ClientMessage::DebugDeleteOrganization {
+            delete_org_events.write(SendDebugDeleteOrganization {
                 organization_id: org.id,
             });
-            info!(
-                "Debug: Deleting organization '{}' (ID: {})",
-                org.name, org.id
-            );
-        } else {
-            warn!("Debug: No organization on current cell to delete");
+            info!("Debug: Deleting organization '{}' (ID: {})", org.name, org.id);
         }
     }
 
-    // Shift + H: Afficher l'aide des raccourcis debug
+    // Shift + H: Help
     if keyboard.just_pressed(KeyCode::KeyH) {
         info!("=== DEBUG KEYBOARD SHORTCUTS ===");
         info!("Shift + M: Create Hamlet on selected cell");

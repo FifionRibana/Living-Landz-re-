@@ -341,3 +341,73 @@ pub struct DebugUnitSpawnedMsg {
 pub struct DebugErrorMsg {
     pub reason: String,
 }
+
+// ─── Remaining client → server commands (migrated from tungstenite) ──
+
+/// Client requests lord creation (character creation flow).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CreateLordMsg {
+    pub first_name: String,
+    pub gender: String,
+    pub portrait_layers: String,
+}
+
+/// Client requests hamlet founding.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FoundHamletMsg;
+
+/// Client moves a unit from one slot to another on the same cell.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MoveUnitToSlotMsg {
+    pub unit_id: u64,
+    pub cell: GridCell,
+    pub from_slot: SlotPosition,
+    pub to_slot: SlotPosition,
+}
+
+/// Client assigns a unit to a slot on a cell.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AssignUnitToSlotMsg {
+    pub unit_id: u64,
+    pub cell: GridCell,
+    pub slot: SlotPosition,
+}
+
+/// Client sends a chat/action message.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SendMessageMsg {
+    pub content: String,
+}
+
+/// Debug: create organization.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugCreateOrganizationMsg {
+    pub name: String,
+    pub organization_type: crate::OrganizationType,
+    pub cell: GridCell,
+    pub parent_organization_id: Option<u64>,
+}
+
+/// Debug: delete organization.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugDeleteOrganizationMsg {
+    pub organization_id: u64,
+}
+
+/// Debug: spawn unit.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DebugSpawnUnitMsg {
+    pub cell: GridCell,
+}
+
+/// Server response: lord created successfully.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LordCreatedMsg {
+    pub unit_data: UnitData,
+}
+
+/// Server response: lord creation failed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LordCreateErrorMsg {
+    pub reason: String,
+}

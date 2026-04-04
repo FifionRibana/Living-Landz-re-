@@ -21,6 +21,9 @@ use crate::protocol::{
         TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg,
         UnitPositionUpdatedMsg, UnitProfessionChangedMsg, UnitSlotUpdatedMsg,
         UnitWorkStatusUpdateMsg,
+        CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
+        SendMessageMsg, DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg,
+        DebugSpawnUnitMsg, LordCreatedMsg, LordCreateErrorMsg,
     },
 };
 
@@ -174,6 +177,30 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<DebugUnitSpawnedMsg>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<DebugErrorMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+
+        // Remaining client → server commands (migrated from tungstenite #138)
+        app.register_message::<CreateLordMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<FoundHamletMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<MoveUnitToSlotMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<AssignUnitToSlotMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<SendMessageMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<DebugCreateOrganizationMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<DebugDeleteOrganizationMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<DebugSpawnUnitMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+
+        // Lord lifecycle responses: server → client
+        app.register_message::<LordCreatedMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<LordCreateErrorMsg>()
             .add_direction(NetworkDirection::ServerToClient);
     }
 }
