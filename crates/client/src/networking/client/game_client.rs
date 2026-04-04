@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use bevy::tasks::block_on;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -7,6 +8,10 @@ use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
 use crate::networking::client::auth_task::AuthTask;
+use crate::networking::client::http_client::{
+    HttpBulkClient, HttpGlobalReceiver, HttpGlobalResult, HttpGlobalSender, HttpTerrainReceiver,
+    HttpTerrainSender,
+};
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, GameDataCache, InventoryCache,
     NotificationState, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache,
@@ -15,21 +20,16 @@ use crate::states::AppState;
 use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPosition, OwnedByPlayer};
 use shared::protocol::messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
-    ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg,
-    ActionStatusMsg, ActionTrainUnitMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
-    DebugOrganizationDeletedMsg, DebugUnitSpawnedMsg, ExplorationMapMsg, ExplorationPatchMsg,
-    GameDataMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
-    LakeDataMsg as LakeDataLyMsg, LoginSuccessMsg, LordDataMsg, OceanDataMsg,
-    OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg,
-    RequestExplorationMapMsg, RequestInventoryMsg, RequestLakeDataMsg, RequestOceanDataMsg,
-    RequestOrganizationAtCellMsg, RequestTerrainChunksMsg, RequestTerrainGlobalDataMsg,
-    RoadChunkSdfUpdateMsg, TerrainChunkDataMsg, TerrainGlobalDataMsg,
-    TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg,
-    UnitPositionUpdatedMsg, UnitProfessionChangedMsg, UnitSlotUpdatedMsg,
-    UnitWorkStatusUpdateMsg,
-    CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
-    DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugSpawnUnitMsg,
-    LordCreatedMsg, LordCreateErrorMsg,
+    ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
+    ActionTrainUnitMsg, AssignUnitToSlotMsg, CreateLordMsg, DebugCreateOrganizationMsg,
+    DebugDeleteOrganizationMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
+    DebugOrganizationDeletedMsg, DebugSpawnUnitMsg, DebugUnitSpawnedMsg, ExplorationPatchMsg,
+    FoundHamletMsg, GameDataMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
+    LoginSuccessMsg, LordCreateErrorMsg, LordCreatedMsg, LordDataMsg, MoveUnitToSlotMsg,
+    OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg, RequestInventoryMsg,
+    RequestOrganizationAtCellMsg, RoadChunkSdfUpdateMsg, TerrainChunkDataMsg,
+    TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg, UnitPositionUpdatedMsg,
+    UnitProfessionChangedMsg, UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -82,34 +82,6 @@ pub struct SendActionTrainUnit {
 pub struct SendActionExplore {
     pub cell: GridCell,
     pub radius: i32,
-}
-
-// ─── Bulk data request Bevy Messages ─────────────────────────────────
-
-#[derive(Message, Clone)]
-pub struct SendRequestTerrainChunks {
-    pub terrain_name: String,
-    pub chunk_ids: Vec<TerrainChunkId>,
-}
-
-#[derive(Message, Clone)]
-pub struct SendRequestOceanData {
-    pub world_name: String,
-}
-
-#[derive(Message, Clone)]
-pub struct SendRequestLakeData {
-    pub world_name: String,
-}
-
-#[derive(Message, Clone)]
-pub struct SendRequestTerrainGlobalData {
-    pub world_name: String,
-}
-
-#[derive(Message, Clone)]
-pub struct SendRequestExplorationMap {
-    pub terrain_name: String,
 }
 
 #[derive(Message, Clone)]
@@ -171,8 +143,17 @@ pub struct GameClientPlugin;
 
 impl Plugin for GameClientPlugin {
     fn build(&self, app: &mut App) {
+        // HTTP bulk channels
+        let (terrain_tx, terrain_rx) = std::sync::mpsc::channel();
+        let (global_tx, global_rx) = std::sync::mpsc::channel();
+
         app.init_resource::<AuthTask>()
             .init_resource::<PendingTerrainChunks>()
+            .insert_resource(HttpBulkClient::new())
+            .insert_resource(HttpTerrainSender { tx: terrain_tx })
+            .insert_resource(HttpTerrainReceiver::new(terrain_rx))
+            .insert_resource(HttpGlobalSender { tx: global_tx })
+            .insert_resource(HttpGlobalReceiver::new(global_rx))
             .add_systems(
                 Update,
                 (
@@ -204,11 +185,6 @@ impl Plugin for GameClientPlugin {
             .add_message::<SendActionCraftResource>()
             .add_message::<SendActionTrainUnit>()
             .add_message::<SendActionExplore>()
-            .add_message::<SendRequestTerrainChunks>()
-            .add_message::<SendRequestOceanData>()
-            .add_message::<SendRequestLakeData>()
-            .add_message::<SendRequestTerrainGlobalData>()
-            .add_message::<SendRequestExplorationMap>()
             .add_message::<SendRequestInventory>()
             .add_message::<SendRequestOrganizationAtCell>()
             .add_message::<SendCreateLord>()
@@ -228,11 +204,6 @@ impl Plugin for GameClientPlugin {
                     send_pending_craft_resource_actions,
                     send_pending_train_unit_actions,
                     send_pending_explore_actions,
-                    send_terrain_chunk_requests,
-                    send_ocean_data_requests,
-                    send_lake_data_requests,
-                    send_terrain_global_data_requests,
-                    send_exploration_map_requests,
                     send_inventory_requests,
                     send_organization_at_cell_requests,
                 )
@@ -257,15 +228,18 @@ impl Plugin for GameClientPlugin {
         app.add_systems(
             Update,
             (
-                receive_terrain_chunk_data,
                 process_pending_terrain_chunks,
-                receive_ocean_data,
-                receive_lake_data,
-                receive_terrain_global_data,
-                receive_exploration_map,
+                poll_http_terrain_results,
+                poll_http_global_results,
                 receive_exploration_patch,
                 receive_inventory_data,
                 receive_inventory_update,
+            )
+                .run_if(in_state(AppState::InGame)),
+        );
+        app.add_systems(
+            Update,
+            (
                 receive_unit_profession_changed,
                 receive_unit_work_status_update,
                 receive_road_chunk_sdf_update,
@@ -527,11 +501,12 @@ fn receive_unit_position_updated(
 }
 
 /// Receive ActionCompletedMsg from server via lightyear.
-/// Triggers a chunk data refresh so the client sees new buildings/roads/etc.
+/// Triggers a chunk data refresh via HTTP so the client sees new buildings/roads/etc.
 fn receive_action_completed(
     mut receivers: Query<&mut MessageReceiver<ActionCompletedMsg>>,
     mut notifications: ResMut<NotificationState>,
-    mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
+    http_client: Res<HttpBulkClient>,
+    http_sender: Res<HttpTerrainSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -542,11 +517,35 @@ fn receive_action_completed(
 
             notifications.push_success(format!("{} terminée !", msg.action_type.to_name()));
 
-            // Request chunk data refresh so the client sees the result
-            terrain_events.write(SendRequestTerrainChunks {
-                terrain_name: "Gaulyia".to_string(),
-                chunk_ids: vec![msg.chunk_id],
-            });
+            // Request chunk data refresh via HTTP so the client sees the result
+            let sender = http_sender.clone();
+            let client = http_client.client.clone();
+            let base_url = http_client.base_url.clone();
+            let chunk_id = msg.chunk_id;
+
+            IoTaskPool::get()
+                .spawn(async_compat::Compat::new(async move {
+                    let body = serde_json::json!({
+                        "terrain_name": "Gaulyia",
+                        "chunk_ids": [[chunk_id.x, chunk_id.y]],
+                    });
+                    match client.post(format!("{}/api/terrain/chunks", base_url))
+                        .json(&body)
+                        .send()
+                        .await
+                    {
+                        Ok(response) => match response.bytes().await {
+                            Ok(bytes) => {
+                                match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
+                                    Ok(parsed) => { let _ = sender.tx.send(parsed); }
+                                    Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+                                }
+                            }
+                            Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                        },
+                        Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+                    }
+                })).detach();
         }
     }
 }
@@ -586,11 +585,14 @@ fn receive_login_success(
 
 /// Receive LordDataMsg from server via lightyear.
 /// Transitions to InGame if lord exists, or CharacterCreation if not.
+/// When entering InGame, spawns HTTP fetches for global bulk data (ocean, lake, terrain-global, exploration).
 fn receive_lord_data(
     mut receivers: Query<&mut MessageReceiver<LordDataMsg>>,
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
     mut inventory_events: MessageWriter<SendRequestInventory>,
+    http_client: Res<HttpBulkClient>,
+    global_sender: Res<HttpGlobalSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -609,6 +611,40 @@ fn receive_lord_data(
 
                 player_info.set_lord(lord_data);
                 next_app_state.set(AppState::InGame);
+
+                // Spawn HTTP fetches for global bulk data in parallel
+                let client = http_client.clone();
+                let sender = global_sender.clone();
+                IoTaskPool::get().spawn(async_compat::Compat::new(async move {
+                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                        client.fetch_ocean("Gaulyia"),
+                        client.fetch_lake("Gaulyia"),
+                        client.fetch_terrain_global("Gaulyia"),
+                        client.fetch_exploration("Gaulyia"),
+                    )
+                    .await;
+
+                    if let Ok(data) = ocean {
+                        let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                    } else if let Err(e) = ocean {
+                        bevy::log::error!("HTTP ocean fetch failed: {}", e);
+                    }
+                    if let Ok(data) = lake {
+                        let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                    } else if let Err(e) = lake {
+                        bevy::log::error!("HTTP lake fetch failed: {}", e);
+                    }
+                    if let Ok(data) = terrain_global {
+                        let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                    } else if let Err(e) = terrain_global {
+                        bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
+                    }
+                    if let Ok(data) = exploration {
+                        let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                    } else if let Err(e) = exploration {
+                        bevy::log::error!("HTTP exploration fetch failed: {}", e);
+                    }
+                })).detach();
             } else {
                 info!("No lord — entering character creation (via lightyear)");
                 next_app_state.set(AppState::CharacterCreation);
@@ -738,7 +774,10 @@ fn send_pending_craft_resource_actions(
                 quantity: event.quantity,
                 unit_ids: event.unit_ids.clone(),
             });
-            info!("📤 Sent ActionCraftResource via lightyear: recipe '{}'", event.recipe_id);
+            info!(
+                "📤 Sent ActionCraftResource via lightyear: recipe '{}'",
+                event.recipe_id
+            );
             break;
         }
     }
@@ -756,7 +795,10 @@ fn send_pending_train_unit_actions(
                 cell: event.cell,
                 target_profession: event.target_profession,
             });
-            info!("📤 Sent ActionTrainUnit via lightyear for unit {}", event.unit_id);
+            info!(
+                "📤 Sent ActionTrainUnit via lightyear for unit {}",
+                event.unit_id
+            );
             break;
         }
     }
@@ -778,103 +820,14 @@ fn send_pending_explore_actions(
     }
 }
 
-// ─── Bulk data request send systems ──────────────────────────────────
-
-fn send_terrain_chunk_requests(
-    mut events: MessageReader<SendRequestTerrainChunks>,
-    mut senders: Query<&mut MessageSender<RequestTerrainChunksMsg>>,
-) {
-    for event in events.read() {
-        if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestTerrainChunksMsg {
-                terrain_name: event.terrain_name.clone(),
-                chunk_ids: event.chunk_ids.clone(),
-            });
-            break;
-        }
-    }
-}
-
-fn send_ocean_data_requests(
-    mut events: MessageReader<SendRequestOceanData>,
-    mut senders: Query<&mut MessageSender<RequestOceanDataMsg>>,
-) {
-    for event in events.read() {
-        if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestOceanDataMsg {
-                world_name: event.world_name.clone(),
-            });
-            info!("📤 Sent RequestOceanData via lightyear");
-            break;
-        }
-    }
-}
-
-fn send_lake_data_requests(
-    mut events: MessageReader<SendRequestLakeData>,
-    mut senders: Query<&mut MessageSender<RequestLakeDataMsg>>,
-) {
-    for event in events.read() {
-        if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestLakeDataMsg {
-                world_name: event.world_name.clone(),
-            });
-            info!("📤 Sent RequestLakeData via lightyear");
-            break;
-        }
-    }
-}
-
-fn send_terrain_global_data_requests(
-    mut events: MessageReader<SendRequestTerrainGlobalData>,
-    mut senders: Query<&mut MessageSender<RequestTerrainGlobalDataMsg>>,
-) {
-    for event in events.read() {
-        if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestTerrainGlobalDataMsg {
-                world_name: event.world_name.clone(),
-            });
-            info!("📤 Sent RequestTerrainGlobalData via lightyear");
-            break;
-        }
-    }
-}
-
-fn send_exploration_map_requests(
-    mut events: MessageReader<SendRequestExplorationMap>,
-    mut senders: Query<&mut MessageSender<RequestExplorationMapMsg>>,
-) {
-    for event in events.read() {
-        if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestExplorationMapMsg {
-                terrain_name: event.terrain_name.clone(),
-            });
-            info!("📤 Sent RequestExplorationMap via lightyear");
-            break;
-        }
-    }
-}
-
-// ─── Bulk data receive systems ───────────────────────────────────────
+// ─── Bulk data ──────────────────────────────────────────────────────
 
 /// Max terrain chunks to decompress + insert per frame to avoid frame drops.
 const MAX_TERRAIN_CHUNKS_PER_FRAME: usize = 4;
 
-/// Pending terrain chunks waiting to be processed (buffered from lightyear receiver).
+/// Pending terrain chunks waiting to be processed (buffered from HTTP receiver).
 #[derive(Resource, Default)]
 pub struct PendingTerrainChunks(pub Vec<TerrainChunkDataMsg>);
-
-/// Drain terrain chunk messages from lightyear into the pending queue.
-fn receive_terrain_chunk_data(
-    mut receivers: Query<&mut MessageReceiver<TerrainChunkDataMsg>>,
-    mut pending: ResMut<PendingTerrainChunks>,
-) {
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            pending.0.push(msg);
-        }
-    }
-}
 
 /// Process up to N pending terrain chunks per frame.
 /// Drops stale chunks (camera moved away) BEFORE decompressing to save CPU/memory.
@@ -889,8 +842,12 @@ fn process_pending_terrain_chunks(
     streaming_config: Res<crate::state::resources::StreamingConfig>,
 ) {
     let Some(ref mut cache) = cache else { return };
-    let Some(ref mut units_cache) = units_cache else { return };
-    let Some(ref mut units_data_cache) = units_data_cache else { return };
+    let Some(ref mut units_cache) = units_cache else {
+        return;
+    };
+    let Some(ref mut units_data_cache) = units_data_cache else {
+        return;
+    };
 
     if pending.0.is_empty() {
         return;
@@ -917,7 +874,10 @@ fn process_pending_terrain_chunks(
         });
         let dropped = before - pending.0.len();
         if dropped > 0 {
-            info!("🗑️ Dropped {} stale pending chunks (camera moved away)", dropped);
+            info!(
+                "🗑️ Dropped {} stale pending chunks (camera moved away)",
+                dropped
+            );
         }
     }
 
@@ -938,7 +898,10 @@ fn process_pending_terrain_chunks(
         let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
             Ok(d) => d,
             Err(e) => {
-                warn!("Failed to decompress terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
+                warn!(
+                    "Failed to decompress terrain chunk ({},{}): {}",
+                    msg.chunk_id.x, msg.chunk_id.y, e
+                );
                 continue;
             }
         };
@@ -955,7 +918,10 @@ fn process_pending_terrain_chunks(
         ) = match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
             Ok(v) => v,
             Err(e) => {
-                warn!("Failed to decode terrain chunk ({},{}): {}", msg.chunk_id.x, msg.chunk_id.y, e);
+                warn!(
+                    "Failed to decode terrain chunk ({},{}): {}",
+                    msg.chunk_id.x, msg.chunk_id.y, e
+                );
                 continue;
             }
         };
@@ -999,96 +965,10 @@ fn process_pending_terrain_chunks(
     }
 
     if !pending.0.is_empty() {
-        info!("🔄 {} terrain chunks still pending for next frame", pending.0.len());
-    }
-}
-
-fn receive_ocean_data(
-    mut receivers: Query<&mut MessageReceiver<OceanDataMsg>>,
-    mut cache: Option<ResMut<WorldCache>>,
-) {
-    let Some(ref mut cache) = cache else { return };
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
-                Ok(d) => d,
-                Err(e) => { warn!("Failed to decompress ocean data: {}", e); continue; }
-            };
-            let (ocean_data, _): (shared::OceanData, _) =
-                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
-                    Ok(v) => v,
-                    Err(e) => { warn!("Failed to decode ocean data: {}", e); continue; }
-                };
-            info!("✓ Received ocean data via lightyear: {}", ocean_data.name);
-            cache.insert_ocean(ocean_data);
-        }
-    }
-}
-
-fn receive_lake_data(
-    mut receivers: Query<&mut MessageReceiver<LakeDataLyMsg>>,
-    mut cache: Option<ResMut<WorldCache>>,
-) {
-    let Some(ref mut cache) = cache else { return };
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
-                Ok(d) => d,
-                Err(e) => { warn!("Failed to decompress lake data: {}", e); continue; }
-            };
-            let (lake_data, _): (shared::LakeData, _) =
-                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
-                    Ok(v) => v,
-                    Err(e) => { warn!("Failed to decode lake data: {}", e); continue; }
-                };
-            info!("✓ Received lake data via lightyear: {}", lake_data.name);
-            cache.insert_lake(lake_data);
-        }
-    }
-}
-
-fn receive_terrain_global_data(
-    mut receivers: Query<&mut MessageReceiver<TerrainGlobalDataMsg>>,
-    mut cache: Option<ResMut<WorldCache>>,
-) {
-    let Some(ref mut cache) = cache else { return };
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            let decompressed = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
-                Ok(d) => d,
-                Err(e) => { warn!("Failed to decompress terrain global data: {}", e); continue; }
-            };
-            let (data, _): (shared::TerrainGlobalData, _) =
-                match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
-                    Ok(v) => v,
-                    Err(e) => { warn!("Failed to decode terrain global data: {}", e); continue; }
-                };
-            info!(
-                "✓ Received terrain global data via lightyear: biome {}x{}, heightmap {}x{}",
-                data.biome_width, data.biome_height, data.heightmap_width, data.heightmap_height
-            );
-            cache.insert_terrain_global(data);
-        }
-    }
-}
-
-fn receive_exploration_map(
-    mut receivers: Query<&mut MessageReceiver<ExplorationMapMsg>>,
-    mut cache: Option<ResMut<WorldCache>>,
-) {
-    let Some(ref mut cache) = cache else { return };
-    for mut receiver in receivers.iter_mut() {
-        for msg in receiver.receive() {
-            let data = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
-                Ok(d) => d,
-                Err(e) => { warn!("Failed to decompress exploration map: {}", e); continue; }
-            };
-            info!(
-                "✓ Received exploration map via lightyear: {}×{} ({} bytes)",
-                msg.width, msg.height, data.len()
-            );
-            cache.set_exploration_map(msg.width, msg.height, data, msg.n_chunk_x, msg.n_chunk_y);
-        }
+        info!(
+            "🔄 {} terrain chunks still pending for next frame",
+            pending.0.len()
+        );
     }
 }
 
@@ -1101,11 +981,138 @@ fn receive_exploration_patch(
         for msg in receiver.receive() {
             let data = match shared::protocol::bulk_compress::decompress(&msg.compressed_data) {
                 Ok(d) => d,
-                Err(e) => { warn!("Failed to decompress exploration patch: {}", e); continue; }
+                Err(e) => {
+                    warn!("Failed to decompress exploration patch: {}", e);
+                    continue;
+                }
             };
             cache.apply_exploration_patch(
-                msg.patch_x, msg.patch_y, msg.patch_width, msg.patch_height, &data,
+                msg.patch_x,
+                msg.patch_y,
+                msg.patch_width,
+                msg.patch_height,
+                &data,
             );
+        }
+    }
+}
+
+// ─── HTTP bulk poll systems ─────────────────────────────────────────
+
+/// Poll terrain chunk results from HTTP async tasks and push into PendingTerrainChunks.
+fn poll_http_terrain_results(
+    http_receiver: Res<HttpTerrainReceiver>,
+    mut pending: ResMut<PendingTerrainChunks>,
+) {
+    while let Some(chunks) = http_receiver.try_recv() {
+        for (chunk_id, compressed_data) in chunks {
+            pending.0.push(TerrainChunkDataMsg {
+                chunk_id,
+                compressed_data,
+            });
+        }
+    }
+}
+
+/// Poll global data results from HTTP async tasks and insert into WorldCache.
+fn poll_http_global_results(
+    http_receiver: Res<HttpGlobalReceiver>,
+    mut cache: Option<ResMut<WorldCache>>,
+) {
+    let Some(ref mut cache) = cache else { return };
+
+    while let Some(result) = http_receiver.try_recv() {
+        match result {
+            HttpGlobalResult::Ocean(compressed_data) => {
+                let decompressed =
+                    match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Failed to decompress HTTP ocean data: {}", e);
+                            continue;
+                        }
+                    };
+                let (ocean_data, _): (shared::OceanData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!("Failed to decode HTTP ocean data: {}", e);
+                            continue;
+                        }
+                    };
+                info!("✓ Received ocean data via HTTP: {}", ocean_data.name);
+                cache.insert_ocean(ocean_data);
+            }
+            HttpGlobalResult::Lake(compressed_data) => {
+                let decompressed =
+                    match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Failed to decompress HTTP lake data: {}", e);
+                            continue;
+                        }
+                    };
+                let (lake_data, _): (shared::LakeData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!("Failed to decode HTTP lake data: {}", e);
+                            continue;
+                        }
+                    };
+                info!("✓ Received lake data via HTTP: {}", lake_data.name);
+                cache.insert_lake(lake_data);
+            }
+            HttpGlobalResult::TerrainGlobal(compressed_data) => {
+                let decompressed =
+                    match shared::protocol::bulk_compress::decompress(&compressed_data) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Failed to decompress HTTP terrain global data: {}", e);
+                            continue;
+                        }
+                    };
+                let (data, _): (shared::TerrainGlobalData, _) =
+                    match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!("Failed to decode HTTP terrain global data: {}", e);
+                            continue;
+                        }
+                    };
+                info!(
+                    "✓ Received terrain global data via HTTP: biome {}x{}, heightmap {}x{}",
+                    data.biome_width,
+                    data.biome_height,
+                    data.heightmap_width,
+                    data.heightmap_height
+                );
+                cache.insert_terrain_global(data);
+            }
+            HttpGlobalResult::Exploration(exploration) => {
+                let data =
+                    match shared::protocol::bulk_compress::decompress(&exploration.compressed_data)
+                    {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Failed to decompress HTTP exploration map: {}", e);
+                            continue;
+                        }
+                    };
+                info!(
+                    "✓ Received exploration map via HTTP: {}×{} ({} bytes)",
+                    exploration.width,
+                    exploration.height,
+                    data.len()
+                );
+                cache.set_exploration_map(
+                    exploration.width,
+                    exploration.height,
+                    data,
+                    exploration.n_chunk_x,
+                    exploration.n_chunk_y,
+                );
+            }
         }
     }
 }
@@ -1118,7 +1125,9 @@ fn send_inventory_requests(
 ) {
     for event in events.read() {
         if let Some(mut sender) = senders.iter_mut().next() {
-            sender.send::<ReliableGameChannel>(RequestInventoryMsg { unit_id: event.unit_id });
+            sender.send::<ReliableGameChannel>(RequestInventoryMsg {
+                unit_id: event.unit_id,
+            });
             break;
         }
     }
@@ -1173,8 +1182,10 @@ fn send_move_unit_to_slot(
     for event in events.read() {
         if let Some(mut sender) = senders.iter_mut().next() {
             sender.send::<ReliableGameChannel>(MoveUnitToSlotMsg {
-                unit_id: event.unit_id, cell: event.cell,
-                from_slot: event.from_slot, to_slot: event.to_slot,
+                unit_id: event.unit_id,
+                cell: event.cell,
+                from_slot: event.from_slot,
+                to_slot: event.to_slot,
             });
             break;
         }
@@ -1188,7 +1199,9 @@ fn send_assign_unit_to_slot(
     for event in events.read() {
         if let Some(mut sender) = senders.iter_mut().next() {
             sender.send::<ReliableGameChannel>(AssignUnitToSlotMsg {
-                unit_id: event.unit_id, cell: event.cell, slot: event.slot,
+                unit_id: event.unit_id,
+                cell: event.cell,
+                slot: event.slot,
             });
             break;
         }
@@ -1202,8 +1215,10 @@ fn send_debug_create_organization(
     for event in events.read() {
         if let Some(mut sender) = senders.iter_mut().next() {
             sender.send::<ReliableGameChannel>(DebugCreateOrganizationMsg {
-                name: event.name.clone(), organization_type: event.organization_type,
-                cell: event.cell, parent_organization_id: event.parent_organization_id,
+                name: event.name.clone(),
+                organization_type: event.organization_type,
+                cell: event.cell,
+                parent_organization_id: event.parent_organization_id,
             });
             break;
         }
@@ -1243,21 +1258,50 @@ fn receive_lord_created(
     mut player_info: ResMut<PlayerInfo>,
     mut next_app_state: ResMut<NextState<AppState>>,
     mut inventory_events: MessageWriter<SendRequestInventory>,
+    http_client: Res<HttpBulkClient>,
+    global_sender: Res<HttpGlobalSender>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Lord created via lightyear: {} (ID: {})", msg.unit_data.full_name(), msg.unit_data.id);
+            info!(
+                "✓ Lord created via lightyear: {} (ID: {})",
+                msg.unit_data.full_name(),
+                msg.unit_data.id
+            );
             let unit_id = msg.unit_data.id;
             player_info.set_lord(msg.unit_data);
             inventory_events.write(SendRequestInventory { unit_id });
             next_app_state.set(AppState::InGame);
+
+            // Spawn HTTP fetches for global bulk data
+            let client = http_client.clone();
+            let sender = global_sender.clone();
+            IoTaskPool::get().spawn(async_compat::Compat::new(async move {
+                let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                    client.fetch_ocean("Gaulyia"),
+                    client.fetch_lake("Gaulyia"),
+                    client.fetch_terrain_global("Gaulyia"),
+                    client.fetch_exploration("Gaulyia"),
+                )
+                .await;
+                if let Ok(data) = ocean {
+                    let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                }
+                if let Ok(data) = lake {
+                    let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                }
+                if let Ok(data) = terrain_global {
+                    let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                }
+                if let Ok(data) = exploration {
+                    let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                }
+            })).detach();
         }
     }
 }
 
-fn receive_lord_create_error(
-    mut receivers: Query<&mut MessageReceiver<LordCreateErrorMsg>>,
-) {
+fn receive_lord_create_error(mut receivers: Query<&mut MessageReceiver<LordCreateErrorMsg>>) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
             warn!("Failed to create lord: {}", msg.reason);
@@ -1274,7 +1318,10 @@ fn receive_inventory_data(
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
             cache.set_inventory(msg.unit_id, msg.items);
-            info!("✓ Received inventory for unit {} via lightyear", msg.unit_id);
+            info!(
+                "✓ Received inventory for unit {} via lightyear",
+                msg.unit_id
+            );
         }
     }
 }
@@ -1289,11 +1336,24 @@ fn receive_inventory_update(
             let item_info = game_data.get_item(msg.item_id);
             let item_name = game_data.item_name(msg.item_id, 1);
             let item_type = item_info
-                .map(|i| shared::ItemTypeEnum::from_id(i.item_type_id).unwrap_or(shared::ItemTypeEnum::Unknown))
+                .map(|i| {
+                    shared::ItemTypeEnum::from_id(i.item_type_id)
+                        .unwrap_or(shared::ItemTypeEnum::Unknown)
+                })
                 .unwrap_or(shared::ItemTypeEnum::Unknown);
             let weight = item_info.map(|i| i.weight_kg).unwrap_or(0.0);
-            cache.apply_update_with_info(msg.unit_id, msg.item_id, msg.new_total, &item_name, item_type, weight);
-            info!("✓ Inventory update via lightyear: unit {} item {} delta={} total={}", msg.unit_id, item_name, msg.quantity_delta, msg.new_total);
+            cache.apply_update_with_info(
+                msg.unit_id,
+                msg.item_id,
+                msg.new_total,
+                &item_name,
+                item_type,
+                weight,
+            );
+            info!(
+                "✓ Inventory update via lightyear: unit {} item {} delta={} total={}",
+                msg.unit_id, item_name, msg.quantity_delta, msg.new_total
+            );
         }
     }
 }
@@ -1306,7 +1366,10 @@ fn receive_unit_profession_changed(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Unit {} profession changed to {:?} via lightyear", msg.unit_id, msg.new_profession);
+            info!(
+                "✓ Unit {} profession changed to {:?} via lightyear",
+                msg.unit_id, msg.new_profession
+            );
             if let Some(ref mut data_cache) = units_data_cache {
                 if let Some(unit) = data_cache.get_unit_mut(msg.unit_id) {
                     unit.profession = msg.new_profession;
@@ -1331,7 +1394,10 @@ fn receive_unit_work_status_update(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("Unit {} work status: {:?} via lightyear", msg.unit_id, msg.working_on_action_id);
+            info!(
+                "Unit {} work status: {:?} via lightyear",
+                msg.unit_id, msg.working_on_action_id
+            );
         }
     }
 }
@@ -1345,9 +1411,15 @@ fn receive_road_chunk_sdf_update(
     let Some(ref mut cache) = cache else { return };
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Road SDF update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
+            info!(
+                "✓ Road SDF update for chunk ({},{}) via lightyear",
+                msg.chunk_id.x, msg.chunk_id.y
+            );
             let storage_key = format!("{}_{}_{}", msg.terrain_name, msg.chunk_id.x, msg.chunk_id.y);
-            let terrain_chunk_opt = cache.loaded_terrains().find(|t| t.get_storage_key() == storage_key).cloned();
+            let terrain_chunk_opt = cache
+                .loaded_terrains()
+                .find(|t| t.get_storage_key() == storage_key)
+                .cloned();
             if let Some(mut updated_terrain) = terrain_chunk_opt {
                 updated_terrain.road_sdf_data = Some(msg.road_sdf_data);
                 cache.insert_terrain(&updated_terrain);
@@ -1369,14 +1441,31 @@ fn receive_territory_contour_update(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Territory contour update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
+            info!(
+                "✓ Territory contour update for chunk ({},{}) via lightyear",
+                msg.chunk_id.x, msg.chunk_id.y
+            );
             for contour_data in &msg.contours {
                 contour_cache.add_contour(
                     msg.chunk_id,
                     contour_data.organization_id,
-                    contour_data.segments.iter().map(|s| s.to_contour_segment()).collect(),
-                    Color::linear_rgba(contour_data.border_color.r, contour_data.border_color.g, contour_data.border_color.b, contour_data.border_color.a),
-                    Color::linear_rgba(contour_data.fill_color.r, contour_data.fill_color.g, contour_data.fill_color.b, contour_data.fill_color.a),
+                    contour_data
+                        .segments
+                        .iter()
+                        .map(|s| s.to_contour_segment())
+                        .collect(),
+                    Color::linear_rgba(
+                        contour_data.border_color.r,
+                        contour_data.border_color.g,
+                        contour_data.border_color.b,
+                        contour_data.border_color.a,
+                    ),
+                    Color::linear_rgba(
+                        contour_data.fill_color.r,
+                        contour_data.fill_color.g,
+                        contour_data.fill_color.b,
+                        contour_data.fill_color.a,
+                    ),
                 );
             }
         }
@@ -1389,8 +1478,13 @@ fn receive_territory_border_sdf_update(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("[DEPRECATED] Territory border SDF update for chunk ({},{}) via lightyear", msg.chunk_id.x, msg.chunk_id.y);
-            border_cache.chunks.insert((msg.chunk_id.x, msg.chunk_id.y), msg.border_sdf_data_list);
+            info!(
+                "[DEPRECATED] Territory border SDF update for chunk ({},{}) via lightyear",
+                msg.chunk_id.x, msg.chunk_id.y
+            );
+            border_cache
+                .chunks
+                .insert((msg.chunk_id.x, msg.chunk_id.y), msg.border_sdf_data_list);
         }
     }
 }
@@ -1401,7 +1495,10 @@ fn receive_hamlet_founded(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Hamlet '{}' founded (org ID: {}) via lightyear", msg.name, msg.organization_id);
+            info!(
+                "✓ Hamlet '{}' founded (org ID: {}) via lightyear",
+                msg.name, msg.organization_id
+            );
             let lord_unit_id = player_info.lord.as_ref().map(|l| l.id);
             player_info.organization = Some(shared::OrganizationSummary {
                 id: msg.organization_id,
@@ -1415,12 +1512,13 @@ fn receive_hamlet_founded(
     }
 }
 
-fn receive_population_changed(
-    mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>,
-) {
+fn receive_population_changed(mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("Population changed: org {} now has {} members via lightyear", msg.organization_id, msg.new_population);
+            info!(
+                "Population changed: org {} now has {} members via lightyear",
+                msg.organization_id, msg.new_population
+            );
         }
     }
 }
@@ -1444,7 +1542,10 @@ fn receive_unit_slot_updated(
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Unit {} slot updated at ({},{}) via lightyear", msg.unit_id, msg.cell.q, msg.cell.r);
+            info!(
+                "✓ Unit {} slot updated at ({},{}) via lightyear",
+                msg.unit_id, msg.cell.q, msg.cell.r
+            );
             if let Some(ref mut cache) = units_cache {
                 if let Some(slot_pos) = msg.slot_position {
                     cache.set_unit_slot(msg.cell, slot_pos, msg.unit_id);
@@ -1462,12 +1563,18 @@ fn receive_debug_messages(
 ) {
     for mut receiver in debug_created.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Debug: Organization '{}' created (ID: {}) via lightyear", msg.name, msg.organization_id);
+            info!(
+                "✓ Debug: Organization '{}' created (ID: {}) via lightyear",
+                msg.name, msg.organization_id
+            );
         }
     }
     for mut receiver in debug_deleted.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Debug: Organization {} deleted via lightyear", msg.organization_id);
+            info!(
+                "✓ Debug: Organization {} deleted via lightyear",
+                msg.organization_id
+            );
         }
     }
     for mut receiver in debug_error.iter_mut() {
@@ -1477,7 +1584,10 @@ fn receive_debug_messages(
     }
     for mut receiver in debug_spawned.iter_mut() {
         for msg in receiver.receive() {
-            info!("✓ Debug: Unit spawned: {} via lightyear", msg.unit_data.full_name());
+            info!(
+                "✓ Debug: Unit spawned: {} via lightyear",
+                msg.unit_data.full_name()
+            );
         }
     }
 }

@@ -6,7 +6,6 @@ use bevy::{
 };
 
 use crate::camera::MainCamera;
-use crate::networking::client::game_client::SendRequestExplorationMap;
 use crate::rendering::mist::materials::{
     GroundFogMaterial, GroundFogParams, MistMaterial, MistParams,
 };
@@ -60,19 +59,6 @@ fn create_fallback_sdf(images: &mut Assets<Image>) -> Handle<Image> {
     );
     img.sampler = bevy::image::ImageSampler::linear();
     images.add(img)
-}
-
-pub fn request_exploration_map(
-    mut cache: ResMut<WorldCache>,
-    mut events: MessageWriter<SendRequestExplorationMap>,
-) {
-    if !cache.is_exploration_loaded() && !cache.is_exploration_requested() {
-        info!("Requesting exploration map from server via lightyear");
-        events.write(SendRequestExplorationMap {
-            terrain_name: "Gaulyia".to_string(),
-        });
-        cache.mark_exploration_requested();
-    }
 }
 
 pub fn spawn_mist(

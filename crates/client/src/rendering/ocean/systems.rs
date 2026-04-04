@@ -5,7 +5,6 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 
-use crate::networking::client::game_client::SendRequestOceanData;
 use crate::rendering::ocean::materials::{OceanMaterial, OceanParams};
 use crate::state::resources::WorldCache;
 
@@ -56,21 +55,6 @@ fn create_ocean_mesh(width: f32, height: f32) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_indices(Indices::U32(indices))
-}
-
-pub fn request_ocean_data(
-    mut cache: ResMut<WorldCache>,
-    mut events: MessageWriter<SendRequestOceanData>,
-) {
-    if cache.is_ocean_loaded() || cache.is_ocean_requested() {
-        return;
-    }
-
-    info!("Requesting ocean data from server via lightyear");
-    events.write(SendRequestOceanData {
-        world_name: "Gaulyia".to_string(),
-    });
-    cache.mark_ocean_requested();
 }
 
 pub fn spawn_ocean(
