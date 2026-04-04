@@ -13,6 +13,7 @@ mod auth;
 mod database;
 mod dev;
 mod exploration;
+mod game_data;
 mod http;
 mod networking;
 mod population;
@@ -189,6 +190,9 @@ fn main() {
         tokio::spawn(http::start_http_server(
             db_tables_arc.clone(),
             game_server_addr,
+            world_global_state_arc.clone(),
+            game_state_arc.clone(),
+            grid_config_arc.clone(),
         ));
 
         // ── Background processors ──

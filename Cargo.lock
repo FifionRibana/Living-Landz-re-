@@ -2386,6 +2386,7 @@ dependencies = [
  "bevy_ui_text_input",
  "bincode",
  "chrono",
+ "futures",
  "hexx",
  "i_triangle",
  "image",

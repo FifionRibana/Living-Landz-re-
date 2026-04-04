@@ -22,7 +22,6 @@ impl Plugin for TerrainPlugin {
                 (
                     systems::initialize_terrain,
                     systems::build_tree_atlas,
-                    systems::request_terrain_global_data,
                     systems::create_terrain_global_textures,
                     systems::spawn_terrain,
                     systems::spawn_building,
