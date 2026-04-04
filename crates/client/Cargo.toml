@@ -21,8 +21,6 @@ hexx = { workspace = true }
 image = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
-tungstenite = { workspace = true }
-url = { workspace = true }
 i_triangle = { workspace = true }
 
 lightyear = { workspace = true }

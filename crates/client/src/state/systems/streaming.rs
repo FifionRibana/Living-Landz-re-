@@ -8,12 +8,11 @@ use shared::{
 use crate::camera::MainCamera;
 use crate::networking::client::lightyear_client::{PendingTerrainChunks, SendRequestExplorationMap, SendRequestTerrainChunks};
 use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
-use crate::state::resources::{ConnectionStatus, StreamingConfig, WorldCache};
+use crate::state::resources::{StreamingConfig, WorldCache};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
 
 pub fn request_chunks_around_camera(
     camera: Query<&Transform, With<MainCamera>>,
-    connection: Res<ConnectionStatus>,
     world_cache_opt: Option<ResMut<WorldCache>>,
     mut streaming_config: ResMut<StreamingConfig>,
     time: Res<Time>,
@@ -24,10 +23,6 @@ pub fn request_chunks_around_camera(
     let Some(mut world_cache) = world_cache_opt else {
         return;
     };
-
-    if !connection.is_ready() {
-        return;
-    }
 
     let Ok(transform) = camera.single() else {
         return;

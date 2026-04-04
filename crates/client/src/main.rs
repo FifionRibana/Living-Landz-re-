@@ -3,6 +3,8 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use std::time::Duration;
 
+use crate::networking::client::auth_task::AuthTask;
+
 mod camera;
 mod grid;
 // mod input;
@@ -36,7 +38,7 @@ fn main() {
                     ..default()
                 })
                 .set(bevy::log::LogPlugin {
-                    filter: "client=info,bevy_render=error,wgpu=error,naga=warn,lightyear=warn".to_string(),
+                    filter: "client=info,wgpu=error,bevy_render=error,naga=warn,lightyear=warn".to_string(),
                     level: bevy::log::Level::INFO,
                     custom_layer: |_app| {
                         let file = std::fs::OpenOptions::new()
@@ -61,6 +63,8 @@ fn main() {
         .add_sub_state::<states::AuthScreen>()
         .add_sub_state::<states::GameView>()
         .add_sub_state::<states::Overlay>()
+        //
+        .init_resource::<AuthTask>()
         //
         .add_plugins((
             camera::CameraPlugin,

@@ -25,6 +25,9 @@ use shared::protocol::{
         TerrainGlobalDataMsg, TerritoryBorderCellsMsg, TerritoryBorderSdfUpdateMsg,
         TerritoryContourUpdateMsg, UnitPositionUpdatedMsg, UnitProfessionChangedMsg,
         UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
+        CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
+        DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugSpawnUnitMsg,
+        LordCreatedMsg, LordCreateErrorMsg,
     },
 };
 
@@ -98,6 +101,18 @@ impl Plugin for LightyearGamePlugin {
                     receive_lake_data_requests,
                     receive_terrain_global_data_requests,
                     receive_exploration_map_requests,
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    receive_create_lord_messages,
+                    receive_found_hamlet_messages,
+                    receive_move_unit_to_slot_messages,
+                    receive_assign_unit_to_slot_messages,
+                    receive_debug_create_organization_messages,
+                    receive_debug_delete_organization_messages,
+                    receive_debug_spawn_unit_messages,
                 ),
             );
     }
@@ -624,6 +639,24 @@ pub fn poll_bridge_events(
                     tracing::error!("Failed to send DebugErrorMsg to player {}: {:?}", player_id, e);
                 }
             }
+
+            BridgeEvent::SendLordCreated { player_id, unit_data } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = LordCreatedMsg { unit_data };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send LordCreatedMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendLordCreateError { player_id, reason } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = LordCreateErrorMsg { reason };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send LordCreateErrorMsg to player {}: {:?}", player_id, e);
+                }
+            }
         }
     }
 }
@@ -1111,6 +1144,120 @@ fn receive_exploration_map_requests(
             bridge.send_action(super::bridge::ActionRequest::LoadExplorationMap {
                 player_id,
                 terrain_name: msg.terrain_name.clone(),
+            });
+        }
+    }
+}
+
+// ─── Remaining command receivers (#138) ──────────────────────────────
+
+fn receive_create_lord_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<CreateLordMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::CreateLord {
+                player_id,
+                first_name: msg.first_name.clone(),
+                gender: msg.gender.clone(),
+                portrait_layers: msg.portrait_layers.clone(),
+            });
+        }
+    }
+}
+
+fn receive_found_hamlet_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<FoundHamletMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for _msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::FoundHamlet { player_id });
+        }
+    }
+}
+
+fn receive_move_unit_to_slot_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<MoveUnitToSlotMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::MoveUnitToSlot {
+                player_id,
+                unit_id: msg.unit_id,
+                cell: msg.cell,
+                from_slot: msg.from_slot,
+                to_slot: msg.to_slot,
+            });
+        }
+    }
+}
+
+fn receive_assign_unit_to_slot_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<AssignUnitToSlotMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::AssignUnitToSlot {
+                player_id,
+                unit_id: msg.unit_id,
+                cell: msg.cell,
+                slot: msg.slot,
+            });
+        }
+    }
+}
+
+fn receive_debug_create_organization_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<DebugCreateOrganizationMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::DebugCreateOrganization {
+                player_id,
+                name: msg.name.clone(),
+                organization_type: msg.organization_type,
+                cell: msg.cell,
+                parent_organization_id: msg.parent_organization_id,
+            });
+        }
+    }
+}
+
+fn receive_debug_delete_organization_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<DebugDeleteOrganizationMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::DebugDeleteOrganization {
+                player_id,
+                organization_id: msg.organization_id,
+            });
+        }
+    }
+}
+
+fn receive_debug_spawn_unit_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<DebugSpawnUnitMsg>, &RemoteId)>,
+    bridge: Res<LightyearBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::DebugSpawnUnit {
+                player_id,
+                cell: msg.cell,
             });
         }
     }

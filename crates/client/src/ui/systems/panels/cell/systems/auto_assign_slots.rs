@@ -1,17 +1,15 @@
 use bevy::prelude::*;
 use crate::ui::resources::CellState;
 use crate::state::resources::{UnitsCache, WorldCache};
-use crate::networking::client::NetworkClient;
+use crate::networking::client::lightyear_client::SendAssignUnitToSlot;
 use shared::{SlotPosition, SlotType, SlotConfiguration, BiomeTypeEnum};
-use shared::protocol::ClientMessage;
-// use shared::grid::GridCell;
 
 /// Auto-assign units without slots to random free slots when entering cell view
 pub fn auto_assign_unslotted_units(
     cell_state: Res<CellState>,
     world_cache: Res<WorldCache>,
     mut units_cache: ResMut<UnitsCache>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut assign_events: MessageWriter<SendAssignUnitToSlot>,
 ) {
     let Some(viewed_cell) = cell_state.cell() else {
         return;
@@ -115,12 +113,10 @@ pub fn auto_assign_unslotted_units(
         );
 
         // Send to server for persistence
-        if let Some(ref mut client) = network_client {
-            client.send_message(ClientMessage::AssignUnitToSlot {
-                unit_id,
-                cell: viewed_cell,
-                slot: slot_pos,
-            });
-        }
+        assign_events.write(SendAssignUnitToSlot {
+            unit_id,
+            cell: viewed_cell,
+            slot: slot_pos,
+        });
     }
 }

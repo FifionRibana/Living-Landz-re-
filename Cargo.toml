@@ -82,8 +82,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1.42", features = ["full"] }
 
 # Networking
-tokio-tungstenite = "0.28" # WebSocket async avec tokio
-tungstenite = "0.28"       # WebSocket
 futures = "0.3"
 bincode = "2.0.1"
 lightyear = { version = "0.26", features = [
@@ -94,8 +92,6 @@ lightyear = { version = "0.26", features = [
     "udp"
 ] }
 tracing-appender = "0.2"
-
-url = "2.5.7"
 
 chrono = "0.4"
 

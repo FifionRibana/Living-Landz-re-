@@ -2,16 +2,16 @@ use std::collections::HashSet;
 
 use bevy::{prelude::*, window::PrimaryWindow};
 use hexx::{Rect, *};
-use shared::{SlotPosition, protocol::ClientMessage};
+use shared::SlotPosition;
 
 use crate::camera;
 use crate::camera::resources::CELL_SCENE_LAYER;
+use crate::networking::client::lightyear_client::SendMoveUnitToSlot;
 use crate::state::resources::UnitWorkState;
 use crate::ui::components::{
     CellSceneSlotSprite, CellSceneVisual, DragTargetValidity, Slot, SlotVisualState,
 };
 use crate::{
-    networking::client::NetworkClient,
     state::resources::{UnitsCache, UnitsDataCache},
     ui::{
         components::{
@@ -1028,7 +1028,7 @@ fn on_slot_drag_drop(
     mut event: On<Pointer<DragDrop>>,
     cell_state: Res<CellState>,
     mut drag_state: ResMut<DragState>,
-    mut network_client: ResMut<NetworkClient>,
+    mut move_slot_events: MessageWriter<SendMoveUnitToSlot>,
     slot_query: Query<(&SlotIndicator, Option<&SlotOccupant>), With<Slot>>,
     mut container_query: Query<&mut Transform, With<SlotUnitPortrait>>,
     mut vis_query: Query<&mut SlotVisualState, With<Slot>>,
@@ -1042,13 +1042,11 @@ fn on_slot_drag_drop(
     let drop_target = event.event_target();
     drag_state.hovered_slot = None;
 
-    // Reset all visual states — sync_slot_visuals handles the rest
     for mut state in vis_query.iter_mut() {
         state.drag_target = None;
         state.hovered = false;
     }
 
-    // Try the drop
     let drop_valid = (|| {
         if drop_target == drag_info.source_slot {
             return None;
@@ -1066,8 +1064,8 @@ fn on_slot_drag_drop(
         let (source_indicator, _) = slot_query.get(drag_info.source_slot).ok()?;
         let unit_id = source_indicator.occupied_by?;
 
-        info!("Sending MoveUnitToSlot");
-        network_client.send_message(ClientMessage::MoveUnitToSlot {
+        info!("Sending MoveUnitToSlot via lightyear");
+        move_slot_events.write(SendMoveUnitToSlot {
             unit_id,
             cell: viewed_cell,
             from_slot: source_indicator.position,

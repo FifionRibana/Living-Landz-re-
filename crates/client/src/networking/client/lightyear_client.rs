@@ -6,7 +6,6 @@ use shared::TerrainChunkId;
 use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
 
-use crate::networking::client::NetworkClient;
 use crate::networking::client::auth_task::AuthTask;
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, GameDataCache, InventoryCache,
@@ -28,6 +27,9 @@ use shared::protocol::lightyear_messages::{
     TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg,
     UnitPositionUpdatedMsg, UnitProfessionChangedMsg, UnitSlotUpdatedMsg,
     UnitWorkStatusUpdateMsg,
+    CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
+    DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugSpawnUnitMsg,
+    LordCreatedMsg, LordCreateErrorMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -120,6 +122,51 @@ pub struct SendRequestOrganizationAtCell {
     pub cell: GridCell,
 }
 
+// ─── Remaining command Bevy Messages (#138) ─────────────────────────
+
+#[derive(Message, Clone)]
+pub struct SendCreateLord {
+    pub first_name: String,
+    pub gender: String,
+    pub portrait_layers: String,
+}
+
+#[derive(Message, Clone)]
+pub struct SendFoundHamlet;
+
+#[derive(Message, Clone)]
+pub struct SendMoveUnitToSlot {
+    pub unit_id: u64,
+    pub cell: GridCell,
+    pub from_slot: shared::SlotPosition,
+    pub to_slot: shared::SlotPosition,
+}
+
+#[derive(Message, Clone)]
+pub struct SendAssignUnitToSlot {
+    pub unit_id: u64,
+    pub cell: GridCell,
+    pub slot: shared::SlotPosition,
+}
+
+#[derive(Message, Clone)]
+pub struct SendDebugCreateOrganization {
+    pub name: String,
+    pub organization_type: shared::OrganizationType,
+    pub cell: GridCell,
+    pub parent_organization_id: Option<u64>,
+}
+
+#[derive(Message, Clone)]
+pub struct SendDebugDeleteOrganization {
+    pub organization_id: u64,
+}
+
+#[derive(Message, Clone)]
+pub struct SendDebugSpawnUnit {
+    pub cell: GridCell,
+}
+
 pub struct LightyearClientPlugin;
 
 impl Plugin for LightyearClientPlugin {
@@ -164,6 +211,13 @@ impl Plugin for LightyearClientPlugin {
             .add_message::<SendRequestExplorationMap>()
             .add_message::<SendRequestInventory>()
             .add_message::<SendRequestOrganizationAtCell>()
+            .add_message::<SendCreateLord>()
+            .add_message::<SendFoundHamlet>()
+            .add_message::<SendMoveUnitToSlot>()
+            .add_message::<SendAssignUnitToSlot>()
+            .add_message::<SendDebugCreateOrganization>()
+            .add_message::<SendDebugDeleteOrganization>()
+            .add_message::<SendDebugSpawnUnit>()
             .add_systems(
                 Update,
                 (
@@ -183,6 +237,20 @@ impl Plugin for LightyearClientPlugin {
                     send_organization_at_cell_requests,
                 )
                     .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (
+                    send_create_lord,
+                    send_found_hamlet,
+                    send_move_unit_to_slot,
+                    send_assign_unit_to_slot,
+                    send_debug_create_organization,
+                    send_debug_delete_organization,
+                    send_debug_spawn_unit,
+                    receive_lord_created,
+                    receive_lord_create_error,
+                ),
             );
 
         // Bulk data + event receivers (run in InGame — world resources must exist)
@@ -463,7 +531,7 @@ fn receive_unit_position_updated(
 fn receive_action_completed(
     mut receivers: Query<&mut MessageReceiver<ActionCompletedMsg>>,
     mut notifications: ResMut<NotificationState>,
-    mut network_client: Option<ResMut<NetworkClient>>,
+    mut terrain_events: MessageWriter<SendRequestTerrainChunks>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -475,16 +543,10 @@ fn receive_action_completed(
             notifications.push_success(format!("{} terminée !", msg.action_type.to_name()));
 
             // Request chunk data refresh so the client sees the result
-            if let Some(ref mut client) = network_client {
-                info!(
-                    "Requesting chunk data refresh for ({},{})",
-                    msg.chunk_id.x, msg.chunk_id.y
-                );
-                client.send_message(shared::protocol::ClientMessage::RequestTerrainChunks {
-                    terrain_name: "Gaulyia".to_string(),
-                    terrain_chunk_ids: vec![msg.chunk_id],
-                });
-            }
+            terrain_events.write(SendRequestTerrainChunks {
+                terrain_name: "Gaulyia".to_string(),
+                chunk_ids: vec![msg.chunk_id],
+            });
         }
     }
 }
@@ -1070,6 +1132,135 @@ fn send_organization_at_cell_requests(
         if let Some(mut sender) = senders.iter_mut().next() {
             sender.send::<ReliableGameChannel>(RequestOrganizationAtCellMsg { cell: event.cell });
             break;
+        }
+    }
+}
+
+// ─── Remaining command senders (#138) ────────────────────────────────
+
+fn send_create_lord(
+    mut events: MessageReader<SendCreateLord>,
+    mut senders: Query<&mut MessageSender<CreateLordMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(CreateLordMsg {
+                first_name: event.first_name.clone(),
+                gender: event.gender.clone(),
+                portrait_layers: event.portrait_layers.clone(),
+            });
+            break;
+        }
+    }
+}
+
+fn send_found_hamlet(
+    mut events: MessageReader<SendFoundHamlet>,
+    mut senders: Query<&mut MessageSender<FoundHamletMsg>>,
+) {
+    for _event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(FoundHamletMsg);
+            break;
+        }
+    }
+}
+
+fn send_move_unit_to_slot(
+    mut events: MessageReader<SendMoveUnitToSlot>,
+    mut senders: Query<&mut MessageSender<MoveUnitToSlotMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(MoveUnitToSlotMsg {
+                unit_id: event.unit_id, cell: event.cell,
+                from_slot: event.from_slot, to_slot: event.to_slot,
+            });
+            break;
+        }
+    }
+}
+
+fn send_assign_unit_to_slot(
+    mut events: MessageReader<SendAssignUnitToSlot>,
+    mut senders: Query<&mut MessageSender<AssignUnitToSlotMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(AssignUnitToSlotMsg {
+                unit_id: event.unit_id, cell: event.cell, slot: event.slot,
+            });
+            break;
+        }
+    }
+}
+
+fn send_debug_create_organization(
+    mut events: MessageReader<SendDebugCreateOrganization>,
+    mut senders: Query<&mut MessageSender<DebugCreateOrganizationMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(DebugCreateOrganizationMsg {
+                name: event.name.clone(), organization_type: event.organization_type,
+                cell: event.cell, parent_organization_id: event.parent_organization_id,
+            });
+            break;
+        }
+    }
+}
+
+fn send_debug_delete_organization(
+    mut events: MessageReader<SendDebugDeleteOrganization>,
+    mut senders: Query<&mut MessageSender<DebugDeleteOrganizationMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(DebugDeleteOrganizationMsg {
+                organization_id: event.organization_id,
+            });
+            break;
+        }
+    }
+}
+
+fn send_debug_spawn_unit(
+    mut events: MessageReader<SendDebugSpawnUnit>,
+    mut senders: Query<&mut MessageSender<DebugSpawnUnitMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(DebugSpawnUnitMsg { cell: event.cell });
+            break;
+        }
+    }
+}
+
+// ─── Lord lifecycle receivers (#138) ─────────────────────────────────
+
+fn receive_lord_created(
+    mut receivers: Query<&mut MessageReceiver<LordCreatedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut next_app_state: ResMut<NextState<AppState>>,
+    mut inventory_events: MessageWriter<SendRequestInventory>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!("✓ Lord created via lightyear: {} (ID: {})", msg.unit_data.full_name(), msg.unit_data.id);
+            let unit_id = msg.unit_data.id;
+            player_info.set_lord(msg.unit_data);
+            inventory_events.write(SendRequestInventory { unit_id });
+            next_app_state.set(AppState::InGame);
+        }
+    }
+}
+
+fn receive_lord_create_error(
+    mut receivers: Query<&mut MessageReceiver<LordCreateErrorMsg>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            warn!("Failed to create lord: {}", msg.reason);
         }
     }
 }

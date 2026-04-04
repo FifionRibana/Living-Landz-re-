@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use shared::{
     ActionStatusEnum, ActionTypeEnum, TerrainChunkId,
     grid::{GridCell, GridConfig},
-    protocol::ServerMessage,
 };
 use sqlx::Row;
 use std::{
@@ -11,7 +10,6 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::networking::Sessions;
 use crate::road::RoadSegment;
 use crate::{database::client::DatabaseTables, units::PortraitGenerator};
 use crate::{dev::DevConfig, networking::server::lightyear::bridge::BridgeSender};
@@ -47,7 +45,6 @@ pub struct ActionInfo {
 
 pub struct ActionProcessor {
     db_tables: Arc<DatabaseTables>,
-    sessions: Sessions,
     game_state: Arc<GameState>,
     grid_config: Arc<GridConfig>,
     dev_config: Arc<DevConfig>,
@@ -59,7 +56,6 @@ pub struct ActionProcessor {
 impl ActionProcessor {
     pub fn new(
         db_tables: Arc<DatabaseTables>,
-        sessions: Sessions,
         game_state: Arc<GameState>,
         grid_config: Arc<GridConfig>,
         dev_config: Arc<DevConfig>,
@@ -67,7 +63,6 @@ impl ActionProcessor {
     ) -> Self {
         Self {
             db_tables,
-            sessions,
             game_state,
             grid_config,
             dev_config,
@@ -2020,99 +2015,6 @@ impl ActionProcessor {
         Ok(())
     }
 
-    /// Envoie un message à un joueur spécifique
-    async fn send_message_to_player(&self, player_id: u64, message: ServerMessage) {
-        let message_type = match &message {
-            ServerMessage::LoginSuccess { .. } => "LoginSuccess",
-            ServerMessage::LoginError { .. } => "LoginError",
-            ServerMessage::RegisterSuccess { .. } => "RegisterSuccess",
-            ServerMessage::RegisterError { .. } => "RegisterError",
-            ServerMessage::LordData { .. } => "LordData",
-            ServerMessage::LordCreated { .. } => "LordCreated",
-            ServerMessage::LordCreateError { .. } => "LordCreateError",
-            ServerMessage::TerrainChunkData { .. } => "TerrainChunkData",
-            ServerMessage::OceanData { .. } => "OceanData",
-            ServerMessage::LakeData { .. } => "LakeData",
-            ServerMessage::TerrainGlobalData { .. } => "TerrainGlobalData",
-            ServerMessage::RoadChunkSdfUpdate { chunk_id, .. } => {
-                tracing::info!(
-                    "Sending RoadChunkSdfUpdate to player {} for chunk ({},{})",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y
-                );
-                "RoadChunkSdfUpdate"
-            }
-            ServerMessage::TerritoryContourUpdate { chunk_id, contours } => {
-                tracing::info!(
-                    "Sending TerritoryContourUpdate to player {} for chunk ({},{}) with {} contours",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y,
-                    contours.len()
-                );
-                "TerritoryContourUpdate"
-            }
-            ServerMessage::TerritoryBorderSdfUpdate { chunk_id, .. } => {
-                tracing::info!(
-                    "Sending TerritoryBorderSdfUpdate to player {} for chunk ({},{})",
-                    player_id,
-                    chunk_id.x,
-                    chunk_id.y
-                );
-                "TerritoryBorderSdfUpdate"
-            }
-            ServerMessage::TerritoryBorderCells {
-                organization_id,
-                border_cells,
-            } => {
-                tracing::info!(
-                    "Sending TerritoryBorderCells to player {} for org {} ({} cells)",
-                    player_id,
-                    organization_id,
-                    border_cells.len()
-                );
-                "TerritoryBorderCells"
-            }
-            ServerMessage::ActionStatusUpdate { .. } => "ActionStatusUpdate",
-            ServerMessage::ActionCompleted { .. } => "ActionCompleted",
-            ServerMessage::ActionSuccess { .. } => "ActionSuccess",
-            ServerMessage::ActionError { .. } => "ActionError",
-            ServerMessage::DebugOrganizationCreated { .. } => "DebugOrganizationCreated",
-            ServerMessage::DebugOrganizationDeleted { .. } => "DebugOrganizationDeleted",
-            ServerMessage::DebugUnitSpawned { .. } => "DebugUnitSpawned",
-            ServerMessage::OrganizationAtCell { .. } => "OrganizationAtCell",
-            ServerMessage::DebugError { .. } => "DebugError",
-            ServerMessage::UnitPositionUpdated { .. } => "UnitPositionUpdated",
-            ServerMessage::UnitSlotUpdated { .. } => "UnitSlotUpdated",
-            ServerMessage::UnitProfessionChanged { .. } => "UnitPorfessionChanged",
-            ServerMessage::UnitWorkStatusUpdate { .. } => "UnitWorkStatusUpdate",
-            ServerMessage::HamletFounded { .. } => "HamletFounded",
-            ServerMessage::HamletFoundError { .. } => "HamletFoundError",
-            ServerMessage::PlayerOrganizationData { .. } => "PlayerOrganizationData",
-            ServerMessage::PopulationChanged { .. } => "PouplationChanged",
-            ServerMessage::InventoryData { .. } => "InventoryData",
-            ServerMessage::InventoryUpdate { .. } => "InventoryUpdate",
-            ServerMessage::GameData { .. } => "GameData",
-            ServerMessage::ExplorationMap { .. } => "ExplorationMap",
-            ServerMessage::ExplorationPatch { .. } => "ExplorationPatch",
-            ServerMessage::Pong => "Pong",
-        };
-
-        if !matches!(message, ServerMessage::RoadChunkSdfUpdate { .. }) {
-            tracing::debug!("Sending {} to player {}", message_type, player_id);
-        }
-
-        if let Err(e) = self.sessions.send_to_player(player_id, message).await {
-            tracing::warn!(
-                "Failed to send {} to player {}: {}",
-                message_type,
-                player_id,
-                e
-            );
-        }
-    }
-
     /// Trouve le Lord (unité principale) d'un joueur
     async fn find_lord_unit_id(&self, player_id: u64) -> Result<Option<u64>, String> {
         let row = sqlx::query_scalar::<_, i64>(
@@ -2124,16 +2026,6 @@ impl ActionProcessor {
         .map_err(|e| format!("Failed to find lord: {}", e))?;
 
         Ok(row.map(|id| id as u64))
-    }
-
-    /// Broadcast un message à tous les joueurs qui ont chargé un chunk
-    async fn broadcast_to_chunk(&self, _chunk_id: &TerrainChunkId, message: ServerMessage) {
-        // TODO: Implémenter le broadcast aux joueurs d'un chunk spécifique
-        // Pour l'instant on broadcast à tous les joueurs
-        tracing::debug!(
-            "Broadcasting message to all players (chunk-specific broadcast not yet implemented)"
-        );
-        self.sessions.broadcast(message).await;
     }
 
     /// Count active (Pending + InProgress) production actions on a cell.
