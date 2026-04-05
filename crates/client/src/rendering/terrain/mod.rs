@@ -5,4 +5,4 @@ mod plugin;
 pub mod systems;
 
 pub use plugin::TerrainPlugin;
-// pub use debug::ChunkDebugEnabled;
+// NOTE: debug module disabled

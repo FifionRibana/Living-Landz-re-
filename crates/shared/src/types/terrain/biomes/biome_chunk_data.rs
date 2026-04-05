@@ -9,7 +9,6 @@ pub struct BiomeChunkData {
     pub id: BiomeChunkId,
     // biomes: Vec<BiomeTriangulation>,
     pub mesh_data: MeshData,
-    // pub mesh_data: HashMap<String, MeshData>,
     /// Contours du continent (outline noir)
     pub outline: Vec<Vec<[f64; 2]>>,
     pub generated_at: u64,

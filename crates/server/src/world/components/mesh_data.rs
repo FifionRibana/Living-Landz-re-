@@ -12,8 +12,6 @@ pub struct MeshData {
 impl MeshData {
     #[inline]
     pub fn from_meshes(meshes: Triangulation<[f64; 2], u32>) -> Self {
-        // let mut triangles = Vec::new();
-
         let triangles: Vec<u32> = (0..meshes.indices.len())
             .step_by(3)
             .par_bridge()
@@ -25,12 +23,6 @@ impl MeshData {
                 ]
             })
             .collect::<Vec<_>>();
-
-        // for i in (0..meshes.indices.len()).step_by(3) {
-        //     triangles.push(meshes.indices[i]);
-        //     triangles.push(meshes.indices[i + 1]);
-        //     triangles.push(meshes.indices[i + 2]);
-        // }
 
         Self {
             triangles: triangles

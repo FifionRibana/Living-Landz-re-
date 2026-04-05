@@ -1,6 +1,5 @@
 use bincode::{Decode, Encode};
 use sqlx::FromRow;
-// use chrono::{DateTime, Utc};
 
 // ============ LOOKUPS ============
 #[derive(Debug, Clone, Encode, Decode, FromRow)]

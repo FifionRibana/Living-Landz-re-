@@ -1016,13 +1016,6 @@ fn on_slot_drag_end(
         warn!("Can't reset slot position");
     }
 
-    // if target_slot.is_none()
-    //     && let Ok(mut transform) = container_query.get_mut(drag_info.unit_entity)
-    // {
-    //     transform.translation.x = drag_info.origin.x;
-    //     transform.translation.y = drag_info.origin.y;
-    //     transform.translation.z = 10.0;
-    // }
 }
 fn on_slot_drag_drop(
     mut event: On<Pointer<DragDrop>>,

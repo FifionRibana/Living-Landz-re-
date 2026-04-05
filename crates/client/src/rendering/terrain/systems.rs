@@ -429,11 +429,6 @@ pub fn spawn_building(
             .layout
             .hex_to_world_pos(Hex::new(building_base.cell.q, building_base.cell.r));
 
-        // info!(
-        //     "BUILDING A CATEGORY: {:?} on cell {:?}",
-        //     building_base.category, building_base.cell
-        // );
-
         match (&building_base.category, &building.specific_data) {
             (BuildingCategoryEnum::Natural, BuildingSpecific::Tree(_tree_data)) => {
                 // Trees are rendered via instanced mesh merging in spawn_tree_meshes
@@ -719,8 +714,6 @@ pub fn setup_default_terrain_material(
         },
         ..default()
     });
-
-    // commands.insert_resource(DefaultTerrainMaterial(default_material));
 }
 
 fn extend_mesh_edges(positions: &mut [[f32; 3]], image_width: f32, image_height: f32, extend: f32) {

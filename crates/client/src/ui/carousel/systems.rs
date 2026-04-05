@@ -16,8 +16,6 @@ pub fn handle_carousel_scroll(
         } else {
             -event.y
         };
-        // let delta = event.x;
-
         if delta.abs() < 0.001 {
             continue;
         }

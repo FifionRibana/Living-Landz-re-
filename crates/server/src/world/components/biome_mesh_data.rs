@@ -157,14 +157,6 @@ impl BiomeMeshData {
                         |px, py| *scaled_image.get_pixel(x_offset + px, y_offset + py),
                     );
 
-                    // masking cropped
-                    // algorithm::smoothing::mask_luma_map(
-                    //     &mut cropped,
-                    //     binary_masks
-                    //         .get(&TerrainChunkId { x: cx, y: cy })
-                    //         .expect("Chunk not found"),
-                    // );
-
                     chunks.insert(chunk_id, cropped);
                 }
             }
@@ -256,7 +248,6 @@ impl BiomeMeshData {
         let load_result = file_system::load_from_disk(
             format!("{}{}_biomemap.bin", cache_directory, name).as_str(),
         );
-        // let mut loaded = false;
         let mut scaled_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::default();
         let loaded = match load_result {
             Ok(image) => {

@@ -168,9 +168,6 @@ impl SpecificActionData for HarvestResourceAction {
     }
 
     fn validate(&self, _context: &ValidationContext) -> Result<(), String> {
-        // if self.resource_type {
-        //     return Err("resource_type cannot be empty".to_string());
-        // }
         Ok(())
     }
 }

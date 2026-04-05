@@ -120,7 +120,6 @@ pub enum ResourceSpecific {
     Meat(MeatData),
     Fruits(FruitsData),
     Vegetables(VegetablesData),
-    //...
 }
 
 impl ResourceSpecific {
