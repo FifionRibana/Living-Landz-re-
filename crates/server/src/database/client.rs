@@ -114,11 +114,6 @@ pub async fn initialize_database() -> (DatabaseTables, GameState) {
     let user = std::env::var("DB_USER").unwrap_or_else(|_| "postgres".to_string());
     let password = std::env::var("DB_PASSWORD").unwrap_or_else(|_| "postgres".to_string());
 
-    // let db_url = format!(
-    //     "{}://{}:{}@{}:{}/{}",
-    //     protocol, user, password, host, port, db_name
-    // );
-
     tracing::info!(
         "Connecting to database at {}://{}:{}/{}",
         protocol,

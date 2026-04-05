@@ -206,16 +206,6 @@ impl BuildingCache {
                 && (data.base_data.chunk.y - center.y).abs() <= max_distance;
 
             if !keep {
-                // DEBUG: afficher le chunk du bâtiment vs le centre
-                // warn!(
-                //     "📦 Unloading building id={} cell=({},{}) chunk=({},{}) center=({},{}) dist=({},{})",
-                //     data.base_data.id,
-                //     cell.q, cell.r,
-                //     data.base_data.chunk.x, data.base_data.chunk.y,
-                //     center.x, center.y,
-                //     (data.base_data.chunk.x - center.x).abs(),
-                //     (data.base_data.chunk.y - center.y).abs(),
-                // );
                 removed_ids.push(data.base_data.id as i64);
                 removed.push(*data);
             }

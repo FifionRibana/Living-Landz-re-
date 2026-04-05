@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-// use shared::TerrainChunkId;
 
 #[derive(Component)]
 pub struct Building {

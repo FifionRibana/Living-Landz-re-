@@ -21,7 +21,6 @@ impl ScheduledActionsTable {
     pub async fn add_scheduled_action(&self, action: &ActionData) -> Result<u64, String> {
         let base_action = &action.base_data;
 
-        // let action_type = base_action.action_type();
         tracing::info!(
             "Adding scheduled action of type {:?} (id: {}), for player {}",
             base_action.action_type,

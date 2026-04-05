@@ -156,16 +156,6 @@ pub fn update_cell_details_content(
                         }
                     }
                 }
-                // let mut text = query.single_mut();
-                // if let Ok(mut text, (title_query, biome_query)) = query.single_mut() {
-                //     **text = "Tree".to_string();
-                // }
-                // if let Ok(mut text) = biome_query.single_mut() {
-                //     if let Some(cell) = cell_data {
-                //         **text = format!("{:?}", cell.biome);
-                //     }
-                // }
-                // Hide building image and gauge for trees
                 // TODO: Hide cell details when the panel is hidden
                 if let Ok((_, mut visibility)) = building_image_query.single_mut() {
                     *visibility = Visibility::Hidden;
@@ -193,17 +183,6 @@ pub fn update_cell_details_content(
                 }
             }
         }
-
-        // if let Ok(mut text) = title_query.single_mut() {
-        //     **text = format!("{:?}", building_type);
-        // }
-
-        // // Update biome text
-        // if let Ok(mut text) = biome_query.single_mut() {
-        //     if let Some(cell) = cell_data {
-        //         **text = format!("{:?}", cell.biome);
-        //     }
-        // }
 
         // Update building image
         if let Ok((mut image_node, mut visibility)) = building_image_query.single_mut() {
@@ -235,18 +214,6 @@ pub fn update_cell_details_content(
                 }
             }
         }
-
-        // if let Ok(mut text) = title_query.single_mut() {
-        //     **text = String::new();
-        // }
-
-        // if let Ok(mut text) = biome_query.single_mut() {
-        //     if let Some(cell) = cell_data {
-        //         **text = format!("{:?}", cell.biome);
-        //     } else {
-        //         **text = String::new();
-        //     }
-        // }
 
         // Hide building image and gauge
         if let Ok((_, mut visibility)) = building_image_query.single_mut() {
@@ -285,7 +252,6 @@ fn spawn_organization_badge(
     parent: &mut RelatedSpawnerCommands<ChildOf>,
     asset_server: &Res<AssetServer>,
 ) {
-    // let font: Handle<Font> = asset_server.load("fonts/FiraSans-Bold.ttf");
     let font_regular = asset_server.load("fonts/FiraSans-Regular.ttf");
 
     parent

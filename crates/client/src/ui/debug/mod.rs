@@ -5,4 +5,4 @@ mod systems;
 
 pub use components::*;
 pub use plugin::DebugUiPlugin;
-// pub use input_handler::*;
+// NOTE: debug input handler disabled
