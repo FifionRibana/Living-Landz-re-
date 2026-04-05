@@ -584,7 +584,6 @@ impl BuildingsTable {
 
             let category =
                 BuildingCategoryEnum::from_id(category_id).unwrap_or(BuildingCategoryEnum::Unknown);
-            // let specific_type_id: Option<i16> = r.try_get("specific_type_id").ok();
             let specific_type = BuildingSpecificTypeEnum::from_id(specific_type_id)
                 .unwrap_or(BuildingSpecificTypeEnum::Unknown);
 

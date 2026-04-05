@@ -74,11 +74,6 @@ pub fn update_cell_action_display(
         let action_type_text = &format!("{:?}", action.action_type);
 
         // Mettre à jour les textes du panneau
-        // Pour l'instant, on log juste l'info
-        // info!(
-        //     "Action sur la cellule: {} - {}",
-        //     action_type_text, action_status_text
-        // );
         for (mut text, status_query, type_query) in &mut text_query {
                     if status_query.is_some() {
                         **text = action_status_text.clone();

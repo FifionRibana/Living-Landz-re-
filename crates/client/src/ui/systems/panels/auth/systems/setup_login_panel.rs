@@ -59,21 +59,9 @@ pub fn setup_login_panel(
                                     Color::srgb_u8(220, 202, 169),
                                     Color::srgb_u8(235, 225, 209),
                                 )
-                                // .with_colors(
-                                //     Color::srgba(1.0, 1.0, 1.0, 1.0),    // Blanc en haut
-                                //     Color::srgba(0.92, 0.88, 0.82, 1.0), // Beige en bas
-                                // )
                                 .with_background(background_image),
                         )),
                     ),
-                    // BackgroundGradient::from(LinearGradient {
-                    //     angle: 0.,
-                    //     stops: vec![
-                    //         ColorStop::new(Color::srgba_u8(220, 202, 169, 255), Val::Percent(0.)),
-                    //         ColorStop::new(Color::srgba_u8(235, 225, 209, 96), Val::Percent(100.)),
-                    //     ],
-                    //     ..default()
-                    // }),
                     BorderColor::all(Color::srgba_u8(235, 225, 209, 196)),
                 ))
                 .with_children(|form| {

@@ -281,12 +281,6 @@ pub fn visualize_border_cells(
             gizmos.line_2d(center, vertices[i], Color::srgba(0.0, 1.0, 0.0, 0.3));
         }
     }
-
-    // Display count in the logs once per second
-    // info!("Visualizing {} border cells for org {}",
-    //     border_cells.border_cells.len(),
-    //     border_cells.organization_id
-    // );
 }
 
 // ===========================================================================================
