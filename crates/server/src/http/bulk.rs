@@ -8,9 +8,11 @@ use serde::Deserialize;
 
 use shared::TerrainChunkId;
 use shared::grid::GridConfig;
+use shared::protocol::{TerritoryContourChunkData, ColorData};
 use shared::GameState;
 
 use crate::database::client::DatabaseTables;
+use crate::road::{RoadConfig, compute_intersections, generate_road_sdf};
 use crate::world::resources::WorldGlobalState;
 
 // ─── State ──────────────────────────────────────────────────────────
@@ -77,7 +79,9 @@ pub async fn terrain_chunks(
             let cell_data = db.cells.load_chunk_cells(&cid).await.unwrap_or_default();
             let building_data = db.buildings.load_chunk_buildings(&cid).await.unwrap_or_default();
             let unit_data = db.units.load_chunk_units(cid).await.unwrap_or_default();
-            (cid, terrain_result, cell_data, building_data, unit_data)
+            let road_sdf = load_road_sdf(&db, &cid).await;
+            let contours = load_territory_contours(&db, &cid).await;
+            (cid, terrain_result, cell_data, building_data, unit_data, road_sdf, contours)
         });
     }
 
@@ -87,14 +91,14 @@ pub async fn terrain_chunks(
     let mut chunks_data: Vec<(TerrainChunkId, Vec<u8>)> = Vec::with_capacity(total);
     let mut to_generate: Vec<TerrainChunkId> = Vec::new();
 
-    for (cid, terrain_result, cell_data, building_data, unit_data) in loaded {
+    for (cid, terrain_result, cell_data, building_data, unit_data, road_sdf, contours) in loaded {
         match terrain_result {
             Ok((Some(terrain_data), Some(biome_data))) => {
-                let compressed = encode_terrain_chunk(&terrain_data, &biome_data, &cell_data, &building_data, &unit_data);
+                let compressed = encode_terrain_chunk(&terrain_data, &biome_data, &cell_data, &building_data, &unit_data, &road_sdf, &contours);
                 chunks_data.push((cid, compressed));
             }
             Ok((Some(terrain_data), None)) => {
-                let compressed = encode_terrain_chunk(&terrain_data, &[], &cell_data, &building_data, &unit_data);
+                let compressed = encode_terrain_chunk(&terrain_data, &[], &cell_data, &building_data, &unit_data, &road_sdf, &contours);
                 chunks_data.push((cid, compressed));
             }
             Ok((None, _)) => {
@@ -111,7 +115,9 @@ pub async fn terrain_chunks(
         let (terrain_data, cell_data, building_data) =
             crate::world::systems::generate_chunk_data(chunk_id, world_global_state, db_tables, game_state).await;
         let unit_data = db_tables.units.load_chunk_units(*chunk_id).await.unwrap_or_default();
-        let compressed = encode_terrain_chunk(&terrain_data, &[], &cell_data, &building_data, &unit_data);
+        let road_sdf = load_road_sdf(db_tables, chunk_id).await;
+        let contours = load_territory_contours(db_tables, chunk_id).await;
+        let compressed = encode_terrain_chunk(&terrain_data, &[], &cell_data, &building_data, &unit_data, &road_sdf, &contours);
         chunks_data.push((*chunk_id, compressed));
     }
 
@@ -146,11 +152,50 @@ fn encode_terrain_chunk(
     cell_data: &[shared::grid::CellData],
     building_data: &[shared::BuildingData],
     unit_data: &[shared::UnitData],
+    road_sdf: &Option<shared::RoadChunkSdfData>,
+    contours: &Vec<TerritoryContourChunkData>,
 ) -> Vec<u8> {
-    let payload = (terrain_data, biome_data, cell_data, building_data, unit_data);
+    let payload = (terrain_data, biome_data, cell_data, building_data, unit_data, road_sdf, contours);
     let raw = bincode::encode_to_vec(&payload, bincode::config::standard())
         .expect("Failed to encode terrain chunk payload");
     shared::protocol::bulk_compress::compress(&raw)
+}
+
+async fn load_road_sdf(
+    db_tables: &DatabaseTables,
+    chunk_id: &TerrainChunkId,
+) -> Option<shared::RoadChunkSdfData> {
+    match db_tables.road_segments.load_road_segments_by_chunk_new(chunk_id.x, chunk_id.y).await {
+        Ok(road_segments) if !road_segments.is_empty() => {
+            let config = RoadConfig::default();
+            let intersections = compute_intersections(&road_segments, &config);
+            Some(generate_road_sdf(&road_segments, &intersections, &config, chunk_id.x, chunk_id.y))
+        }
+        _ => None,
+    }
+}
+
+async fn load_territory_contours(
+    db_tables: &DatabaseTables,
+    chunk_id: &TerrainChunkId,
+) -> Vec<TerritoryContourChunkData> {
+    match db_tables.territory_contours.load_chunk_contours(chunk_id).await {
+        Ok(territories) if !territories.is_empty() => {
+            territories.iter().map(|t| {
+                let (border_color, fill_color) = crate::world::territory::generate_org_colors(
+                    t.organization_id,
+                );
+                TerritoryContourChunkData {
+                    organization_id: t.organization_id,
+                    chunk_id: *chunk_id,
+                    segments: t.segments.clone(),
+                    border_color: ColorData::from_array(border_color),
+                    fill_color: ColorData::from_array(fill_color),
+                }
+            }).collect()
+        }
+        _ => vec![],
+    }
 }
 
 // ─── GET /api/world/:name/ocean ─────────────────────────────────────
