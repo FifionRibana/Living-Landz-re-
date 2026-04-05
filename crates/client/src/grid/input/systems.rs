@@ -16,7 +16,6 @@ pub fn spawn_hex_indicators(
     hex_mesh: Res<HexMesh>,
 ) {
     let hex_mesh = hex_mesh.mesh.clone(); // Taille unitaire
-    // let hover_material = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.3)));
 
     let time = 0.0;
 

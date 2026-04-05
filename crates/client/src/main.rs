@@ -7,7 +7,6 @@ use crate::networking::client::auth_task::AuthTask;
 
 mod camera;
 mod grid;
-// mod input;
 mod networking;
 mod rendering;
 mod state;

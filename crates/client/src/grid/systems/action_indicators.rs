@@ -185,27 +185,7 @@ fn spawn_action_indicator(
             ));
         }
 
-        // Action type icon (left of bar)
         // TODO: Add icons for action indicators
-        // let icon_path = match action_type {
-        //     ActionTypeEnum::BuildBuilding => "ui/icons/action_build.png",
-        //     ActionTypeEnum::BuildRoad => "ui/icons/action_road.png",
-        //     ActionTypeEnum::HarvestResource => "ui/icons/action_harvest.png",
-        //     ActionTypeEnum::CraftResource => "ui/icons/action_craft.png",
-        //     ActionTypeEnum::TrainUnit => "ui/icons/action_train.png",
-        //     ActionTypeEnum::MoveUnit => "ui/icons/action_move.png",
-        //     _ => "ui/icons/action_default.png",
-        // };
-
-        // // Only spawn icon if asset exists — otherwise skip
-        // parent.spawn((
-        //     Sprite {
-        //         image: asset_server.load(icon_path),
-        //         custom_size: Some(Vec2::new(12.0, 12.0)),
-        //         ..default()
-        //     },
-        //     Transform::from_translation(Vec3::new(-BAR_WIDTH / 2.0 - 10.0, 0.0, 0.1)),
-        // ));
     });
 
     // Add status markers

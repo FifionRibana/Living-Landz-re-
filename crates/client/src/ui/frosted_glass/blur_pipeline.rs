@@ -171,14 +171,3 @@ pub fn run_blur_passes(
 
     render_queue.submit(std::iter::once(encoder.finish()));
 }
-
-// pub fn sync_frosted_glass_size(
-//     mut materials: ResMut<Assets<FrostedGlassMaterial>>,
-//     query: Query<(&MaterialNode<FrostedGlassMaterial>, &ComputedNode), Changed<ComputedNode>>,
-// ) {
-//     for (material_handle, computed) in &query {
-//         if let Some(material) = materials.get_mut(&material_handle.0) {
-//             material.size = computed.size();
-//         }
-//     }
-// }

@@ -82,7 +82,6 @@ pub fn simplify_contour_with_diagonals(
         // Concave case
         if let Some(diag_info) = detect_diagonal_transition(hex_prev, hex_curr, hex_next, territory)
         {
-            // tracing::info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev.x, hex_prev.y, hex_next.x, hex_next.y);
             // edges[i] est une jonction : ne génère pas de point
             is_junction[i] = true;
             is_junction[(i + 2) % n] = true;
@@ -95,7 +94,6 @@ pub fn simplify_contour_with_diagonals(
         // Convex case
         if let Some(diag_info) = detect_diagonal_transition(hex_prev2, hex_curr, hex_next2, territory)
         {
-            // tracing::info!("Transition ({:?}): ({},{}) -> ({},{})", diag_info.curvature, hex_prev2.x, hex_prev2.y, hex_next2.x, hex_next2.y);
             // edges[i] est une jonction : ne génère pas de point
             is_junction[i] = true;
 

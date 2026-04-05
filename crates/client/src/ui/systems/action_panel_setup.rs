@@ -21,8 +21,6 @@ pub fn setup_action_panel(parent: &mut RelatedSpawnerCommands<ChildOf>, asset_se
 
     // Load tab button sprites
     let _tab_normal: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_normal.png");
-    // let tab_hovered: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_hovered.png");
-    // let tab_selected: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_selected.png");
 
     // TODO: Reorganize layout — run button on the right, rest on the panel
     parent
