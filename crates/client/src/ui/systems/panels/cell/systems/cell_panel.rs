@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use bevy::{prelude::*, window::PrimaryWindow};
 use hexx::{Rect, *};
 use shared::SlotPosition;
 
 use crate::camera;
-use crate::camera::resources::CELL_SCENE_LAYER;
+use crate::camera::resources::DISPLAY_LAYER;
 use crate::networking::client::game_client::SendMoveUnitToSlot;
 use crate::state::resources::UnitWorkState;
 use crate::ui::components::{
@@ -373,7 +373,7 @@ pub fn setup_cell_slots(
                     Slot,
                     SlotVisualState::default(),
                     CellSceneVisual,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .observe(on_slot_hover_enter)
                 .observe(on_slot_hover_leave)
@@ -418,7 +418,7 @@ pub fn setup_cell_slots(
                     Slot,
                     SlotVisualState::default(),
                     CellSceneVisual,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .observe(on_slot_hover_enter)
                 .observe(on_slot_hover_leave)
@@ -472,7 +472,7 @@ pub fn setup_cell_slots(
                     Slot,
                     SlotVisualState::default(),
                     CellSceneVisual,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .observe(on_slot_hover_enter)
                 .observe(on_slot_hover_leave)
@@ -517,7 +517,7 @@ pub fn setup_cell_slots(
                     Slot,
                     SlotVisualState::default(),
                     CellSceneVisual,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .observe(on_slot_hover_enter)
                 .observe(on_slot_hover_leave)
@@ -566,9 +566,19 @@ pub fn update_unit_portraits(
 
     // Despawn uniquement les unités qui ne devraient plus être là
     // ET qui ne sont pas en cours de spawn
+    // Build expected map: unit_id → slot_position
+    let expected_map: HashMap<u64, SlotPosition> =
+        occupied_slots.iter().map(|(pos, id)| (*id, *pos)).collect();
+
+    // Despawn portraits that are gone OR at the wrong slot position
     for (entity, portrait) in spawned_units_query.iter() {
-        if !expected_units.contains(&portrait.unit_id) {
+        let should_despawn = match expected_map.get(&portrait.unit_id) {
+            None => true,                                                  // unit removed
+            Some(expected_pos) => *expected_pos != portrait.slot_position, // moved to different slot
+        };
+        if should_despawn {
             commands.entity(entity).despawn();
+            pending_spawns.remove(&portrait.unit_id);
         }
     }
 
@@ -632,7 +642,7 @@ pub fn update_unit_portraits(
                 InSlot(slot_entity),
                 Pickable::IGNORE,
                 CellSceneVisual,
-                CELL_SCENE_LAYER,
+                DISPLAY_LAYER,
             ))
             .id();
 
@@ -676,7 +686,7 @@ pub fn update_unit_portraits(
                         mask_handle: Some(mask_handle.clone()),
                     },
                     Pickable::IGNORE,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .id()
         } else {
@@ -703,7 +713,7 @@ pub fn update_unit_portraits(
                         mask_handle: mask_handle.clone(),
                     },
                     Pickable::IGNORE,
-                    CELL_SCENE_LAYER,
+                    DISPLAY_LAYER,
                 ))
                 .id()
         };
@@ -725,7 +735,7 @@ pub fn update_unit_portraits(
                     slot_position: slot_indicator.position,
                 },
                 Pickable::IGNORE,
-                CELL_SCENE_LAYER,
+                DISPLAY_LAYER,
             ))
             .id();
 
@@ -1015,7 +1025,6 @@ fn on_slot_drag_end(
     } else {
         warn!("Can't reset slot position");
     }
-
 }
 fn on_slot_drag_drop(
     mut event: On<Pointer<DragDrop>>,
