@@ -1575,6 +1575,11 @@ fn receive_unit_slot_updated(
                 msg.unit_id, msg.cell.q, msg.cell.r
             );
             if let Some(ref mut cache) = units_cache {
+                // Remove unit from its old slot first
+                if let Some(old_slot) = cache.get_unit_slot(&msg.cell, msg.unit_id) {
+                    cache.remove_unit_from_slot(msg.cell, old_slot);
+                }
+                // Then set the new slot
                 if let Some(slot_pos) = msg.slot_position {
                     cache.set_unit_slot(msg.cell, slot_pos, msg.unit_id);
                 }
