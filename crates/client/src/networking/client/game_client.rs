@@ -839,6 +839,7 @@ fn process_pending_terrain_chunks(
     terrain_query: Query<(Entity, &crate::rendering::terrain::components::Terrain)>,
     camera: Query<&Transform, With<crate::camera::MainCamera>>,
     streaming_config: Res<crate::state::resources::StreamingConfig>,
+    mut contour_cache: ResMut<crate::rendering::territory::TerritoryContourCache>,
 ) {
     let Some(ref mut cache) = cache else { return };
     let Some(ref mut units_cache) = units_cache else {
@@ -912,6 +913,8 @@ fn process_pending_terrain_chunks(
                 Vec<shared::grid::CellData>,
                 Vec<shared::BuildingData>,
                 Vec<shared::UnitData>,
+                Option<shared::RoadChunkSdfData>,
+                Vec<shared::protocol::TerritoryContourChunkData>,
             ),
             _,
         ) = match bincode::decode_from_slice(&decompressed, bincode::config::standard()) {
@@ -925,10 +928,15 @@ fn process_pending_terrain_chunks(
             }
         };
 
-        let (terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data) = payload;
+        let (mut terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data, road_sdf, contours) = payload;
 
         if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
             continue;
+        }
+
+        // Apply road SDF to the terrain chunk before inserting into cache
+        if let Some(road_sdf_data) = road_sdf {
+            terrain_chunk_data.road_sdf_data = Some(road_sdf_data);
         }
 
         let is_update = cache.insert_terrain(&terrain_chunk_data);
@@ -960,6 +968,27 @@ fn process_pending_terrain_chunks(
                 units_cache.set_unit_slot(cell, slot_pos, unit.id);
             }
             units_data_cache.insert_unit(unit.clone());
+        }
+
+        // Insert territory contours into cache
+        for contour_data in &contours {
+            contour_cache.add_contour(
+                msg.chunk_id,
+                contour_data.organization_id,
+                contour_data.segments.iter().map(|s| s.to_contour_segment()).collect(),
+                Color::linear_rgba(
+                    contour_data.border_color.r,
+                    contour_data.border_color.g,
+                    contour_data.border_color.b,
+                    contour_data.border_color.a,
+                ),
+                Color::linear_rgba(
+                    contour_data.fill_color.r,
+                    contour_data.fill_color.g,
+                    contour_data.fill_color.b,
+                    contour_data.fill_color.a,
+                ),
+            );
         }
     }
 
