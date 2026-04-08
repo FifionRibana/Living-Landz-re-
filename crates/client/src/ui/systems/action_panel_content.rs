@@ -431,9 +431,9 @@ fn get_buildings_for_category(
 ) -> Vec<(&'static str, &'static str, &'static str)> {
     match category {
         BuildingCategoryEnum::Residential => vec![
-            ("base_camp", "Campement", "sprites/buildings/forge_01.png"),
+            ("base_camp", "Campement", "sprites/buildings/base_camp_01.png"),
             ("hut_tier_i", "Hutte", "sprites/buildings/forge_01.png"),
-            ("cottage_tier_i", "Chaumière", "sprites/buildings/forge_01.png"),
+            ("cottage_tier_i", "Chaumière", "sprites/buildings/cottage_tier_i_01.png"),
         ],
         BuildingCategoryEnum::Metal => vec![
             ("forge", "Forge", "sprites/buildings/forge_01.png"),
