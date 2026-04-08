@@ -955,12 +955,11 @@ impl ActionProcessor {
         let specific_data = match building_specific_type {
             shared::BuildingSpecificTypeEnum::ManufacturingWorkshop => {
                 let workshop_type = match building_type {
-                    BuildingTypeEnum::Blacksmith => ManufacturingWorkshopTypeEnum::Blacksmith,
-                    BuildingTypeEnum::BlastFurnace => ManufacturingWorkshopTypeEnum::BlastFurnace,
-                    BuildingTypeEnum::Bloomery => ManufacturingWorkshopTypeEnum::Bloomery,
-                    BuildingTypeEnum::CarpenterShop => ManufacturingWorkshopTypeEnum::CarpenterShop,
-                    BuildingTypeEnum::GlassFactory => ManufacturingWorkshopTypeEnum::GlassFactory,
-                    _ => ManufacturingWorkshopTypeEnum::Blacksmith,
+                    BuildingTypeEnum::Forge => ManufacturingWorkshopTypeEnum::Forge,
+                    BuildingTypeEnum::Fonderie => ManufacturingWorkshopTypeEnum::Fonderie,
+                    BuildingTypeEnum::AtelierCharpentier => ManufacturingWorkshopTypeEnum::AtelierCharpentier,
+                    BuildingTypeEnum::Verrerie => ManufacturingWorkshopTypeEnum::Verrerie,
+                    _ => ManufacturingWorkshopTypeEnum::Forge,
                 };
                 BuildingSpecific::ManufacturingWorkshop(ManufacturingWorkshopData {
                     workshop_type,
@@ -969,8 +968,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Agriculture => {
                 let agriculture_type = match building_type {
-                    BuildingTypeEnum::Farm => AgricultureTypeEnum::Farm,
-                    _ => AgricultureTypeEnum::Farm,
+                    BuildingTypeEnum::Ferme => AgricultureTypeEnum::Ferme,
+                    _ => AgricultureTypeEnum::Ferme,
                 };
                 BuildingSpecific::Agriculture(AgricultureData {
                     agriculture_type,
@@ -979,11 +978,11 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::AnimalBreeding => {
                 let animal_type = match building_type {
-                    BuildingTypeEnum::Cowshed => AnimalBreedingTypeEnum::Cowshed,
-                    BuildingTypeEnum::Piggery => AnimalBreedingTypeEnum::Piggery,
-                    BuildingTypeEnum::Sheepfold => AnimalBreedingTypeEnum::Sheepfold,
-                    BuildingTypeEnum::Stable => AnimalBreedingTypeEnum::Stable,
-                    _ => AnimalBreedingTypeEnum::Cowshed,
+                    BuildingTypeEnum::Etable => AnimalBreedingTypeEnum::Etable,
+                    BuildingTypeEnum::Porcherie => AnimalBreedingTypeEnum::Porcherie,
+                    BuildingTypeEnum::Bergerie => AnimalBreedingTypeEnum::Bergerie,
+                    BuildingTypeEnum::Ecurie => AnimalBreedingTypeEnum::Ecurie,
+                    _ => AnimalBreedingTypeEnum::Etable,
                 };
                 BuildingSpecific::AnimalBreeding(AnimalBreedingData {
                     animal_type,
@@ -992,8 +991,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Entertainment => {
                 let entertainment_type = match building_type {
-                    BuildingTypeEnum::Theater => EntertainmentTypeEnum::Theater,
-                    _ => EntertainmentTypeEnum::Theater,
+                    BuildingTypeEnum::Theatre => EntertainmentTypeEnum::Theatre,
+                    _ => EntertainmentTypeEnum::Theatre,
                 };
                 BuildingSpecific::Entertainment(EntertainmentData {
                     entertainment_type,
@@ -1002,8 +1001,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Cult => {
                 let cult_type = match building_type {
-                    BuildingTypeEnum::Temple => CultTypeEnum::Temple,
-                    _ => CultTypeEnum::Temple,
+                    BuildingTypeEnum::LieuDeCulte => CultTypeEnum::LieuDeCulte,
+                    _ => CultTypeEnum::LieuDeCulte,
                 };
                 BuildingSpecific::Cult(CultData {
                     cult_type,
@@ -1012,13 +1011,12 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Commerce => {
                 let commerce_type = match building_type {
-                    BuildingTypeEnum::Bakehouse => CommerceTypeEnum::Bakehouse,
-                    BuildingTypeEnum::Brewery => CommerceTypeEnum::Brewery,
-                    BuildingTypeEnum::Distillery => CommerceTypeEnum::Distillery,
-                    BuildingTypeEnum::Slaughterhouse => CommerceTypeEnum::Slaughterhouse,
-                    BuildingTypeEnum::IceHouse => CommerceTypeEnum::IceHouse,
-                    BuildingTypeEnum::Market => CommerceTypeEnum::Market,
-                    _ => CommerceTypeEnum::Bakehouse,
+                    BuildingTypeEnum::Cuisine => CommerceTypeEnum::Cuisine,
+                    BuildingTypeEnum::Brasserie => CommerceTypeEnum::Brasserie,
+                    BuildingTypeEnum::Abattoir => CommerceTypeEnum::Abattoir,
+                    BuildingTypeEnum::Glaciere => CommerceTypeEnum::Glaciere,
+                    BuildingTypeEnum::PlaceMarche => CommerceTypeEnum::PlaceMarche,
+                    _ => CommerceTypeEnum::Cuisine,
                 };
                 BuildingSpecific::Commerce(CommerceData {
                     commerce_type,
@@ -1034,6 +1032,7 @@ impl ActionProcessor {
                 id: action_id,
                 category,
                 specific_type: building_specific_type,
+                building_type_id: building_type.to_id(),
                 chunk: action_info.chunk_id,
                 cell: action_info.cell,
                 created_at: std::time::SystemTime::now()

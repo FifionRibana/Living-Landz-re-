@@ -233,12 +233,15 @@ pub fn handle_map_right_click(
             // Proposer les bâtiments constructibles
             // Pour le MVP : liste fixe de bâtiments de base
             let buildable = [
-                shared::BuildingTypeEnum::Farm,
-                shared::BuildingTypeEnum::Blacksmith,
-                shared::BuildingTypeEnum::CarpenterShop,
-                shared::BuildingTypeEnum::Bakehouse,
-                shared::BuildingTypeEnum::Brewery,
-                shared::BuildingTypeEnum::Market,
+                shared::BuildingTypeEnum::Campement,
+                shared::BuildingTypeEnum::HuttePalierI,
+                shared::BuildingTypeEnum::ChaumierePalierI,
+                shared::BuildingTypeEnum::Ferme,
+                shared::BuildingTypeEnum::Forge,
+                shared::BuildingTypeEnum::AtelierCharpentier,
+                shared::BuildingTypeEnum::Cuisine,
+                shared::BuildingTypeEnum::Brasserie,
+                shared::BuildingTypeEnum::PlaceMarche,
             ];
 
             for bt in &buildable {

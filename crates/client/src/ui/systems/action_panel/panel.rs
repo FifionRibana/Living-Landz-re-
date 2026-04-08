@@ -1086,30 +1086,19 @@ pub fn handle_execute_button(
 
         // ── Dispatch by action type ──
         if let Some(building_id) = action_id.strip_prefix("build_") {
-            let building_type = match building_id {
-                "blacksmith" => shared::BuildingTypeEnum::Blacksmith,
-                "carpenter_shop" => shared::BuildingTypeEnum::CarpenterShop,
-                "farm" => shared::BuildingTypeEnum::Farm,
-                "bakehouse" => shared::BuildingTypeEnum::Bakehouse,
-                "brewery" => shared::BuildingTypeEnum::Brewery,
-                "market" => shared::BuildingTypeEnum::Market,
-                "cowshed" => shared::BuildingTypeEnum::Cowshed,
-                "sheepfold" => shared::BuildingTypeEnum::Sheepfold,
-                "stable" => shared::BuildingTypeEnum::Stable,
-                "temple" => shared::BuildingTypeEnum::Temple,
-                "theater" => shared::BuildingTypeEnum::Theater,
-                "road_segment" => {
-                    build_road_events.write(SendActionBuildRoad {
-                        start_cell: cell,
-                        end_cell: cell,
-                    });
-                    selection.close();
-                    return;
-                }
-                other => {
-                    warn!("Unknown building: {}", other);
-                    return;
-                }
+            if building_id == "road_segment" {
+                build_road_events.write(SendActionBuildRoad {
+                    start_cell: cell,
+                    end_cell: cell,
+                });
+                selection.close();
+                return;
+            }
+            let Some(building_type) = shared::BuildingTypeEnum::iter()
+                .find(|bt| bt.to_name_lowercase() == building_id)
+            else {
+                warn!("Unknown building: {}", building_id);
+                return;
             };
             build_building_events.write(SendActionBuildBuilding {
                 chunk_id,
