@@ -1560,7 +1560,7 @@ fn receive_hamlet_founded(
                 name: msg.name.clone(),
                 organization_type: shared::OrganizationType::Hamlet,
                 leader_unit_id: lord_unit_id,
-                population: 10,
+                population: shared::BuildingTypeEnum::Campement.housing_capacity() as i32,
                 named_unit_count: 0,
                 population_capacity: 0,
                 emblem_url: None,

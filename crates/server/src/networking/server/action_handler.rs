@@ -1742,8 +1742,48 @@ async fn handle_found_hamlet(
         }
     };
 
-    // Initialize population to 10 (lord + first followers)
-    let _ = sqlx::query("UPDATE organizations.organizations SET population = 10 WHERE id = $1")
+    // Auto-place base camp on lord's cell
+    let camp_type = BuildingTypeEnum::Campement;
+    let camp_id: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(id), 0) + 1 FROM buildings.buildings_base",
+    )
+    .fetch_one(&db_tables.pool)
+    .await
+    .unwrap_or(1);
+
+    let chunk = cell.to_chunk_id(&grid_config.layout);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let camp_data = shared::BuildingData {
+        base_data: shared::BuildingBaseData {
+            id: camp_id as u64,
+            specific_type: shared::BuildingSpecificTypeEnum::Unknown,
+            category: shared::BuildingCategoryEnum::Residential,
+            building_type_id: camp_type.to_id(),
+            cell,
+            chunk,
+            quality: 1.0,
+            durability: 1.0,
+            damage: 0.0,
+            created_at: now,
+        },
+        specific_data: shared::BuildingSpecific::Unknown(),
+    };
+
+    if let Err(e) = db_tables.buildings.create_building(&camp_data).await {
+        tracing::warn!("Failed to create base camp: {}", e);
+    } else {
+        let _ = db_tables.buildings.mark_building_as_built(camp_id as u64).await;
+        tracing::info!("⛺ Base camp placed at ({},{}) for org {}", cell.q, cell.r, org_id);
+    }
+
+    // Initialize population to base camp housing capacity
+    let initial_pop = camp_type.housing_capacity() as i32;
+    let _ = sqlx::query("UPDATE organizations.organizations SET population = $1 WHERE id = $2")
+        .bind(initial_pop)
         .bind(org_id as i64)
         .execute(&db_tables.pool)
         .await;
