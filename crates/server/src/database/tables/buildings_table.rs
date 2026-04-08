@@ -377,10 +377,7 @@ impl BuildingsTable {
         // Insert into buildings_base
         // Pour building_type_id: utiliser BuildingTypeEnum (1-55) pour les bâtiments construits
         // Pour les arbres et Unknown, utiliser 0 (pas de correspondance dans building_types)
-        let building_type_id = building_data
-            .to_building_type()
-            .map(|bt| bt.to_id() as i32)
-            .unwrap_or(0);
+        let building_type_id = building_data.base_data.building_type_id as i32;
 
         sqlx::query(
             r#"
