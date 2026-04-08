@@ -17,29 +17,11 @@ use crate::{
     },
 };
 
-/// Map a building string ID to the database building_type_id.
+/// Map a building string ID (from to_name_lowercase) to the database building_type_id.
 fn building_id_to_type_id(building_id: &str) -> Option<i32> {
-    match building_id {
-        "blacksmith" => Some(BuildingTypeEnum::Blacksmith as i32),
-        "blast_furnace" => Some(BuildingTypeEnum::BlastFurnace as i32),
-        "bloomery" => Some(BuildingTypeEnum::Bloomery as i32),
-        "carpenter_shop" => Some(BuildingTypeEnum::CarpenterShop as i32),
-        "glass_factory" => Some(BuildingTypeEnum::GlassFactory as i32),
-        "farm" => Some(BuildingTypeEnum::Farm as i32),
-        "cowshed" => Some(BuildingTypeEnum::Cowshed as i32),
-        "piggery" => Some(BuildingTypeEnum::Piggery as i32),
-        "sheepfold" => Some(BuildingTypeEnum::Sheepfold as i32),
-        "stable" => Some(BuildingTypeEnum::Stable as i32),
-        "theater" => Some(BuildingTypeEnum::Theater as i32),
-        "temple" => Some(BuildingTypeEnum::Temple as i32),
-        "bakehouse" => Some(BuildingTypeEnum::Bakehouse as i32),
-        "brewery" => Some(BuildingTypeEnum::Brewery as i32),
-        "distillery" => Some(BuildingTypeEnum::Distillery as i32),
-        "slaughterhouse" => Some(BuildingTypeEnum::Slaughterhouse as i32),
-        "ice_house" => Some(BuildingTypeEnum::IceHouse as i32),
-        "market" => Some(BuildingTypeEnum::Market as i32),
-        _ => None,
-    }
+    BuildingTypeEnum::iter()
+        .find(|bt| bt.to_name_lowercase() == building_id)
+        .map(|bt| bt.to_id() as i32)
 }
 
 pub fn update_action_panel_content(
@@ -202,15 +184,19 @@ fn populate_building_tabs(
     let tab_normal: Handle<Image> = asset_server.load("ui/ui_wood_tab_bar_button_normal.png");
 
     let categories = [
-        (BuildingCategoryEnum::Urbanism, "Urbanisme"),
-        (BuildingCategoryEnum::Dwellings, "Habitations"),
-        (BuildingCategoryEnum::ManufacturingWorkshops, "Ateliers"),
-        (BuildingCategoryEnum::Agriculture, "Agriculture"),
+        (BuildingCategoryEnum::Infrastructure, "Urbanisme"),
+        (BuildingCategoryEnum::Residential, "Habitations"),
+        (BuildingCategoryEnum::SemiSpecialized, "Ateliers"),
+        (BuildingCategoryEnum::Metal, "Métallurgie"),
+        (BuildingCategoryEnum::Earth, "Terre"),
+        (BuildingCategoryEnum::Food, "Alimentation"),
+        (BuildingCategoryEnum::Wood, "Bois"),
+        (BuildingCategoryEnum::Textile, "Textile"),
+        (BuildingCategoryEnum::FineArtisan, "Artisanat Fin"),
         (BuildingCategoryEnum::AnimalBreeding, "Élevage"),
-        (BuildingCategoryEnum::Commerce, "Commerce"),
-        (BuildingCategoryEnum::Entertainment, "Divertissement"),
-        (BuildingCategoryEnum::Cult, "Culte"),
-        (BuildingCategoryEnum::Military, "Militaire"),
+        (BuildingCategoryEnum::ServiceCombined, "Services Combinés"),
+        (BuildingCategoryEnum::ServiceDedicated, "Services Dédiés"),
+        (BuildingCategoryEnum::Defense, "Militaire"),
     ];
 
     for entity in tabs_query.iter() {
@@ -444,73 +430,38 @@ fn get_buildings_for_category(
     category: BuildingCategoryEnum,
 ) -> Vec<(&'static str, &'static str, &'static str)> {
     match category {
-        BuildingCategoryEnum::ManufacturingWorkshops => vec![
-            ("blacksmith", "Forge", "sprites/buildings/blacksmith_01.png"),
-            (
-                "blast_furnace",
-                "Haut-Fourneau",
-                "sprites/buildings/blast_furnace_01.png",
-            ),
-            (
-                "bloomery",
-                "Bas-Fourneau",
-                "sprites/buildings/bloomery_01.png",
-            ),
-            (
-                "carpenter_shop",
-                "Menuiserie",
-                "sprites/buildings/carpenter_shop_01.png",
-            ),
-            (
-                "glass_factory",
-                "Verrerie",
-                "sprites/buildings/glass_factory_01.png",
-            ),
+        BuildingCategoryEnum::Residential => vec![
+            ("base_camp", "Campement", "sprites/buildings/forge_01.png"),
+            ("hut_tier_i", "Hutte", "sprites/buildings/forge_01.png"),
+            ("cottage_tier_i", "Chaumière", "sprites/buildings/forge_01.png"),
         ],
-        BuildingCategoryEnum::Agriculture => {
-            vec![("farm", "Ferme", "sprites/buildings/farm_01.png")]
-        }
+        BuildingCategoryEnum::Metal => vec![
+            ("forge", "Forge", "sprites/buildings/forge_01.png"),
+            ("smelter", "Fonderie", "sprites/buildings/smelter_01.png"),
+        ],
+        BuildingCategoryEnum::Earth => vec![
+            ("glassworks", "Verrerie", "sprites/buildings/glassworks_01.png"),
+        ],
+        BuildingCategoryEnum::Wood => vec![
+            ("carpenter_workshop", "Menuiserie", "sprites/buildings/carpenter_workshop_01.png"),
+        ],
+        BuildingCategoryEnum::Food => vec![
+            ("farm", "Ferme", "sprites/buildings/farm_01.png"),
+            ("kitchen", "Cuisine", "sprites/buildings/kitchen_01.png"),
+            ("brewery", "Brasserie", "sprites/buildings/brewery_01.png"),
+            ("slaughterhouse", "Abattoir", "sprites/buildings/slaughterhouse_01.png"),
+            ("ice_house", "Glacière", "sprites/buildings/ice_house_01.png"),
+        ],
         BuildingCategoryEnum::AnimalBreeding => vec![
-            (
-                "cowshed",
-                "Étable à Vaches",
-                "sprites/buildings/cowshed_01.png",
-            ),
-            ("piggery", "Porcherie", "sprites/buildings/piggery_01.png"),
-            (
-                "sheepfold",
-                "Bergerie",
-                "sprites/buildings/sheepfold_01.png",
-            ),
+            ("cowshed", "Étable", "sprites/buildings/cowshed_01.png"),
+            ("pigsty", "Porcherie", "sprites/buildings/pigsty_01.png"),
+            ("sheepfold", "Bergerie", "sprites/buildings/sheepfold_01.png"),
             ("stable", "Écurie", "sprites/buildings/stable_01.png"),
         ],
-        BuildingCategoryEnum::Entertainment => {
-            vec![("theater", "Théâtre", "sprites/buildings/theater_01.png")]
-        }
-        BuildingCategoryEnum::Cult => vec![("temple", "Temple", "sprites/buildings/temple_01.png")],
-        BuildingCategoryEnum::Commerce => vec![
-            (
-                "bakehouse",
-                "Boulangerie",
-                "sprites/buildings/bakehouse_01.png",
-            ),
-            ("brewery", "Brasserie", "sprites/buildings/brewery_01.png"),
-            (
-                "distillery",
-                "Distillerie",
-                "sprites/buildings/distillery_01.png",
-            ),
-            (
-                "slaughterhouse",
-                "Abattoir",
-                "sprites/buildings/slaughterhouse_01.png",
-            ),
-            (
-                "ice_house",
-                "Glacière",
-                "sprites/buildings/ice_house_01.png",
-            ),
-            ("market", "Marché", "sprites/buildings/market_01.png"),
+        BuildingCategoryEnum::ServiceDedicated => vec![
+            ("theater", "Théâtre", "sprites/buildings/theater_01.png"),
+            ("place_of_worship", "Lieu de Culte", "sprites/buildings/place_of_worship_01.png"),
+            ("marketplace", "Marché", "sprites/buildings/marketplace_01.png"),
         ],
         _ => vec![],
     }
@@ -613,30 +564,12 @@ fn execute_action(
                     building_id, cell
                 );
 
-                // Map building_id to BuildingTypeEnum
-                let building_type = match building_id.as_str() {
-                    "blacksmith" => BuildingTypeEnum::Blacksmith,
-                    "blast_furnace" => BuildingTypeEnum::BlastFurnace,
-                    "bloomery" => BuildingTypeEnum::Bloomery,
-                    "carpenter_shop" => BuildingTypeEnum::CarpenterShop,
-                    "glass_factory" => BuildingTypeEnum::GlassFactory,
-                    "farm" => BuildingTypeEnum::Farm,
-                    "cowshed" => BuildingTypeEnum::Cowshed,
-                    "piggery" => BuildingTypeEnum::Piggery,
-                    "sheepfold" => BuildingTypeEnum::Sheepfold,
-                    "stable" => BuildingTypeEnum::Stable,
-                    "theater" => BuildingTypeEnum::Theater,
-                    "temple" => BuildingTypeEnum::Temple,
-                    "bakehouse" => BuildingTypeEnum::Bakehouse,
-                    "brewery" => BuildingTypeEnum::Brewery,
-                    "distillery" => BuildingTypeEnum::Distillery,
-                    "slaughterhouse" => BuildingTypeEnum::Slaughterhouse,
-                    "ice_house" => BuildingTypeEnum::IceHouse,
-                    "market" => BuildingTypeEnum::Market,
-                    _ => {
-                        warn!("Unknown building type: {}", building_id);
-                        return;
-                    }
+                // Map building_id to BuildingTypeEnum via to_name_lowercase
+                let Some(building_type) = BuildingTypeEnum::iter()
+                    .find(|bt| bt.to_name_lowercase() == building_id.as_str())
+                else {
+                    warn!("Unknown building type: {}", building_id);
+                    return;
                 };
 
                 build_building_events.write(SendActionBuildBuilding {

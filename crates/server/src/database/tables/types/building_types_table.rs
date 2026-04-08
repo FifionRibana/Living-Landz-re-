@@ -18,7 +18,7 @@ impl BuildingTypesTable {
             ("Cedar", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "A cedar tree"),
             ("Larch", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "A larch tree"),
             ("Oak", BuildingCategoryEnum::Natural, BuildingSpecificTypeEnum::Tree, "An oak tree"),
-            ("Blacksmith", BuildingCategoryEnum::ManufacturingWorkshops, BuildingSpecificTypeEnum::ManufacturingWorkshop, "A blacksmith workshop"),
+            ("Forge", BuildingCategoryEnum::SemiSpecialized, BuildingSpecificTypeEnum::ManufacturingWorkshop, "A blacksmith workshop"),
         ];
 
         let mut tx = self.pool.begin().await?;

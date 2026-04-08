@@ -72,7 +72,7 @@ pub struct ManufacturingWorkshopData {
 
 impl BuildingSpecificData for ManufacturingWorkshopData {
     fn category(&self) -> BuildingCategoryEnum {
-        BuildingCategoryEnum::ManufacturingWorkshops
+        self.workshop_type.to_building_type().category()
     }
 }
 
@@ -84,7 +84,7 @@ pub struct AgricultureData {
 
 impl BuildingSpecificData for AgricultureData {
     fn category(&self) -> BuildingCategoryEnum {
-        BuildingCategoryEnum::Agriculture
+        self.agriculture_type.to_building_type().category()
     }
 }
 
@@ -108,7 +108,7 @@ pub struct EntertainmentData {
 
 impl BuildingSpecificData for EntertainmentData {
     fn category(&self) -> BuildingCategoryEnum {
-        BuildingCategoryEnum::Entertainment
+        self.entertainment_type.to_building_type().category()
     }
 }
 
@@ -120,7 +120,7 @@ pub struct CultData {
 
 impl BuildingSpecificData for CultData {
     fn category(&self) -> BuildingCategoryEnum {
-        BuildingCategoryEnum::Cult
+        self.cult_type.to_building_type().category()
     }
 }
 
@@ -132,7 +132,7 @@ pub struct CommerceData {
 
 impl BuildingSpecificData for CommerceData {
     fn category(&self) -> BuildingCategoryEnum {
-        BuildingCategoryEnum::Commerce
+        self.commerce_type.to_building_type().category()
     }
 }
 
@@ -141,6 +141,7 @@ pub struct BuildingBaseData {
     pub id: u64,
     pub category: BuildingCategoryEnum,
     pub specific_type: BuildingSpecificTypeEnum,
+    pub building_type_id: i16,
     pub chunk: TerrainChunkId,
     pub cell: GridCell,
 
@@ -160,56 +161,24 @@ pub struct BuildingData {
 impl BuildingData {
     /// Convert BuildingData to BuildingTypeEnum for slot configuration
     pub fn to_building_type(&self) -> Option<crate::BuildingTypeEnum> {
-        use crate::BuildingTypeEnum;
-
         match &self.specific_data {
             BuildingSpecific::ManufacturingWorkshop(data) => {
-                use crate::ManufacturingWorkshopTypeEnum;
-                match data.workshop_type {
-                    ManufacturingWorkshopTypeEnum::Blacksmith => Some(BuildingTypeEnum::Blacksmith),
-                    ManufacturingWorkshopTypeEnum::BlastFurnace => Some(BuildingTypeEnum::BlastFurnace),
-                    ManufacturingWorkshopTypeEnum::Bloomery => Some(BuildingTypeEnum::Bloomery),
-                    ManufacturingWorkshopTypeEnum::CarpenterShop => Some(BuildingTypeEnum::CarpenterShop),
-                    ManufacturingWorkshopTypeEnum::GlassFactory => Some(BuildingTypeEnum::GlassFactory),
-                }
+                Some(data.workshop_type.to_building_type())
             }
             BuildingSpecific::Agriculture(data) => {
-                use crate::AgricultureTypeEnum;
-                match data.agriculture_type {
-                    AgricultureTypeEnum::Farm => Some(BuildingTypeEnum::Farm),
-                }
+                Some(data.agriculture_type.to_building_type())
             }
             BuildingSpecific::AnimalBreeding(data) => {
-                use crate::AnimalBreedingTypeEnum;
-                match data.animal_type {
-                    AnimalBreedingTypeEnum::Cowshed => Some(BuildingTypeEnum::Cowshed),
-                    AnimalBreedingTypeEnum::Piggery => Some(BuildingTypeEnum::Piggery),
-                    AnimalBreedingTypeEnum::Sheepfold => Some(BuildingTypeEnum::Sheepfold),
-                    AnimalBreedingTypeEnum::Stable => Some(BuildingTypeEnum::Stable),
-                }
+                Some(data.animal_type.to_building_type())
             }
             BuildingSpecific::Entertainment(data) => {
-                use crate::EntertainmentTypeEnum;
-                match data.entertainment_type {
-                    EntertainmentTypeEnum::Theater => Some(BuildingTypeEnum::Theater),
-                }
+                Some(data.entertainment_type.to_building_type())
             }
             BuildingSpecific::Cult(data) => {
-                use crate::CultTypeEnum;
-                match data.cult_type {
-                    CultTypeEnum::Temple => Some(BuildingTypeEnum::Temple),
-                }
+                Some(data.cult_type.to_building_type())
             }
             BuildingSpecific::Commerce(data) => {
-                use crate::CommerceTypeEnum;
-                match data.commerce_type {
-                    CommerceTypeEnum::Bakehouse => Some(BuildingTypeEnum::Bakehouse),
-                    CommerceTypeEnum::Brewery => Some(BuildingTypeEnum::Brewery),
-                    CommerceTypeEnum::Distillery => Some(BuildingTypeEnum::Distillery),
-                    CommerceTypeEnum::Slaughterhouse => Some(BuildingTypeEnum::Slaughterhouse),
-                    CommerceTypeEnum::IceHouse => Some(BuildingTypeEnum::IceHouse),
-                    CommerceTypeEnum::Market => Some(BuildingTypeEnum::Market),
-                }
+                Some(data.commerce_type.to_building_type())
             }
             BuildingSpecific::Tree(data) => {
                 Some(data.tree_type.to_building_type())

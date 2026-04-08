@@ -435,7 +435,7 @@ pub fn spawn_building(
                 continue;
             }
             (
-                BuildingCategoryEnum::ManufacturingWorkshops,
+                _,
                 BuildingSpecific::ManufacturingWorkshop(data),
             ) => {
                 spawn_building_sprite(
@@ -449,7 +449,7 @@ pub fn spawn_building(
                     "Workshop",
                 );
             }
-            (BuildingCategoryEnum::Agriculture, BuildingSpecific::Agriculture(data)) => {
+            (_, BuildingSpecific::Agriculture(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -474,7 +474,7 @@ pub fn spawn_building(
                     "AnimalBreeding",
                 );
             }
-            (BuildingCategoryEnum::Entertainment, BuildingSpecific::Entertainment(data)) => {
+            (_, BuildingSpecific::Entertainment(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -486,7 +486,7 @@ pub fn spawn_building(
                     "Entertainment",
                 );
             }
-            (BuildingCategoryEnum::Cult, BuildingSpecific::Cult(data)) => {
+            (_, BuildingSpecific::Cult(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -498,7 +498,7 @@ pub fn spawn_building(
                     "Cult",
                 );
             }
-            (BuildingCategoryEnum::Commerce, BuildingSpecific::Commerce(data)) => {
+            (_, BuildingSpecific::Commerce(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -511,11 +511,20 @@ pub fn spawn_building(
                 );
             }
             _ => {
-                // Fallback pour les types inconnus
-                info!(
-                    "  Unknown building from category {:?} on cell: {:?}",
-                    building_base.category, building_base.cell
-                );
+                // Try to render using building_type_id from base_data (residential, defense, etc.)
+                if let Some(bt) = BuildingTypeEnum::from_id(building_base.building_type_id) {
+                    spawn_building_sprite(
+                        &mut commands,
+                        &building_atlas,
+                        &images,
+                        bt,
+                        0,
+                        building_id,
+                        world_position,
+                        "Generic",
+                    );
+                    continue;
+                }
                 let color = Color::srgba(0.5, 0.5, 0.5, 1.0);
                 let size = Vec2::new(32.0, 32.0);
 
@@ -548,7 +557,7 @@ fn spawn_building_sprite(
     world_position: Vec2,
     category_name: &str,
 ) {
-    if building_type == BuildingTypeEnum::Market {
+    if building_type == BuildingTypeEnum::PlaceMarche {
         info!("BUILDING TYPE {:?} SPAWN REQUEST", building_type);
     }
     if let Some(image_handle) = building_atlas.get_sprite(building_type, variant) {

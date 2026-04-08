@@ -24,53 +24,49 @@ impl SlotConfiguration {
     pub fn for_building_type(building_type: BuildingTypeEnum) -> Self {
         match building_type {
             // Manufacturing Workshops
-            BuildingTypeEnum::Blacksmith => Self {
+            BuildingTypeEnum::Forge => Self {
                 interior_layout: SlotLayout::hex_range(7, 1), // Center filled hexagon
                 exterior_layout: SlotLayout::hex_line_vertical(4), // Ring around at radius 3
             },
-            BuildingTypeEnum::BlastFurnace => Self {
+            BuildingTypeEnum::Fonderie => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_ring(6, 1),  // Larger ring at radius 4
             },
-            BuildingTypeEnum::Bloomery => Self {
-                interior_layout: SlotLayout::hex_range(0, 0), // No interior
-                exterior_layout: SlotLayout::hex_ring(6, 3),  // Ring around at radius 3
-            },
-            BuildingTypeEnum::CarpenterShop => Self {
+            BuildingTypeEnum::AtelierCharpentier => Self {
                 interior_layout: SlotLayout::hex_range(7, 1), // Center filled hexagon
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
-            BuildingTypeEnum::GlassFactory => Self {
+            BuildingTypeEnum::Verrerie => Self {
                 interior_layout: SlotLayout::hex_range(7, 1), // Larger center area
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
 
             // Agriculture
-            BuildingTypeEnum::Farm => Self {
+            BuildingTypeEnum::Ferme => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_range(19, 4), // Large exterior fields
             },
 
             // Animal Breeding
-            BuildingTypeEnum::Cowshed => Self {
+            BuildingTypeEnum::Etable => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_ring(19, 4), // Outdoor pasture
             },
-            BuildingTypeEnum::Piggery => Self {
+            BuildingTypeEnum::Porcherie => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_range(19, 4), // Outdoor area
             },
-            BuildingTypeEnum::Sheepfold => Self {
+            BuildingTypeEnum::Bergerie => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_range(19, 4), // Large grazing area
             },
-            BuildingTypeEnum::Stable => Self {
+            BuildingTypeEnum::Ecurie => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_range(19, 4), // Exercise yard
             },
 
             // Entertainment - Layout en amphithéâtre (centered)
-            BuildingTypeEnum::Theater => Self {
+            BuildingTypeEnum::Theatre => Self {
                 interior_layout: SlotLayout::custom(vec![
                     // Scène centrale (4 slots)
                     Vec2::new(-64.0, 80.0),
@@ -101,7 +97,7 @@ impl SlotConfiguration {
             },
 
             // Cult - Layout en croix (nef + transepts, compact and centered)
-            BuildingTypeEnum::Temple => Self {
+            BuildingTypeEnum::LieuDeCulte => Self {
                 interior_layout: SlotLayout::custom(vec![
                     // Nef centrale (5 slots verticaux)
                     Vec2::new(0.0, 80.0),
@@ -126,30 +122,25 @@ impl SlotConfiguration {
             },
 
             // Commerce
-            BuildingTypeEnum::Bakehouse => Self {
+            BuildingTypeEnum::Cuisine => Self {
                 interior_layout: SlotLayout::hex_range(7, 1), // Baking area
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
-            BuildingTypeEnum::Brewery => Self {
+            BuildingTypeEnum::Brasserie => Self {
                 interior_layout: SlotLayout::hex_range(19, 2), // Brewing vats
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
-            BuildingTypeEnum::Distillery => Self {
-                interior_layout: SlotLayout::hex_range(7, 1), // Distilling equipment
-                exterior_layout: SlotLayout::hex_line_vertical(4),
-            },
-            BuildingTypeEnum::Slaughterhouse => Self {
+            BuildingTypeEnum::Abattoir => Self {
                 interior_layout: SlotLayout::hex_range(19, 2), // Processing area
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
-            BuildingTypeEnum::IceHouse => Self {
+            BuildingTypeEnum::Glaciere => Self {
                 interior_layout: SlotLayout::hex_ring(6, 1), // Cold storage
                 exterior_layout: SlotLayout::hex_line_vertical(4),
             },
-            BuildingTypeEnum::Market => Self {
+            BuildingTypeEnum::PlaceMarche => Self {
                 interior_layout: SlotLayout::hex_range(37, 3), // Large market stalls
                 exterior_layout: SlotLayout::hex_range(0, 0),  // No exterior
-                                                               // exterior_layout: SlotLayout::hex_ring(18, 5),  // Outdoor vendors
             },
 
             // Natural - Trees
@@ -158,6 +149,9 @@ impl SlotConfiguration {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_ring(19, 2), // Around the tree
             },
+
+            // Default for all other building types
+            _ => Self::default(),
         }
     }
 
@@ -233,11 +227,11 @@ mod tests {
 
     #[test]
     fn test_building_slot_config() {
-        let blacksmith = SlotConfiguration::for_building_type(BuildingTypeEnum::Blacksmith);
-        assert_eq!(blacksmith.interior_slots(), 7); // hex_range(7, 1)
-        assert_eq!(blacksmith.exterior_slots(), 6); // hex_ring(6, 3)
-        assert_eq!(blacksmith.total_slots(), 13);
-        assert!(blacksmith.has_interior());
+        let forge = SlotConfiguration::for_building_type(BuildingTypeEnum::Forge);
+        assert_eq!(forge.interior_slots(), 7); // hex_range(7, 1)
+        assert_eq!(forge.exterior_slots(), 4); // hex_line_vertical(4)
+        assert_eq!(forge.total_slots(), 11);
+        assert!(forge.has_interior());
     }
 
     #[test]
@@ -249,46 +243,46 @@ mod tests {
     }
 
     #[test]
-    fn test_theater_custom_layout() {
-        let theater = SlotConfiguration::for_building_type(BuildingTypeEnum::Theater);
-        // Theater devrait avoir 20 slots intérieurs (amphithéâtre)
-        assert_eq!(theater.interior_slots(), 20);
-        assert_eq!(theater.exterior_slots(), 12); // hex_ring(12, 5)
-        assert!(theater.has_interior());
+    fn test_theatre_custom_layout() {
+        let theatre = SlotConfiguration::for_building_type(BuildingTypeEnum::Theatre);
+        // Theatre devrait avoir 20 slots intérieurs (amphithéâtre)
+        assert_eq!(theatre.interior_slots(), 20);
+        assert_eq!(theatre.exterior_slots(), 4); // hex_line_vertical(4)
+        assert!(theatre.has_interior());
 
         // Vérifier que c'est un layout custom
         use crate::SlotLayoutType;
-        match theater.interior_layout.layout_type {
+        match theatre.interior_layout.layout_type {
             SlotLayoutType::Custom { ref positions } => {
                 assert_eq!(
                     positions.len(),
                     20,
-                    "Theater should have 20 custom positions"
+                    "Theatre should have 20 custom positions"
                 );
             }
-            _ => panic!("Theater should use Custom layout type"),
+            _ => panic!("Theatre should use Custom layout type"),
         }
     }
 
     #[test]
-    fn test_temple_custom_layout() {
-        let temple = SlotConfiguration::for_building_type(BuildingTypeEnum::Temple);
-        // Temple devrait avoir 15 slots intérieurs (en croix)
-        assert_eq!(temple.interior_slots(), 15);
-        assert_eq!(temple.exterior_slots(), 18); // hex_ring(18, 5)
-        assert!(temple.has_interior());
+    fn test_lieu_de_culte_custom_layout() {
+        let lieu_de_culte = SlotConfiguration::for_building_type(BuildingTypeEnum::LieuDeCulte);
+        // LieuDeCulte devrait avoir 15 slots intérieurs (en croix)
+        assert_eq!(lieu_de_culte.interior_slots(), 15);
+        assert_eq!(lieu_de_culte.exterior_slots(), 4); // hex_line_vertical(4)
+        assert!(lieu_de_culte.has_interior());
 
         // Vérifier que c'est un layout custom
         use crate::SlotLayoutType;
-        match temple.interior_layout.layout_type {
+        match lieu_de_culte.interior_layout.layout_type {
             SlotLayoutType::Custom { ref positions } => {
                 assert_eq!(
                     positions.len(),
                     15,
-                    "Temple should have 15 custom positions"
+                    "LieuDeCulte should have 15 custom positions"
                 );
             }
-            _ => panic!("Temple should use Custom layout type"),
+            _ => panic!("LieuDeCulte should use Custom layout type"),
         }
     }
 }

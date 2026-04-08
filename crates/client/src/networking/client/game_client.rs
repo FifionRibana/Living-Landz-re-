@@ -6,6 +6,7 @@ use lightyear::prelude::*;
 use shared::TerrainChunkId;
 use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
+use shared::protocol::messages::HamletFoundErrorMsg;
 
 use crate::networking::client::auth_task::AuthTask;
 use crate::networking::client::http_client::{
@@ -94,6 +95,9 @@ pub struct SendRequestOrganizationAtCell {
     pub cell: GridCell,
 }
 
+#[derive(Resource, Default)]
+pub struct TerritoryDebugCells(pub Vec<GridCell>);
+
 // ─── Remaining command Bevy Messages (#138) ─────────────────────────
 
 #[derive(Message, Clone)]
@@ -154,6 +158,7 @@ impl Plugin for GameClientPlugin {
             .insert_resource(HttpTerrainReceiver::new(terrain_rx))
             .insert_resource(HttpGlobalSender { tx: global_tx })
             .insert_resource(HttpGlobalReceiver::new(global_rx))
+            .init_resource::<TerritoryDebugCells>()
             .add_systems(
                 Update,
                 (
@@ -246,6 +251,7 @@ impl Plugin for GameClientPlugin {
                 receive_territory_contour_update,
                 receive_territory_border_sdf_update,
                 receive_hamlet_founded,
+                receive_hamlet_found_error,
                 receive_population_changed,
                 receive_organization_at_cell,
                 receive_unit_slot_updated,
@@ -614,36 +620,38 @@ fn receive_lord_data(
                 // Spawn HTTP fetches for global bulk data in parallel
                 let client = http_client.clone();
                 let sender = global_sender.clone();
-                IoTaskPool::get().spawn(async_compat::Compat::new(async move {
-                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                        client.fetch_ocean("Gaulyia"),
-                        client.fetch_lake("Gaulyia"),
-                        client.fetch_terrain_global("Gaulyia"),
-                        client.fetch_exploration("Gaulyia"),
-                    )
-                    .await;
+                IoTaskPool::get()
+                    .spawn(async_compat::Compat::new(async move {
+                        let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                            client.fetch_ocean("Gaulyia"),
+                            client.fetch_lake("Gaulyia"),
+                            client.fetch_terrain_global("Gaulyia"),
+                            client.fetch_exploration("Gaulyia"),
+                        )
+                        .await;
 
-                    if let Ok(data) = ocean {
-                        let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
-                    } else if let Err(e) = ocean {
-                        bevy::log::error!("HTTP ocean fetch failed: {}", e);
-                    }
-                    if let Ok(data) = lake {
-                        let _ = sender.tx.send(HttpGlobalResult::Lake(data));
-                    } else if let Err(e) = lake {
-                        bevy::log::error!("HTTP lake fetch failed: {}", e);
-                    }
-                    if let Ok(data) = terrain_global {
-                        let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
-                    } else if let Err(e) = terrain_global {
-                        bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
-                    }
-                    if let Ok(data) = exploration {
-                        let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
-                    } else if let Err(e) = exploration {
-                        bevy::log::error!("HTTP exploration fetch failed: {}", e);
-                    }
-                })).detach();
+                        if let Ok(data) = ocean {
+                            let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                        } else if let Err(e) = ocean {
+                            bevy::log::error!("HTTP ocean fetch failed: {}", e);
+                        }
+                        if let Ok(data) = lake {
+                            let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                        } else if let Err(e) = lake {
+                            bevy::log::error!("HTTP lake fetch failed: {}", e);
+                        }
+                        if let Ok(data) = terrain_global {
+                            let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                        } else if let Err(e) = terrain_global {
+                            bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
+                        }
+                        if let Ok(data) = exploration {
+                            let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                        } else if let Err(e) = exploration {
+                            bevy::log::error!("HTTP exploration fetch failed: {}", e);
+                        }
+                    }))
+                    .detach();
             } else {
                 info!("No lord — entering character creation (via lightyear)");
                 next_app_state.set(AppState::CharacterCreation);
@@ -928,7 +936,15 @@ fn process_pending_terrain_chunks(
             }
         };
 
-        let (mut terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data, road_sdf, contours) = payload;
+        let (
+            mut terrain_chunk_data,
+            biome_chunk_data,
+            cell_data,
+            building_data,
+            unit_data,
+            road_sdf,
+            contours,
+        ) = payload;
 
         if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
             continue;
@@ -975,7 +991,11 @@ fn process_pending_terrain_chunks(
             contour_cache.add_contour(
                 msg.chunk_id,
                 contour_data.organization_id,
-                contour_data.segments.iter().map(|s| s.to_contour_segment()).collect(),
+                contour_data
+                    .segments
+                    .iter()
+                    .map(|s| s.to_contour_segment())
+                    .collect(),
                 Color::linear_rgba(
                     contour_data.border_color.r,
                     contour_data.border_color.g,
@@ -1304,27 +1324,29 @@ fn receive_lord_created(
             // Spawn HTTP fetches for global bulk data
             let client = http_client.clone();
             let sender = global_sender.clone();
-            IoTaskPool::get().spawn(async_compat::Compat::new(async move {
-                let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                    client.fetch_ocean("Gaulyia"),
-                    client.fetch_lake("Gaulyia"),
-                    client.fetch_terrain_global("Gaulyia"),
-                    client.fetch_exploration("Gaulyia"),
-                )
-                .await;
-                if let Ok(data) = ocean {
-                    let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
-                }
-                if let Ok(data) = lake {
-                    let _ = sender.tx.send(HttpGlobalResult::Lake(data));
-                }
-                if let Ok(data) = terrain_global {
-                    let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
-                }
-                if let Ok(data) = exploration {
-                    let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
-                }
-            })).detach();
+            IoTaskPool::get()
+                .spawn(async_compat::Compat::new(async move {
+                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                        client.fetch_ocean("Gaulyia"),
+                        client.fetch_lake("Gaulyia"),
+                        client.fetch_terrain_global("Gaulyia"),
+                        client.fetch_exploration("Gaulyia"),
+                    )
+                    .await;
+                    if let Ok(data) = ocean {
+                        let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                    }
+                    if let Ok(data) = lake {
+                        let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                    }
+                    if let Ok(data) = terrain_global {
+                        let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                    }
+                    if let Ok(data) = exploration {
+                        let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                    }
+                }))
+                .detach();
         }
     }
 }
@@ -1520,6 +1542,7 @@ fn receive_territory_border_sdf_update(
 fn receive_hamlet_founded(
     mut receivers: Query<&mut MessageReceiver<HamletFoundedMsg>>,
     mut player_info: ResMut<PlayerInfo>,
+    mut debug_cells: ResMut<TerritoryDebugCells>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -1538,6 +1561,7 @@ fn receive_hamlet_founded(
                 population_capacity: 0,
                 emblem_url: None,
             });
+            debug_cells.0 = msg.territory_cells.clone();
         }
     }
 }
@@ -1550,7 +1574,10 @@ fn receive_population_changed(
         for msg in receiver.receive() {
             info!(
                 "Population changed: org {} pop {} / {} ({} named) via lightyear",
-                msg.organization_id, msg.new_population, msg.population_capacity, msg.named_unit_count
+                msg.organization_id,
+                msg.new_population,
+                msg.population_capacity,
+                msg.named_unit_count
             );
             if let Some(ref mut org) = player_info.organization {
                 if org.id == msg.organization_id {
@@ -1596,6 +1623,14 @@ fn receive_unit_slot_updated(
                     cache.set_unit_slot(msg.cell, slot_pos, msg.unit_id);
                 }
             }
+        }
+    }
+}
+
+fn receive_hamlet_found_error(mut receivers: Query<&mut MessageReceiver<HamletFoundErrorMsg>>) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            warn!("❌ Hamlet founding failed: {}", msg.reason);
         }
     }
 }

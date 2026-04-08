@@ -22,13 +22,17 @@ pub fn get_separator_paths(building: Option<&BuildingData>) -> (String, String) 
         if let Some(building_type) = building.to_building_type() {
             match building_type.category() {
                 // Wide separators for large buildings
-                BuildingCategoryEnum::Entertainment
-                | BuildingCategoryEnum::Cult
+                BuildingCategoryEnum::ServiceDedicated
+                | BuildingCategoryEnum::ServiceCombined
                 | BuildingCategoryEnum::AnimalBreeding => "ui_vertical_separator_stone_wide",
                 // Thin separators for smaller buildings
-                BuildingCategoryEnum::ManufacturingWorkshops
-                | BuildingCategoryEnum::Agriculture
-                | BuildingCategoryEnum::Commerce
+                BuildingCategoryEnum::SemiSpecialized
+                | BuildingCategoryEnum::Metal
+                | BuildingCategoryEnum::Earth
+                | BuildingCategoryEnum::Food
+                | BuildingCategoryEnum::Wood
+                | BuildingCategoryEnum::Textile
+                | BuildingCategoryEnum::FineArtisan
                 | BuildingCategoryEnum::Natural => "ui_vertical_separator_stone_thin",
                 // Default to thin for unknown categories
                 _ => "ui_vertical_separator_stone_thin",
