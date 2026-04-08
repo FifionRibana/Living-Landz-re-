@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::networking::client::game_client::{SendActionBuildBuilding, SendActionMoveUnit, SendFoundHamlet};
+use crate::networking::client::game_client::{SendActionBuildBuilding, SendActionMoveUnit, SendDestroyBuilding, SendFoundHamlet};
 use crate::state::resources::{ConnectionStatus, UnitsDataCache};
 use crate::ui::components::{ContextMenuEntry, ContextMenuRoot};
 use crate::ui::resources::{ContextMenuAction, ContextMenuState, UnitSelectionState};
@@ -149,6 +149,7 @@ pub fn handle_context_menu_click(
     mut move_events: MessageWriter<SendActionMoveUnit>,
     mut build_events: MessageWriter<SendActionBuildBuilding>,
     mut hamlet_events: MessageWriter<SendFoundHamlet>,
+    mut destroy_events: MessageWriter<SendDestroyBuilding>,
 ) {
     for (interaction, entry) in entry_query.iter() {
         if *interaction != Interaction::Pressed {
@@ -198,6 +199,10 @@ pub fn handle_context_menu_click(
             ContextMenuAction::Found => {
                 hamlet_events.write(SendFoundHamlet);
                 info!("Sent FoundHamlet via lightyear");
+            }
+            ContextMenuAction::DestroyBuilding => {
+                destroy_events.write(SendDestroyBuilding { cell: target_cell });
+                info!("Sent DestroyBuilding for cell ({},{})", target_cell.q, target_cell.r);
             }
             ContextMenuAction::Build(building_type) => {
                 info!(

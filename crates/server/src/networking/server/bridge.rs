@@ -188,6 +188,21 @@ pub enum BridgeEvent {
         player_id: u64,
         reason: String,
     },
+
+    // ── Destroy / Liquidate (#216) ──
+
+    SendBuildingDestroyed {
+        player_id: u64,
+        cell: GridCell,
+        building_id: u64,
+        new_population: i32,
+        population_capacity: i32,
+    },
+    SendOrganizationLiquidated {
+        player_id: u64,
+        organization_id: u64,
+        affected_chunks: Vec<shared::TerrainChunkId>,
+    },
 }
 
 // ─── Bevy → tokio: action requests ─────────────────────────────────
@@ -290,6 +305,13 @@ pub enum ActionRequest {
     DebugSpawnUnit {
         player_id: u64,
         cell: GridCell,
+    },
+    DestroyBuilding {
+        player_id: u64,
+        cell: GridCell,
+    },
+    LiquidateOrganization {
+        player_id: u64,
     },
 }
 

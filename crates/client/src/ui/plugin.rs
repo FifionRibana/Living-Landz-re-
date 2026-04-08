@@ -140,7 +140,10 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 Update,
-                systems::panels::update_population_text
+                (
+                    systems::panels::update_population_text,
+                    systems::panels::handle_liquidate_button,
+                )
                     .run_if(in_state(GameView::CityManagement)),
             )
             .add_systems(
