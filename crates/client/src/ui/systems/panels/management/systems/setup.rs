@@ -8,6 +8,10 @@ use crate::states::GameView;
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::systems::panels::components::ManagementPanel;
 
+/// Marker for the population text node, for reactive updates.
+#[derive(Component)]
+pub struct PopulationText;
+
 const GOLD: Color = Color::srgb(0.79, 0.66, 0.30);
 const TEXT_LIGHT: Color = Color::srgb(0.92, 0.88, 0.80);
 const TEXT_DIM: Color = Color::srgb(0.60, 0.52, 0.40);
@@ -148,6 +152,7 @@ fn spawn_org_content(
     ];
 
     for (label, value) in &stats {
+        let is_population = *label == "Population";
         panel
             .spawn(Node {
                 flex_direction: FlexDirection::Row,
@@ -165,7 +170,7 @@ fn spawn_org_content(
                     },
                     TextColor(TEXT_DIM),
                 ));
-                row.spawn((
+                let mut value_cmd = row.spawn((
                     Text::new(value.as_str()),
                     TextFont {
                         font: font_bold.clone(),
@@ -174,6 +179,9 @@ fn spawn_org_content(
                     },
                     TextColor(TEXT_DARK),
                 ));
+                if is_population {
+                    value_cmd.insert(PopulationText);
+                }
             });
     }
 
@@ -195,6 +203,25 @@ fn spawn_org_content(
             TextColor(Color::srgba(0.5, 0.4, 0.3, 0.5)),
         ));
     });
+}
+
+/// Reactively update the population text when PlayerInfo changes.
+pub fn update_population_text(
+    player_info: Res<PlayerInfo>,
+    mut query: Query<&mut Text, With<PopulationText>>,
+) {
+    if !player_info.is_changed() {
+        return;
+    }
+    let Some(ref org) = player_info.organization else {
+        return;
+    };
+    for mut text in query.iter_mut() {
+        **text = format!(
+            "{} / {} ({} notables)",
+            org.population, org.population_capacity, org.named_unit_count
+        );
+    }
 }
 
 fn spawn_no_org_content(

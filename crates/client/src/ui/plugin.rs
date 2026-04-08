@@ -139,6 +139,11 @@ impl Plugin for UiPlugin {
                 systems::panels::setup_management_panel,
             )
             .add_systems(
+                Update,
+                systems::panels::update_population_text
+                    .run_if(in_state(GameView::CityManagement)),
+            )
+            .add_systems(
                 OnEnter(GameView::Messages),
                 systems::panels::setup_messages_panel,
             )
