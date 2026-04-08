@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
+use sqlx::Row;
 
 use shared::TerrainChunkId;
 use shared::grid::GridConfig;
@@ -326,6 +327,38 @@ pub async fn exploration_map(
         Err(e) => {
             tracing::error!("Failed to load exploration data: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ─── GET /api/debug/voronoi-seeds ───────────────────────────────────
+
+pub async fn voronoi_seeds_debug(
+    State(state): State<BulkState>,
+) -> impl IntoResponse {
+    let rows = sqlx::query(
+        "SELECT id, seed_cell_q, seed_cell_r FROM terrain.voronoi_zones",
+    )
+    .fetch_all(&state.db_tables.pool)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let seeds: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "zone_id": r.get::<i64, _>("id"),
+                        "q": r.get::<i32, _>("seed_cell_q"),
+                        "r": r.get::<i32, _>("seed_cell_r"),
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(seeds)).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR,
+             format!("Failed to load voronoi seeds: {}", e)).into_response()
         }
     }
 }

@@ -4,6 +4,7 @@
 
 use bevy::{prelude::*, sprite_render::Material2dPlugin};
 
+use crate::rendering::debug_voronoi;
 use crate::rendering::terrain::materials::{TerrainMaterial, TreeMaterial};
 use crate::states::AppState;
 
@@ -17,7 +18,12 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(Material2dPlugin::<TerrainMaterial>::default())
             .add_plugins(Material2dPlugin::<TreeMaterial>::default())
             .init_resource::<debug::ChunkDebugEnabled>()
-            .add_systems(
+            .init_resource::<debug_voronoi::OrgVoronoiDebug>()
+            .init_resource::<debug_voronoi::MistVoronoiDebug>();
+
+        debug_voronoi::init_voronoi_debug_channels(app);
+
+        app.add_systems(
                 Update,
                 (
                     systems::initialize_terrain,
@@ -29,6 +35,11 @@ impl Plugin for TerrainPlugin {
                     debug::draw_chunk_gizmos,
                     debug::draw_outline_points,
                     debug::update_chunk_debug_text,
+                    debug_voronoi::toggle_org_voronoi_debug,
+                    debug_voronoi::poll_org_voronoi_seeds,
+                    debug_voronoi::draw_org_voronoi_debug,
+                    debug_voronoi::toggle_mist_voronoi_debug,
+                    debug_voronoi::draw_mist_voronoi_debug,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
