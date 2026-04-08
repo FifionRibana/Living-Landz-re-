@@ -946,31 +946,35 @@ fn process_pending_terrain_chunks(
             contours,
         ) = payload;
 
-        if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
-            continue;
-        }
+        let terrain_already_loaded =
+            cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id);
 
-        // Apply road SDF to the terrain chunk before inserting into cache
-        if let Some(road_sdf_data) = road_sdf {
-            terrain_chunk_data.road_sdf_data = Some(road_sdf_data);
-        }
+        if !terrain_already_loaded {
+            // Apply road SDF to the terrain chunk before inserting into cache
+            if let Some(road_sdf_data) = road_sdf {
+                terrain_chunk_data.road_sdf_data = Some(road_sdf_data);
+            }
 
-        let is_update = cache.insert_terrain(&terrain_chunk_data);
-        if is_update {
-            let terrain_name = &terrain_chunk_data.name;
-            let terrain_id = terrain_chunk_data.id;
-            for (entity, terrain) in terrain_query.iter() {
-                if &terrain.name == terrain_name && terrain.id == terrain_id {
-                    commands.entity(entity).despawn();
-                    break;
+            let is_update = cache.insert_terrain(&terrain_chunk_data);
+            if is_update {
+                let terrain_name = &terrain_chunk_data.name;
+                let terrain_id = terrain_chunk_data.id;
+                for (entity, terrain) in terrain_query.iter() {
+                    if &terrain.name == terrain_name && terrain.id == terrain_id {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
                 }
             }
+
+            for chunk_data in &biome_chunk_data {
+                cache.insert_biome(chunk_data);
+            }
+            cache.insert_cells(&cell_data);
         }
 
-        for chunk_data in &biome_chunk_data {
-            cache.insert_biome(chunk_data);
-        }
-        cache.insert_cells(&cell_data);
+        // Always update buildings/units/contours — they can change after terrain is loaded
+        // (e.g. new building constructed, unit moved in)
         cache.insert_buildings(&building_data);
 
         for unit in &unit_data {
