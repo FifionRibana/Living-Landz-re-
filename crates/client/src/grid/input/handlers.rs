@@ -154,6 +154,7 @@ pub fn handle_map_right_click(
     mut context_menu: ResMut<ContextMenuState>,
     game_view: Option<Res<State<GameView>>>,
     ui_interaction_query: Query<(&Interaction, &Pickable), With<Node>>,
+    world_cache: Option<Res<WorldCache>>,
 ) {
     let Some(gv) = game_view else { return };
     if *gv.get() != GameView::Map {
@@ -233,16 +234,30 @@ pub fn handle_map_right_click(
             // Proposer les bâtiments constructibles
             // Pour le MVP : liste fixe de bâtiments de base
             let buildable = [
-                shared::BuildingTypeEnum::Farm,
-                shared::BuildingTypeEnum::Blacksmith,
-                shared::BuildingTypeEnum::CarpenterShop,
-                shared::BuildingTypeEnum::Bakehouse,
-                shared::BuildingTypeEnum::Brewery,
-                shared::BuildingTypeEnum::Market,
+                shared::BuildingTypeEnum::Campement,
+                shared::BuildingTypeEnum::HuttePalierI,
+                shared::BuildingTypeEnum::ChaumierePalierI,
+                shared::BuildingTypeEnum::Ferme,
+                shared::BuildingTypeEnum::Forge,
+                shared::BuildingTypeEnum::AtelierCharpentier,
+                shared::BuildingTypeEnum::Cuisine,
+                shared::BuildingTypeEnum::Brasserie,
+                shared::BuildingTypeEnum::PlaceMarche,
             ];
 
             for bt in &buildable {
                 actions.push(crate::ui::resources::ContextMenuAction::Build(*bt));
+            }
+        }
+    }
+
+    // Destroy — available if there's a player building on this cell
+    if player_info.organization.is_some() {
+        if let Some(ref wc) = world_cache {
+            if let Some(building) = wc.get_building(&target_cell) {
+                if building.base_data.specific_type != shared::BuildingSpecificTypeEnum::Tree {
+                    actions.push(crate::ui::resources::ContextMenuAction::DestroyBuilding);
+                }
             }
         }
     }

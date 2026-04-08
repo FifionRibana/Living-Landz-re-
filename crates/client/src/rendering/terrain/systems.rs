@@ -6,6 +6,7 @@ use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
 use hexx::Hex;
 use rand::{Rng, SeedableRng};
 use shared::atlas::{BuildingAtlas, TreeAtlas};
+use shared::constants::{CHUNK_SIZE, HEX_SIZE};
 use shared::grid::GridConfig;
 use shared::{
     AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
@@ -155,7 +156,7 @@ pub fn spawn_terrain(
         let all_normals = terrain.mesh_data.normals.clone();
         let all_uvs = terrain.mesh_data.uvs.clone();
 
-        extend_mesh_edges(&mut all_triangles, 600.0, 503.0, 1.0);
+        extend_mesh_edges(&mut all_triangles, CHUNK_SIZE.x, CHUNK_SIZE.y, 1.0);
 
         let mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -435,7 +436,7 @@ pub fn spawn_building(
                 continue;
             }
             (
-                BuildingCategoryEnum::ManufacturingWorkshops,
+                _,
                 BuildingSpecific::ManufacturingWorkshop(data),
             ) => {
                 spawn_building_sprite(
@@ -449,7 +450,7 @@ pub fn spawn_building(
                     "Workshop",
                 );
             }
-            (BuildingCategoryEnum::Agriculture, BuildingSpecific::Agriculture(data)) => {
+            (_, BuildingSpecific::Agriculture(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -474,7 +475,7 @@ pub fn spawn_building(
                     "AnimalBreeding",
                 );
             }
-            (BuildingCategoryEnum::Entertainment, BuildingSpecific::Entertainment(data)) => {
+            (_, BuildingSpecific::Entertainment(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -486,7 +487,7 @@ pub fn spawn_building(
                     "Entertainment",
                 );
             }
-            (BuildingCategoryEnum::Cult, BuildingSpecific::Cult(data)) => {
+            (_, BuildingSpecific::Cult(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -498,7 +499,7 @@ pub fn spawn_building(
                     "Cult",
                 );
             }
-            (BuildingCategoryEnum::Commerce, BuildingSpecific::Commerce(data)) => {
+            (_, BuildingSpecific::Commerce(data)) => {
                 spawn_building_sprite(
                     &mut commands,
                     &building_atlas,
@@ -511,11 +512,20 @@ pub fn spawn_building(
                 );
             }
             _ => {
-                // Fallback pour les types inconnus
-                info!(
-                    "  Unknown building from category {:?} on cell: {:?}",
-                    building_base.category, building_base.cell
-                );
+                // Try to render using building_type_id from base_data (residential, defense, etc.)
+                if let Some(bt) = BuildingTypeEnum::from_id(building_base.building_type_id) {
+                    spawn_building_sprite(
+                        &mut commands,
+                        &building_atlas,
+                        &images,
+                        bt,
+                        0,
+                        building_id,
+                        world_position,
+                        "Generic",
+                    );
+                    continue;
+                }
                 let color = Color::srgba(0.5, 0.5, 0.5, 1.0);
                 let size = Vec2::new(32.0, 32.0);
 
@@ -548,7 +558,7 @@ fn spawn_building_sprite(
     world_position: Vec2,
     category_name: &str,
 ) {
-    if building_type == BuildingTypeEnum::Market {
+    if building_type == BuildingTypeEnum::PlaceMarche {
         info!("BUILDING TYPE {:?} SPAWN REQUEST", building_type);
     }
     if let Some(image_handle) = building_atlas.get_sprite(building_type, variant) {
@@ -557,7 +567,7 @@ fn spawn_building_sprite(
             Vec2::new(size.width as f32, size.height as f32)
         });
 
-        let custom_size = image_size.map(|size| Vec2::new(48.0, 48.0 * (size.y / size.x)));
+        let custom_size = image_size.map(|size| Vec2::new(2.0 * HEX_SIZE, 2.0 * HEX_SIZE * (size.y / size.x)));
 
         let position = Vec2::new(world_position.x, world_position.y + 8.);
 
@@ -994,7 +1004,7 @@ fn build_tree_mesh_for_chunk(
 
             quads.push(TreeQuad {
                 pos,
-                size: 48.0 * scale_var,
+                size: 2.0 * HEX_SIZE * scale_var,
                 uvs: sub_uvs,
                 flip_x,
             });

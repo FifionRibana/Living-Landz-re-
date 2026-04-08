@@ -642,6 +642,8 @@ impl OrganizationsTable {
                     .ok()
                     .map(|id| id as u64),
                 population: row.get("population"),
+                named_unit_count: 0,
+                population_capacity: 0,
                 emblem_url: row.try_get("emblem_url").ok(),
             });
         }

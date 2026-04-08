@@ -1,12 +1,21 @@
 use bevy::ecs::relationship::RelatedSpawnerCommands;
 use bevy::prelude::*;
 use bevy::state::state_scoped::DespawnOnExit;
+use lightyear::prelude::*;
 
 use crate::camera::resources::SceneRenderTarget;
 use crate::state::resources::PlayerInfo;
 use crate::states::GameView;
 use crate::ui::frosted_glass::{FrostedGlassConfig, FrostedGlassMaterial};
 use crate::ui::systems::panels::components::ManagementPanel;
+
+/// Marker for the population text node, for reactive updates.
+#[derive(Component)]
+pub struct PopulationText;
+
+/// Marker for the liquidate organization button.
+#[derive(Component)]
+pub struct LiquidateButton;
 
 const GOLD: Color = Color::srgb(0.79, 0.66, 0.30);
 const TEXT_LIGHT: Color = Color::srgb(0.92, 0.88, 0.80);
@@ -143,11 +152,12 @@ fn spawn_org_content(
 
     // Stats
     let stats = [
-        ("Population", format!("{} / {} (logements)", org.population, "?")),
+        ("Population", format!("{} / {} ({} notables)", org.population, org.population_capacity, org.named_unit_count)),
         ("Type", format!("{:?}", org.organization_type)),
     ];
 
     for (label, value) in &stats {
+        let is_population = *label == "Population";
         panel
             .spawn(Node {
                 flex_direction: FlexDirection::Row,
@@ -165,7 +175,7 @@ fn spawn_org_content(
                     },
                     TextColor(TEXT_DIM),
                 ));
-                row.spawn((
+                let mut value_cmd = row.spawn((
                     Text::new(value.as_str()),
                     TextFont {
                         font: font_bold.clone(),
@@ -174,6 +184,9 @@ fn spawn_org_content(
                     },
                     TextColor(TEXT_DARK),
                 ));
+                if is_population {
+                    value_cmd.insert(PopulationText);
+                }
             });
     }
 
@@ -195,6 +208,57 @@ fn spawn_org_content(
             TextColor(Color::srgba(0.5, 0.4, 0.3, 0.5)),
         ));
     });
+
+    // Liquidate organization button
+    panel.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(Val::Px(8.0)),
+            margin: UiRect::top(Val::Px(12.0)),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        Button,
+        BackgroundColor(Color::srgba(0.6, 0.15, 0.15, 0.8)),
+        LiquidateButton,
+    )).with_children(|btn| {
+        btn.spawn((
+            Text::new("Dissoudre le domaine"),
+            TextFont { font_size: 12.0, ..default() },
+            TextColor(Color::srgb(1.0, 0.8, 0.8)),
+        ));
+    });
+}
+
+/// Reactively update the population text when PlayerInfo changes.
+pub fn update_population_text(
+    player_info: Res<PlayerInfo>,
+    mut query: Query<&mut Text, With<PopulationText>>,
+) {
+    if !player_info.is_changed() {
+        return;
+    }
+    let Some(ref org) = player_info.organization else {
+        return;
+    };
+    for mut text in query.iter_mut() {
+        **text = format!(
+            "{} / {} ({} notables)",
+            org.population, org.population_capacity, org.named_unit_count
+        );
+    }
+}
+
+pub fn handle_liquidate_button(
+    interaction: Query<&Interaction, (Changed<Interaction>, With<LiquidateButton>)>,
+    mut liquidate_events: MessageWriter<crate::networking::client::game_client::SendLiquidateOrganization>,
+) {
+    for inter in interaction.iter() {
+        if *inter == Interaction::Pressed {
+            liquidate_events.write(crate::networking::client::game_client::SendLiquidateOrganization);
+            info!("Sent LiquidateOrganization");
+        }
+    }
 }
 
 fn spawn_no_org_content(

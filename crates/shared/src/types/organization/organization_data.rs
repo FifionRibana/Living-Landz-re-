@@ -143,6 +143,8 @@ pub struct OrganizationSummary {
     pub organization_type: OrganizationType,
     pub leader_unit_id: Option<u64>,
     pub population: i32,
+    pub named_unit_count: i32,
+    pub population_capacity: i32,
     pub emblem_url: Option<String>,
 }
 

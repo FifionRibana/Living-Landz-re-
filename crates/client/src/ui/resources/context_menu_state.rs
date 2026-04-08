@@ -8,6 +8,7 @@ pub enum ContextMenuAction {
     Move,
     Found,
     Build(shared::BuildingTypeEnum),
+    DestroyBuilding,
     // Futures actions :
     // Harvest,
 }
@@ -18,6 +19,7 @@ impl ContextMenuAction {
             Self::Move => "Déplacer",
             Self::Found => "Fonder un hameau",
             Self::Build(bt) => bt.to_name_lowercase(),
+            Self::DestroyBuilding => "Détruire",
         }
     }
 
@@ -26,6 +28,7 @@ impl ContextMenuAction {
             Self::Move => "➤",
             Self::Found => "⛫",
             Self::Build(_) => "🔨",
+            Self::DestroyBuilding => "🗑",
         }
     }
 }

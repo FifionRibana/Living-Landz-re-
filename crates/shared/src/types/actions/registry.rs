@@ -88,7 +88,7 @@ fn building_actions(ctx: &UIActionContext, game_data: Option<&GameDataRef>) -> V
 
 fn building_upgrades(building: BuildingTypeEnum) -> Vec<ActionEntry> {
     match building {
-        BuildingTypeEnum::Farm => vec![
+        BuildingTypeEnum::Ferme => vec![
             ActionEntry::new("upgrade_farm_irrigation", "Irrigation")
                 .with_description("Ajouter un système d'irrigation")
                 .with_icon("ui/icons/village.png")
@@ -96,7 +96,7 @@ fn building_upgrades(building: BuildingTypeEnum) -> Vec<ActionEntry> {
                 .with_cost("Pierre", 5)
                 .with_duration(6),
         ],
-        BuildingTypeEnum::Blacksmith => vec![
+        BuildingTypeEnum::Forge => vec![
             ActionEntry::new("upgrade_blacksmith_forge", "Forge améliorée")
                 .with_description("Améliorer la forge pour des travaux plus complexes")
                 .with_icon("ui/icons/village.png")
@@ -125,27 +125,36 @@ fn constructible_buildings(
     let mut entries = Vec::new();
 
     let buildings = [
-        (BuildingTypeEnum::Blacksmith, "blacksmith"),
-        (BuildingTypeEnum::BlastFurnace, "blast_furnace"),
-        (BuildingTypeEnum::Bloomery, "bloomery"),
-        (BuildingTypeEnum::CarpenterShop, "carpenter_shop"),
-        (BuildingTypeEnum::GlassFactory, "glass_factory"),
-        (BuildingTypeEnum::Farm, "farm"),
-        (BuildingTypeEnum::Cowshed, "cowshed"),
-        (BuildingTypeEnum::Piggery, "piggery"),
-        (BuildingTypeEnum::Sheepfold, "sheepfold"),
-        (BuildingTypeEnum::Stable, "stable"),
-        (BuildingTypeEnum::Theater, "theater"),
-        (BuildingTypeEnum::Temple, "temple"),
-        (BuildingTypeEnum::Bakehouse, "bakehouse"),
-        (BuildingTypeEnum::Brewery, "brewery"),
-        (BuildingTypeEnum::Distillery, "distillery"),
-        (BuildingTypeEnum::Slaughterhouse, "slaughterhouse"),
-        (BuildingTypeEnum::IceHouse, "ice_house"),
-        (BuildingTypeEnum::Market, "market"),
+        // Residential
+        BuildingTypeEnum::Campement,
+        BuildingTypeEnum::HuttePalierI,
+        BuildingTypeEnum::ChaumierePalierI,
+        // Metal
+        BuildingTypeEnum::Forge,
+        BuildingTypeEnum::Fonderie,
+        // Earth
+        BuildingTypeEnum::Verrerie,
+        // Wood
+        BuildingTypeEnum::AtelierCharpentier,
+        // Food
+        BuildingTypeEnum::Ferme,
+        BuildingTypeEnum::Cuisine,
+        BuildingTypeEnum::Brasserie,
+        BuildingTypeEnum::Abattoir,
+        BuildingTypeEnum::Glaciere,
+        // Animal breeding
+        BuildingTypeEnum::Etable,
+        BuildingTypeEnum::Porcherie,
+        BuildingTypeEnum::Bergerie,
+        BuildingTypeEnum::Ecurie,
+        // Services
+        BuildingTypeEnum::Theatre,
+        BuildingTypeEnum::LieuDeCulte,
+        BuildingTypeEnum::PlaceMarche,
     ];
 
-    for (bt_enum, slug) in buildings {
+    for bt_enum in buildings {
+        let slug = bt_enum.to_name_lowercase();
         let bt_id = bt_enum.to_id() as i32;
         // Use translated name from DB; fallback to slug
         let name = gd

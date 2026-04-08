@@ -24,7 +24,7 @@ pub fn setup_cell_details_panel(
         max_corner_scale: 1.0,
     };
 
-    let blacksmith_image = asset_server.load("sprites/buildings/blacksmith_01.png");
+    let blacksmith_image = asset_server.load("sprites/buildings/forge_01.png");
 
     parent
         .spawn((

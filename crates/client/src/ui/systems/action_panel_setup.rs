@@ -230,15 +230,19 @@ pub fn handle_action_tab_button_interactions(
 
 fn parse_building_category(category_str: &str) -> Option<BuildingCategoryEnum> {
     match category_str {
-        "Urbanism" => Some(BuildingCategoryEnum::Urbanism),
-        "Dwellings" => Some(BuildingCategoryEnum::Dwellings),
-        "ManufacturingWorkshops" => Some(BuildingCategoryEnum::ManufacturingWorkshops),
-        "Agriculture" => Some(BuildingCategoryEnum::Agriculture),
+        "Infrastructure" => Some(BuildingCategoryEnum::Infrastructure),
+        "Residential" => Some(BuildingCategoryEnum::Residential),
+        "SemiSpecialized" => Some(BuildingCategoryEnum::SemiSpecialized),
+        "Metal" => Some(BuildingCategoryEnum::Metal),
+        "Earth" => Some(BuildingCategoryEnum::Earth),
+        "Food" => Some(BuildingCategoryEnum::Food),
+        "Wood" => Some(BuildingCategoryEnum::Wood),
+        "Textile" => Some(BuildingCategoryEnum::Textile),
+        "FineArtisan" => Some(BuildingCategoryEnum::FineArtisan),
         "AnimalBreeding" => Some(BuildingCategoryEnum::AnimalBreeding),
-        "Commerce" => Some(BuildingCategoryEnum::Commerce),
-        "Entertainment" => Some(BuildingCategoryEnum::Entertainment),
-        "Cult" => Some(BuildingCategoryEnum::Cult),
-        "Military" => Some(BuildingCategoryEnum::Military),
+        "ServiceCombined" => Some(BuildingCategoryEnum::ServiceCombined),
+        "ServiceDedicated" => Some(BuildingCategoryEnum::ServiceDedicated),
+        "Defense" => Some(BuildingCategoryEnum::Defense),
         _ => None,
     }
 }

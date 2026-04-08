@@ -237,10 +237,12 @@ pub fn update_organization_info(
     for mut text in &mut text_query {
         if let Some(org) = &current_organization.organization {
             **text = format!(
-                "{} ({})\nPopulation: {}",
+                "{} ({})\nPopulation: {} / {} ({} notables)",
                 org.name,
                 format!("{:?}", org.organization_type),
-                org.population
+                org.population,
+                org.population_capacity,
+                org.named_unit_count
             );
         } else {
             **text = "No organization".to_string();

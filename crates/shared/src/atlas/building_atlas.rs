@@ -13,30 +13,31 @@ pub struct BuildingAtlas {
 impl BuildingAtlas {
     pub fn load(&mut self) {
         let building_types = [
-            // ManufacturingWorkshops
-            (BuildingTypeEnum::Blacksmith, "blacksmith", 1),
-            (BuildingTypeEnum::BlastFurnace, "blast_furnace", 1),
-            (BuildingTypeEnum::Bloomery, "bloomery", 1),
-            (BuildingTypeEnum::CarpenterShop, "carpenter_shop", 1),
-            (BuildingTypeEnum::GlassFactory, "glass_factory", 1),
-            // Agriculture
-            (BuildingTypeEnum::Farm, "farm", 1),
-            // AnimalBreeding
-            (BuildingTypeEnum::Cowshed, "cowshed", 2),
-            (BuildingTypeEnum::Piggery, "piggery", 1),
-            (BuildingTypeEnum::Sheepfold, "sheepfold", 1),
-            (BuildingTypeEnum::Stable, "stable", 2),
-            // Entertainment
-            (BuildingTypeEnum::Theater, "theater", 1),
-            // Cult
-            (BuildingTypeEnum::Temple, "temple", 1),
-            // Commerce
-            (BuildingTypeEnum::Bakehouse, "bakehouse", 1),
-            (BuildingTypeEnum::Brewery, "brewery", 1),
-            (BuildingTypeEnum::Distillery, "distillery", 1),
-            (BuildingTypeEnum::Slaughterhouse, "slaughterhouse", 1),
-            (BuildingTypeEnum::IceHouse, "ice_house", 1),
-            (BuildingTypeEnum::Market, "market", 1),
+            // Residential
+            (BuildingTypeEnum::Campement, "base_camp", 1),
+            (BuildingTypeEnum::ChaumierePalierI, "cottage_tier_i", 3),
+            // Metal
+            (BuildingTypeEnum::Forge, "forge", 1),
+            (BuildingTypeEnum::Fonderie, "smelter", 2),
+            // Earth
+            (BuildingTypeEnum::Verrerie, "glassworks", 1),
+            // Wood
+            (BuildingTypeEnum::AtelierCharpentier, "carpenter_workshop", 1),
+            // Food
+            (BuildingTypeEnum::Ferme, "farm", 1),
+            (BuildingTypeEnum::Cuisine, "kitchen", 1),
+            (BuildingTypeEnum::Brasserie, "brewery", 2),
+            (BuildingTypeEnum::Abattoir, "slaughterhouse", 1),
+            (BuildingTypeEnum::Glaciere, "ice_house", 1),
+            // Animal breeding
+            (BuildingTypeEnum::Etable, "cowshed", 2),
+            (BuildingTypeEnum::Porcherie, "pigsty", 1),
+            (BuildingTypeEnum::Bergerie, "sheepfold", 1),
+            (BuildingTypeEnum::Ecurie, "stable", 2),
+            // Services
+            (BuildingTypeEnum::Theatre, "theater", 1),
+            (BuildingTypeEnum::LieuDeCulte, "place_of_worship", 1),
+            (BuildingTypeEnum::PlaceMarche, "marketplace", 1),
         ];
 
         self.sprites

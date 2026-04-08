@@ -377,10 +377,7 @@ impl BuildingsTable {
         // Insert into buildings_base
         // Pour building_type_id: utiliser BuildingTypeEnum (1-55) pour les bâtiments construits
         // Pour les arbres et Unknown, utiliser 0 (pas de correspondance dans building_types)
-        let building_type_id = building_data
-            .to_building_type()
-            .map(|bt| bt.to_id() as i32)
-            .unwrap_or(0);
+        let building_type_id = building_data.base_data.building_type_id as i32;
 
         sqlx::query(
             r#"
@@ -579,18 +576,22 @@ impl BuildingsTable {
 
         for r in base_buildings_rows {
             let id = r.get::<i64, &str>("id");
-            let category_id: i16 = r.get("category_id");
-            let specific_type_id: i16 = r.get("specific_type_id");
+            let category_id: i16 = r.try_get("category_id").unwrap_or(0);
+            let specific_type_id: Option<i16> = r.try_get("specific_type_id").ok();
 
             let category =
                 BuildingCategoryEnum::from_id(category_id).unwrap_or(BuildingCategoryEnum::Unknown);
-            let specific_type = BuildingSpecificTypeEnum::from_id(specific_type_id)
+            let specific_type = specific_type_id
+                .and_then(BuildingSpecificTypeEnum::from_id)
                 .unwrap_or(BuildingSpecificTypeEnum::Unknown);
+
+            let building_type_id: i32 = r.get("building_type_id");
 
             let base_data = BuildingBaseData {
                 id: id as u64,
                 specific_type,
                 category,
+                building_type_id: building_type_id as i16,
                 cell: GridCell {
                     q: r.get("cell_q"),
                     r: r.get("cell_r"),
@@ -639,7 +640,7 @@ impl BuildingsTable {
 
                     let workshop_type =
                         ManufacturingWorkshopTypeEnum::from_id(workshop.get("workshop_type_id"))
-                            .unwrap_or(ManufacturingWorkshopTypeEnum::Blacksmith);
+                            .unwrap_or(ManufacturingWorkshopTypeEnum::Forge);
 
                     BuildingSpecific::ManufacturingWorkshop(ManufacturingWorkshopData {
                         workshop_type,
@@ -660,7 +661,7 @@ impl BuildingsTable {
 
                     let agriculture_type =
                         AgricultureTypeEnum::from_id(agriculture.get("agriculture_type_id"))
-                            .unwrap_or(AgricultureTypeEnum::Farm);
+                            .unwrap_or(AgricultureTypeEnum::Ferme);
 
                     BuildingSpecific::Agriculture(AgricultureData {
                         agriculture_type,
@@ -681,7 +682,7 @@ impl BuildingsTable {
 
                     let animal_type =
                         AnimalBreedingTypeEnum::from_id(animal_breeding.get("animal_type_id"))
-                            .unwrap_or(AnimalBreedingTypeEnum::Cowshed);
+                            .unwrap_or(AnimalBreedingTypeEnum::Etable);
 
                     BuildingSpecific::AnimalBreeding(AnimalBreedingData {
                         animal_type,
@@ -702,7 +703,7 @@ impl BuildingsTable {
 
                     let entertainment_type =
                         EntertainmentTypeEnum::from_id(entertainment.get("entertainment_type_id"))
-                            .unwrap_or(EntertainmentTypeEnum::Theater);
+                            .unwrap_or(EntertainmentTypeEnum::Theatre);
 
                     BuildingSpecific::Entertainment(EntertainmentData {
                         entertainment_type,
@@ -722,7 +723,7 @@ impl BuildingsTable {
                     .await?;
 
                     let cult_type = CultTypeEnum::from_id(cult.get("cult_type_id"))
-                        .unwrap_or(CultTypeEnum::Temple);
+                        .unwrap_or(CultTypeEnum::LieuDeCulte);
 
                     BuildingSpecific::Cult(CultData {
                         cult_type,
@@ -742,7 +743,7 @@ impl BuildingsTable {
                     .await?;
 
                     let commerce_type = CommerceTypeEnum::from_id(commerce.get("commerce_type_id"))
-                        .unwrap_or(CommerceTypeEnum::Bakehouse);
+                        .unwrap_or(CommerceTypeEnum::Cuisine);
 
                     BuildingSpecific::Commerce(CommerceData {
                         commerce_type,

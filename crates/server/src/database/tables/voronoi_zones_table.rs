@@ -1,8 +1,9 @@
-use sqlx::{PgPool, Row};
 use shared::grid::GridCell;
 use shared::BiomeTypeEnum;
+use sqlx::{PgPool, Row};
 
-/// Database handler for Voronoi zones
+/// Database handler for Voronoi zones.
+/// Only stores seeds — zone cell membership is computed on demand via shared::voronoi.
 pub struct VoronoiZonesTable {
     pool: PgPool,
 }
@@ -12,7 +13,7 @@ impl VoronoiZonesTable {
         Self { pool }
     }
 
-    /// Create a new Voronoi zone
+    /// Create a new Voronoi zone (seed only — no cell assignments stored).
     pub async fn create_zone(
         &self,
         seed_cell: GridCell,
@@ -35,98 +36,80 @@ impl VoronoiZonesTable {
         Ok(zone_id)
     }
 
-    /// Add cells to a zone (bulk insert for performance)
-    pub async fn add_cells_to_zone(
-        &self,
-        zone_id: i64,
-        cells: &[GridCell],
-    ) -> Result<(), String> {
-        if cells.is_empty() {
-            return Ok(());
-        }
-
-        let mut query_builder = sqlx::QueryBuilder::new(
-            "INSERT INTO terrain.voronoi_zone_cells (zone_id, cell_q, cell_r)"
-        );
-
-        query_builder.push_values(cells.iter(), |mut b, cell| {
-            b.push_bind(zone_id).push_bind(cell.q).push_bind(cell.r);
-        });
-
-        query_builder
-            .build()
-            .execute(&self.pool)
+    /// Load all seeds from DB.
+    pub async fn load_all_seeds(&self) -> Result<Vec<(GridCell, i64)>, String> {
+        let rows = sqlx::query("SELECT id, seed_cell_q, seed_cell_r FROM terrain.voronoi_zones")
+            .fetch_all(&self.pool)
             .await
-            .map_err(|e| format!("Failed to add cells to zone: {}", e))?;
-
-        Ok(())
-    }
-
-    /// Get the zone ID at a specific cell
-    pub async fn get_zone_at_cell(&self, cell: GridCell) -> Result<Option<i64>, String> {
-        let zone_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT zone_id FROM terrain.voronoi_zone_cells
-            WHERE cell_q = $1 AND cell_r = $2
-            "#,
-        )
-        .bind(cell.q)
-        .bind(cell.r)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get zone at cell: {}", e))?;
-
-        Ok(zone_id)
-    }
-
-    /// Get all cells belonging to a zone
-    pub async fn get_zone_cells(&self, zone_id: i64) -> Result<Vec<GridCell>, String> {
-        let rows = sqlx::query(
-            r#"
-            SELECT cell_q, cell_r FROM terrain.voronoi_zone_cells
-            WHERE zone_id = $1
-            "#,
-        )
-        .bind(zone_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get zone cells: {}", e))?;
+            .map_err(|e| format!("Failed to load voronoi seeds: {}", e))?;
 
         Ok(rows
             .iter()
-            .map(|row| GridCell {
-                q: row.get("cell_q"),
-                r: row.get("cell_r"),
+            .map(|r| {
+                (
+                    GridCell {
+                        q: r.get::<i32, _>("seed_cell_q"),
+                        r: r.get::<i32, _>("seed_cell_r"),
+                    },
+                    r.get::<i64, _>("id"),
+                )
             })
             .collect())
     }
 
-    /// Check if a zone is available (no cells claimed by another organization)
+    /// Get the zone ID at a specific cell (computed from seeds, not stored).
+    pub async fn get_zone_at_cell(&self, cell: GridCell) -> Result<Option<i64>, String> {
+        let seeds = self.load_all_seeds().await?;
+        Ok(shared::voronoi::find_closest_seed(cell, &seeds).map(|(id, _)| id))
+    }
+
+    /// Compute all cells belonging to a zone via BFS flood-fill.
+    pub async fn compute_zone_cells(&self, zone_id: i64) -> Result<Vec<GridCell>, String> {
+        let seeds = self.load_all_seeds().await?;
+        let seed_cell = seeds
+            .iter()
+            .find(|(_, id)| *id == zone_id)
+            .map(|(cell, _)| *cell)
+            .ok_or_else(|| format!("Zone {} not found", zone_id))?;
+
+        Ok(shared::voronoi::compute_zone_cells(zone_id, seed_cell, &seeds))
+    }
+
+    /// Check if a zone is available (no cells claimed by any organization).
     pub async fn is_zone_available(&self, zone_id: i64) -> Result<bool, String> {
+        let zone_cells = self.compute_zone_cells(zone_id).await?;
+
+        if zone_cells.is_empty() {
+            return Ok(false);
+        }
+
+        // Build a single query to check all cells at once
+        let qs: Vec<i32> = zone_cells.iter().map(|c| c.q).collect();
+        let rs: Vec<i32> = zone_cells.iter().map(|c| c.r).collect();
+
         let count = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COUNT(DISTINCT tc.organization_id)
-            FROM terrain.voronoi_zone_cells vzc
-            LEFT JOIN organizations.territory_cells tc
-                ON vzc.cell_q = tc.cell_q AND vzc.cell_r = tc.cell_r
-            WHERE vzc.zone_id = $1
-                AND tc.organization_id IS NOT NULL
+            SELECT COUNT(*) FROM organizations.territory_cells tc
+            WHERE EXISTS (
+                SELECT 1 FROM unnest($1::int[], $2::int[]) AS t(q, r)
+                WHERE tc.cell_q = t.q AND tc.cell_r = t.r
+            )
             "#,
         )
-        .bind(zone_id)
+        .bind(&qs)
+        .bind(&rs)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| format!("Failed to check zone availability: {}", e))?;
+        .unwrap_or(0);
 
-        // Zone is available if no organization has claimed any cells
         Ok(count == 0)
     }
 
-    /// Get zone information
+    /// Get zone information (from voronoi_zones table only).
     pub async fn get_zone_info(&self, zone_id: i64) -> Result<Option<VoronoiZoneInfo>, String> {
         let row = sqlx::query(
             r#"
-            SELECT id, seed_cell_q, seed_cell_r, biome_type, cell_count, area_m2
+            SELECT id, seed_cell_q, seed_cell_r, biome_type
             FROM terrain.voronoi_zones
             WHERE id = $1
             "#,
@@ -144,8 +127,6 @@ impl VoronoiZonesTable {
             },
             biome: BiomeTypeEnum::from_id(r.get::<i32, _>("biome_type") as i16)
                 .unwrap_or(BiomeTypeEnum::Grassland),
-            cell_count: r.get("cell_count"),
-            area_m2: r.get("area_m2"),
         }))
     }
 }
@@ -156,6 +137,4 @@ pub struct VoronoiZoneInfo {
     pub id: i64,
     pub seed_cell: GridCell,
     pub biome: BiomeTypeEnum,
-    pub cell_count: i32,
-    pub area_m2: f32,
 }

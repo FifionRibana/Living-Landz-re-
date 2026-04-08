@@ -89,6 +89,7 @@ impl NaturalBuildingGenerator {
                     id,
                     specific_type: BuildingSpecificTypeEnum::Tree,
                     category: BuildingCategoryEnum::Natural,
+                    building_type_id: tree_type.to_building_type().to_id(),
                     chunk: cell_data.chunk,
                     cell: cell_data.cell,
                     created_at: Self::timestamp(),
