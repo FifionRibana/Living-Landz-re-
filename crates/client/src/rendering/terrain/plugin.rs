@@ -37,9 +37,11 @@ impl Plugin for TerrainPlugin {
                     debug::update_chunk_debug_text,
                     debug_voronoi::toggle_org_voronoi_debug,
                     debug_voronoi::poll_org_voronoi_seeds,
+                    debug_voronoi::poll_territory_cells,
                     debug_voronoi::draw_org_voronoi_debug,
                     debug_voronoi::toggle_mist_voronoi_debug,
                     debug_voronoi::draw_mist_voronoi_debug,
+                    debug_voronoi::draw_territory_debug_cells,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

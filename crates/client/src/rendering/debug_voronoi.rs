@@ -2,9 +2,11 @@ use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use shared::exploration::voronoi;
 use shared::grid::{GridCell, GridConfig};
+use shared::voronoi::hex_distance;
 use std::collections::HashMap;
 
 use crate::camera::MainCamera;
+use crate::networking::client::game_client::TerritoryDebugCells;
 use crate::networking::client::http_client::HttpBulkClient;
 
 // ─── Resources ──────────────────────────────────────────────────────
@@ -31,12 +33,28 @@ pub struct OrgVoronoiSender {
     tx: std::sync::mpsc::Sender<Vec<(i64, GridCell)>>,
 }
 
+#[derive(Resource)]
+pub struct TerritoryCellsReceiver {
+    rx: std::sync::Mutex<std::sync::mpsc::Receiver<Vec<GridCell>>>,
+}
+
+#[derive(Resource, Clone)]
+pub struct TerritoryCellsSender {
+    tx: std::sync::mpsc::Sender<Vec<GridCell>>,
+}
+
 pub fn init_voronoi_debug_channels(app: &mut App) {
     let (tx, rx) = std::sync::mpsc::channel();
     app.insert_resource(OrgVoronoiReceiver {
         rx: std::sync::Mutex::new(rx),
     });
     app.insert_resource(OrgVoronoiSender { tx });
+
+    let (tc_tx, tc_rx) = std::sync::mpsc::channel();
+    app.insert_resource(TerritoryCellsReceiver {
+        rx: std::sync::Mutex::new(tc_rx),
+    });
+    app.insert_resource(TerritoryCellsSender { tx: tc_tx });
 }
 
 // ─── Shared drawing logic ───────────────────────────────────────────
@@ -70,13 +88,6 @@ fn draw_voronoi_borders(
     }
 }
 
-/// Hex Manhattan distance
-fn hex_distance(a: GridCell, b: GridCell) -> i32 {
-    let s1 = -a.q - a.r;
-    let s2 = -b.q - b.r;
-    ((a.q - b.q).abs() + (a.r - b.r).abs() + (s1 - s2).abs()) / 2
-}
-
 // ─── F11 — Organization Voronoi ─────────────────────────────────────
 
 pub fn toggle_org_voronoi_debug(
@@ -84,6 +95,8 @@ pub fn toggle_org_voronoi_debug(
     mut org_debug: ResMut<OrgVoronoiDebug>,
     http_client: Res<HttpBulkClient>,
     sender: Res<OrgVoronoiSender>,
+    tc_sender: Res<TerritoryCellsSender>,
+    player_info: Res<crate::state::resources::PlayerInfo>,
 ) {
     if keyboard.just_pressed(KeyCode::F11) {
         org_debug.enabled = !org_debug.enabled;
@@ -91,6 +104,7 @@ pub fn toggle_org_voronoi_debug(
         info!("Org Voronoi debug: {}", state);
 
         if org_debug.enabled && !org_debug.loaded {
+            // Fetch voronoi seeds
             let client = http_client.client.clone();
             let base_url = http_client.base_url.clone();
             let sender = sender.clone();
@@ -130,6 +144,51 @@ pub fn toggle_org_voronoi_debug(
                     }
                 }))
                 .detach();
+
+            // Fetch territory cells for the player's org (if any)
+            if let Some(ref org) = player_info.organization {
+                let client2 = http_client.client.clone();
+                let base_url2 = http_client.base_url.clone();
+                let tc_sender = tc_sender.clone();
+                let org_id = org.id;
+
+                IoTaskPool::get()
+                    .spawn(async_compat::Compat::new(async move {
+                        match client2
+                            .get(format!(
+                                "{}/api/debug/territory-cells?org_id={}",
+                                base_url2, org_id
+                            ))
+                            .send()
+                            .await
+                        {
+                            Ok(response) => {
+                                match response.json::<Vec<(i32, i32)>>().await {
+                                    Ok(pairs) => {
+                                        let cells: Vec<GridCell> = pairs
+                                            .iter()
+                                            .map(|(q, r)| GridCell { q: *q, r: *r })
+                                            .collect();
+                                        bevy::log::info!(
+                                            "Loaded {} territory cells for org {}",
+                                            cells.len(),
+                                            org_id
+                                        );
+                                        let _ = tc_sender.tx.send(cells);
+                                    }
+                                    Err(e) => bevy::log::error!(
+                                        "Failed to parse territory cells: {}",
+                                        e
+                                    ),
+                                }
+                            }
+                            Err(e) => {
+                                bevy::log::error!("Failed to fetch territory cells: {}", e)
+                            }
+                        }
+                    }))
+                    .detach();
+            }
         }
     }
 }
@@ -142,6 +201,17 @@ pub fn poll_org_voronoi_seeds(
         while let Ok(seeds) = rx.try_recv() {
             org_debug.seeds = seeds;
             org_debug.loaded = true;
+        }
+    }
+}
+
+pub fn poll_territory_cells(
+    receiver: Res<TerritoryCellsReceiver>,
+    mut debug_cells: ResMut<TerritoryDebugCells>,
+) {
+    if let Ok(rx) = receiver.rx.lock() {
+        while let Ok(cells) = rx.try_recv() {
+            debug_cells.0 = cells;
         }
     }
 }
@@ -263,4 +333,30 @@ pub fn draw_mist_voronoi_debug(
     }
 
     draw_voronoi_borders(&mut gizmos, &cell_zones, &grid_config.layout);
+}
+
+pub fn draw_territory_debug_cells(
+    mut gizmos: Gizmos,
+    debug: Res<OrgVoronoiDebug>,
+    grid_config: Res<GridConfig>,
+    debug_cells: Res<TerritoryDebugCells>,
+) {
+    if !debug.enabled || debug_cells.0.is_empty() {
+        return;
+    }
+
+    for cell in &debug_cells.0 {
+        let center = grid_config.layout.hex_to_world_pos(cell.to_hex());
+        let radius = grid_config.hex_radius;
+
+        // Draw hex outline in bright green
+        let angles_deg = [0.0_f32, 60.0, 120.0, 180.0, 240.0, 300.0];
+        for i in 0..6 {
+            let a1 = angles_deg[i].to_radians();
+            let a2 = angles_deg[(i + 1) % 6].to_radians();
+            let p1 = center + Vec2::new(radius * a1.cos(), radius * a1.sin());
+            let p2 = center + Vec2::new(radius * a2.cos(), radius * a2.sin());
+            gizmos.line_2d(p1, p2, Color::srgba(0.0, 1.0, 0.0, 0.5));
+        }
+    }
 }

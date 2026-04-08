@@ -362,3 +362,31 @@ pub async fn voronoi_seeds_debug(
         }
     }
 }
+
+// ─── GET /api/debug/territory-cells?org_id=N ────────────────────────
+
+pub async fn territory_cells_debug(
+    State(state): State<BulkState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let org_id: u64 = params
+        .get("org_id")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if org_id == 0 {
+        return (StatusCode::BAD_REQUEST, "Missing or invalid org_id").into_response();
+    }
+
+    match state.db_tables.organizations.load_territory_cells(org_id).await {
+        Ok(cells) => {
+            let data: Vec<(i32, i32)> = cells.iter().map(|c| (c.q, c.r)).collect();
+            Json(data).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load territory cells: {}", e),
+        )
+            .into_response(),
+    }
+}
