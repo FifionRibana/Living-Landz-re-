@@ -335,33 +335,36 @@ impl BuildingTypeEnum {
     }
 
     // TODO: Move building enum data to database
-    /// Nombre d'unités que ce bâtiment peut loger
+    /// Marginal housing provided by this building (aggregated population capacity).
+    /// Represents workers, their families, apprentices, and dependents who live
+    /// at or near this building. Named unit placement uses SlotConfiguration,
+    /// not this value.
     pub fn housing_capacity(&self) -> u32 {
         match self {
-            // Ateliers — chaque atelier loge son artisan
+            // Manufacturing workshops
             Self::Blacksmith => 2,
-            Self::BlastFurnace => 1,
-            Self::Bloomery => 1,
+            Self::BlastFurnace => 2,
+            Self::Bloomery => 2,
             Self::CarpenterShop => 2,
-            Self::GlassFactory => 1,
-            // Agriculture — une ferme loge une famille
+            Self::GlassFactory => 2,
+            // Agriculture
             Self::Farm => 3,
-            // Élevage — berger/vacher
+            // Animal breeding
             Self::Cowshed => 1,
-            Self::Piggery => 1,
+            Self::Piggery => 0,
             Self::Sheepfold => 1,
-            Self::Stable => 1,
+            Self::Stable => 2,
             // Commerce
             Self::Bakehouse => 2,
             Self::Brewery => 2,
             Self::Distillery => 1,
             Self::Slaughterhouse => 1,
             Self::IceHouse => 0,
-            Self::Market => 2,
-            // Autres
+            Self::Market => 0,
+            // Culture
             Self::Theater => 0,
-            Self::Temple => 1,
-            // Arbres — pas de logement
+            Self::Temple => 2,
+            // Nature
             Self::Cedar | Self::Larch | Self::Oak => 0,
         }
     }
