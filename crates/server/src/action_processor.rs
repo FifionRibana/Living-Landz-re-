@@ -364,6 +364,9 @@ impl ActionProcessor {
                         tracing::error!("Failed to mark building {} as built: {}", action_id, e);
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
+
+                        // Notify client of updated population capacity
+                        self.send_population_update(action_info.player_id).await;
                     }
                 }
 
@@ -2075,6 +2078,78 @@ impl ActionProcessor {
         .await;
 
         Ok(action_id)
+    }
+
+    /// Recalculate population stats and notify the client.
+    /// Called after building construction/destruction to update capacity.
+    async fn send_population_update(&self, player_id: u64) {
+        // Find the player's organization
+        let org_row = sqlx::query(
+            "SELECT o.id, o.leader_unit_id, o.population FROM organizations.organizations o \
+             INNER JOIN units.units u ON u.id = o.leader_unit_id \
+             WHERE u.player_id = $1 LIMIT 1",
+        )
+        .bind(player_id as i64)
+        .fetch_optional(&self.db_tables.pool)
+        .await;
+
+        let Some(row) = org_row.ok().flatten() else {
+            return;
+        };
+
+        use sqlx::Row;
+        let org_id: i64 = row.get("id");
+        let leader_unit_id: i64 = row.get("leader_unit_id");
+        let population: i32 = row.get("population");
+
+        // Calculate housing capacity from built buildings
+        let capacity_rows = sqlx::query(
+            "SELECT b.building_type_id FROM buildings.buildings_base b \
+             INNER JOIN organizations.territory_cells tc \
+                 ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r \
+             WHERE tc.organization_id = $1 AND b.is_built = true",
+        )
+        .bind(org_id)
+        .fetch_all(&self.db_tables.pool)
+        .await
+        .unwrap_or_default();
+
+        let pop_capacity: i32 = capacity_rows
+            .iter()
+            .filter_map(|r| {
+                let type_id: i32 = r.get("building_type_id");
+                shared::BuildingTypeEnum::from_id(type_id as i16)
+                    .map(|bt| bt.housing_capacity() as i32)
+            })
+            .sum();
+
+        // Count named units
+        let named_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM units.units u \
+             INNER JOIN organizations.territory_cells tc \
+                 ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r \
+             WHERE tc.organization_id = $1 AND u.is_lord = false",
+        )
+        .bind(org_id)
+        .fetch_one(&self.db_tables.pool)
+        .await
+        .unwrap_or(0);
+
+        self.bridge_sender.send(
+            crate::networking::server::bridge::BridgeEvent::SendPopulationChanged {
+                player_id,
+                organization_id: org_id as u64,
+                new_population: population,
+                named_unit_count: named_count as i32,
+                population_capacity: pop_capacity,
+                immigrant: None,
+            },
+        );
+
+        tracing::info!(
+            "📊 Population update for org {}: {} / {} ({} named)",
+            org_id, population, pop_capacity, named_count
+        );
     }
 }
 
