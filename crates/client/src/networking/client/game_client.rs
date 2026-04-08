@@ -1571,14 +1571,15 @@ fn receive_hamlet_founded(
                 msg.name, msg.organization_id
             );
             let lord_unit_id = player_info.lord.as_ref().map(|l| l.id);
+            let camp_cap = shared::BuildingTypeEnum::Campement.housing_capacity() as i32;
             player_info.organization = Some(shared::OrganizationSummary {
                 id: msg.organization_id,
                 name: msg.name.clone(),
                 organization_type: shared::OrganizationType::Hamlet,
                 leader_unit_id: lord_unit_id,
-                population: shared::BuildingTypeEnum::Campement.housing_capacity() as i32,
+                population: camp_cap,
                 named_unit_count: 0,
-                population_capacity: 0,
+                population_capacity: camp_cap,
                 emblem_url: None,
             });
             debug_cells.0 = msg.territory_cells.clone();
