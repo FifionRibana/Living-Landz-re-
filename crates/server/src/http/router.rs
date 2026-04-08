@@ -46,6 +46,7 @@ pub async fn start_http_server(
         .route("/api/world/{name}/terrain-global", axum::routing::get(super::bulk::terrain_global_data))
         .route("/api/world/{name}/exploration", axum::routing::get(super::bulk::exploration_map))
         .route("/api/debug/voronoi-seeds", axum::routing::get(super::bulk::voronoi_seeds_debug))
+        .route("/api/debug/territory-cells", axum::routing::get(super::bulk::territory_cells_debug))
         .with_state(bulk_state);
 
     let app = auth_router.merge(bulk_router);
