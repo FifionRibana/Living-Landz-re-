@@ -94,6 +94,7 @@ pub enum ActionTypeEnum {
     HarvestResource = 5,
     CraftResource = 6,
     TrainUnit = 7,
+    FoundHamlet = 8,
 }
 
 impl ActionTypeEnum {
@@ -111,6 +112,7 @@ impl ActionTypeEnum {
             5 => Some(Self::HarvestResource),
             6 => Some(Self::CraftResource),
             7 => Some(Self::TrainUnit),
+            8 => Some(Self::FoundHamlet),
             _ => None,
         }
     }
@@ -125,6 +127,7 @@ impl ActionTypeEnum {
             Self::HarvestResource => "Récolte",
             Self::CraftResource => "Fabrication",
             Self::TrainUnit => "Formation",
+            Self::FoundHamlet => "Fondation",
         }
     }
 }

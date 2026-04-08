@@ -1640,6 +1640,9 @@ async fn handle_create_lord(
     }
 }
 
+/// Duration for founding a hamlet (surveying + camp setup), in seconds.
+const FOUND_HAMLET_DURATION_SECS: u64 = 30;
+
 async fn handle_found_hamlet(
     player_id: u64,
     bridge_sender: &BridgeSender,
@@ -1668,6 +1671,7 @@ async fn handle_found_hamlet(
     };
 
     let cell = lord.current_cell;
+    let chunk = cell.to_chunk_id(&grid_config.layout);
 
     // Check cell not already in a territory
     match sqlx::query_scalar::<_, i64>(
@@ -1712,6 +1716,39 @@ async fn handle_found_hamlet(
         }
         Ok(None) => {}
     }
+
+    // Validation passed — send Pending status to client
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let duration_ms = FOUND_HAMLET_DURATION_SECS * 1000;
+    let completion_time = now + FOUND_HAMLET_DURATION_SECS;
+
+    // Use a synthetic action_id (negative to avoid collision with real actions)
+    let action_id = now; // unique enough for display purposes
+
+    bridge_sender.send(BridgeEvent::SendActionStatus {
+        player_id,
+        action_id,
+        chunk_id: chunk,
+        cell,
+        status: ActionStatusEnum::InProgress,
+        action_type: ActionTypeEnum::FoundHamlet,
+        completion_time,
+        action_name: Some("Fondation du hameau".to_string()),
+        unit_ids: vec![lord.id],
+    });
+
+    tracing::info!(
+        "⏳ FoundHamlet action started for player {} — {}s duration",
+        player_id, FOUND_HAMLET_DURATION_SECS
+    );
+
+    // Wait for the duration, then execute the founding
+    tokio::time::sleep(tokio::time::Duration::from_secs(FOUND_HAMLET_DURATION_SECS)).await;
+
+    tracing::info!("✓ FoundHamlet duration elapsed for player {}, executing...", player_id);
 
     let family_name =
         match shared::types::game::methods::get_player_by_id(&db_tables.pool, player_id as i64)
@@ -1894,6 +1931,29 @@ async fn handle_found_hamlet(
         name: hamlet_name,
         headquarters: cell,
         territory_cells: claimed_cells,
+    });
+
+    // Mark action as completed
+    bridge_sender.send(BridgeEvent::SendActionStatus {
+        player_id,
+        action_id,
+        chunk_id: chunk,
+        cell,
+        status: ActionStatusEnum::Completed,
+        action_type: ActionTypeEnum::FoundHamlet,
+        completion_time: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        action_name: Some("Fondation du hameau".to_string()),
+        unit_ids: vec![lord.id],
+    });
+
+    bridge_sender.send(BridgeEvent::BroadcastActionCompleted {
+        action_id,
+        chunk_id: chunk,
+        cell,
+        action_type: ActionTypeEnum::FoundHamlet,
     });
 }
 
