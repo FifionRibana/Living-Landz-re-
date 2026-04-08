@@ -211,6 +211,7 @@ pub fn start_action_rpc_handler(
                         &db_tables,
                         &grid_config,
                         &world_global_state,
+                        &dev_config,
                     )
                     .await;
                 }
@@ -1655,6 +1656,7 @@ async fn handle_found_hamlet(
     db_tables: &DatabaseTables,
     grid_config: &shared::grid::GridConfig,
     world_global_state: &WorldGlobalState,
+    dev_config: &DevConfig,
 ) {
     tracing::info!("Player {} requesting to found a hamlet", player_id);
 
@@ -1728,8 +1730,9 @@ async fn handle_found_hamlet(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let duration_ms = FOUND_HAMLET_DURATION_SECS * 1000;
-    let completion_time = now + FOUND_HAMLET_DURATION_SECS;
+    let duration_ms = dev_config.apply_speed(FOUND_HAMLET_DURATION_SECS * 1000);
+    let duration_secs = duration_ms / 1000;
+    let completion_time = now + duration_secs;
 
     // Use a synthetic action_id (negative to avoid collision with real actions)
     let action_id = now; // unique enough for display purposes
@@ -1747,12 +1750,12 @@ async fn handle_found_hamlet(
     });
 
     tracing::info!(
-        "⏳ FoundHamlet action started for player {} — {}s duration",
-        player_id, FOUND_HAMLET_DURATION_SECS
+        "⏳ FoundHamlet action started for player {} — {}ms duration (dev speed applied)",
+        player_id, duration_ms
     );
 
     // Wait for the duration, then execute the founding
-    tokio::time::sleep(tokio::time::Duration::from_secs(FOUND_HAMLET_DURATION_SECS)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
 
     tracing::info!("✓ FoundHamlet duration elapsed for player {}, executing...", player_id);
 
