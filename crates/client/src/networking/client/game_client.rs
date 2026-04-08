@@ -22,15 +22,17 @@ use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPositio
 use shared::protocol::messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
-    ActionTrainUnitMsg, AssignUnitToSlotMsg, CreateLordMsg, DebugCreateOrganizationMsg,
-    DebugDeleteOrganizationMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
-    DebugOrganizationDeletedMsg, DebugSpawnUnitMsg, DebugUnitSpawnedMsg, ExplorationPatchMsg,
-    FoundHamletMsg, GameDataMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
+    ActionTrainUnitMsg, AssignUnitToSlotMsg, BuildingDestroyedMsg, CreateLordMsg,
+    DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugErrorMsg,
+    DebugOrganizationCreatedMsg, DebugOrganizationDeletedMsg, DebugSpawnUnitMsg,
+    DebugUnitSpawnedMsg, DestroyBuildingMsg, ExplorationPatchMsg, FoundHamletMsg, GameDataMsg,
+    HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg, LiquidateOrganizationMsg,
     LoginSuccessMsg, LordCreateErrorMsg, LordCreatedMsg, LordDataMsg, MoveUnitToSlotMsg,
-    OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg, RequestInventoryMsg,
-    RequestOrganizationAtCellMsg, RoadChunkSdfUpdateMsg, TerrainChunkDataMsg,
-    TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg, UnitPositionUpdatedMsg,
-    UnitProfessionChangedMsg, UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
+    OrganizationAtCellMsg, OrganizationLiquidatedMsg, PlayerOrganizationDataMsg,
+    PopulationChangedMsg, RequestInventoryMsg, RequestOrganizationAtCellMsg,
+    RoadChunkSdfUpdateMsg, TerrainChunkDataMsg, TerritoryBorderSdfUpdateMsg,
+    TerritoryContourUpdateMsg, UnitPositionUpdatedMsg, UnitProfessionChangedMsg,
+    UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -109,6 +111,14 @@ pub struct SendCreateLord {
 
 #[derive(Message, Clone)]
 pub struct SendFoundHamlet;
+
+#[derive(Message, Clone)]
+pub struct SendDestroyBuilding {
+    pub cell: GridCell,
+}
+
+#[derive(Message, Clone)]
+pub struct SendLiquidateOrganization;
 
 #[derive(Message, Clone)]
 pub struct SendMoveUnitToSlot {
@@ -194,6 +204,8 @@ impl Plugin for GameClientPlugin {
             .add_message::<SendRequestOrganizationAtCell>()
             .add_message::<SendCreateLord>()
             .add_message::<SendFoundHamlet>()
+            .add_message::<SendDestroyBuilding>()
+            .add_message::<SendLiquidateOrganization>()
             .add_message::<SendMoveUnitToSlot>()
             .add_message::<SendAssignUnitToSlot>()
             .add_message::<SendDebugCreateOrganization>()
@@ -224,6 +236,8 @@ impl Plugin for GameClientPlugin {
                     send_debug_create_organization,
                     send_debug_delete_organization,
                     send_debug_spawn_unit,
+                    send_destroy_building,
+                    send_liquidate_organization,
                     receive_lord_created,
                     receive_lord_create_error,
                 ),
@@ -256,6 +270,8 @@ impl Plugin for GameClientPlugin {
                 receive_organization_at_cell,
                 receive_unit_slot_updated,
                 receive_debug_messages,
+                receive_building_destroyed,
+                receive_organization_liquidated,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -1672,6 +1688,152 @@ fn receive_debug_messages(
                 "✓ Debug: Unit spawned: {} via lightyear",
                 msg.unit_data.full_name()
             );
+        }
+    }
+}
+
+// ─── Destroy building ──────────────────────────────────────────────
+
+fn send_destroy_building(
+    mut events: MessageReader<SendDestroyBuilding>,
+    mut senders: Query<&mut MessageSender<DestroyBuildingMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(DestroyBuildingMsg { cell: event.cell });
+            break;
+        }
+    }
+}
+
+fn receive_building_destroyed(
+    mut receivers: Query<&mut MessageReceiver<BuildingDestroyedMsg>>,
+    mut world_cache: Option<ResMut<WorldCache>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut commands: Commands,
+    buildings: Query<(Entity, &crate::rendering::terrain::components::Building)>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "Building {} destroyed at ({},{}) via lightyear",
+                msg.building_id, msg.cell.q, msg.cell.r
+            );
+            if let Some(ref mut cache) = world_cache {
+                cache.remove_building(&msg.cell);
+            }
+            for (entity, building) in buildings.iter() {
+                if building.id == msg.building_id as i64 {
+                    commands.entity(entity).despawn();
+                }
+            }
+            if let Some(ref mut org) = player_info.organization {
+                org.population = msg.new_population;
+                org.population_capacity = msg.population_capacity;
+            }
+        }
+    }
+}
+
+// ─── Liquidate organization ────────────────────────────────────────
+
+fn send_liquidate_organization(
+    mut events: MessageReader<SendLiquidateOrganization>,
+    mut senders: Query<&mut MessageSender<LiquidateOrganizationMsg>>,
+) {
+    for _event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(LiquidateOrganizationMsg);
+            break;
+        }
+    }
+}
+
+fn receive_organization_liquidated(
+    mut receivers: Query<&mut MessageReceiver<OrganizationLiquidatedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut commands: Commands,
+    contour_entities: Query<(Entity, &crate::rendering::territory::TerritoryContourEntity)>,
+    building_entities: Query<(Entity, &crate::rendering::terrain::components::Building)>,
+    mut contour_cache: ResMut<crate::rendering::territory::TerritoryContourCache>,
+    mut world_cache: Option<ResMut<crate::state::resources::WorldCache>>,
+    http_client: Res<HttpBulkClient>,
+    http_sender: Res<HttpTerrainSender>,
+    mut next_game_view: ResMut<NextState<crate::states::GameView>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "Organization {} liquidated via lightyear ({} chunks affected)",
+                msg.organization_id, msg.affected_chunks.len()
+            );
+
+            player_info.organization = None;
+
+            // Despawn all territory contour entities for this org
+            for (entity, contour) in contour_entities.iter() {
+                if contour.organization_id == msg.organization_id {
+                    commands.entity(entity).despawn();
+                }
+            }
+
+            // Clear contour cache for this org
+            contour_cache.remove_organization(msg.organization_id);
+
+            // Clear buildings from WorldCache for affected chunks and despawn sprites
+            if let Some(ref mut cache) = world_cache {
+                // Remove all non-tree buildings from cache
+                let cells_to_remove: Vec<_> = cache
+                    .loaded_buildings()
+                    .filter(|b| b.base_data.category != shared::BuildingCategoryEnum::Natural)
+                    .map(|b| b.base_data.cell)
+                    .collect();
+                for cell in &cells_to_remove {
+                    cache.remove_building(cell);
+                }
+            }
+
+            // Despawn all non-tree building sprites
+            for (entity, _building) in building_entities.iter() {
+                commands.entity(entity).despawn();
+            }
+
+            // Re-fetch affected chunks to get clean state (trees remain, buildings gone)
+            for chunk_id in &msg.affected_chunks {
+                let sender = http_sender.clone();
+                let client = http_client.client.clone();
+                let base_url = http_client.base_url.clone();
+                let cid = *chunk_id;
+
+                IoTaskPool::get()
+                    .spawn(async_compat::Compat::new(async move {
+                        let body = serde_json::json!({
+                            "terrain_name": "Gaulyia",
+                            "chunk_ids": [[cid.x, cid.y]],
+                        });
+                        match client
+                            .post(format!("{}/api/terrain/chunks", base_url))
+                            .json(&body)
+                            .send()
+                            .await
+                        {
+                            Ok(response) => match response.bytes().await {
+                                Ok(bytes) => {
+                                    match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
+                                        Ok(parsed) => { let _ = sender.tx.send(parsed); }
+                                        Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+                                    }
+                                }
+                                Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                            },
+                            Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+                        }
+                    }))
+                    .detach();
+            }
+
+            // Switch back to map view (closes management panel)
+            next_game_view.set(crate::states::GameView::Map);
         }
     }
 }

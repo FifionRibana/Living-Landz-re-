@@ -27,6 +27,8 @@ use shared::protocol::{
         CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
         DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugSpawnUnitMsg,
         LordCreatedMsg, LordCreateErrorMsg,
+        DestroyBuildingMsg, BuildingDestroyedMsg,
+        LiquidateOrganizationMsg, OrganizationLiquidatedMsg,
     },
 };
 
@@ -106,6 +108,8 @@ impl Plugin for NetworkGamePlugin {
                     receive_debug_create_organization_messages,
                     receive_debug_delete_organization_messages,
                     receive_debug_spawn_unit_messages,
+                    receive_destroy_building_messages,
+                    receive_liquidate_organization_messages,
                 ),
             );
     }
@@ -606,6 +610,24 @@ pub fn poll_bridge_events(
                 let msg = LordCreateErrorMsg { reason };
                 if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
                     tracing::error!("Failed to send LordCreateErrorMsg to player {}: {:?}", player_id, e);
+                }
+            }
+
+            BridgeEvent::SendBuildingDestroyed { player_id, cell, building_id, new_population, population_capacity } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = BuildingDestroyedMsg { cell, building_id, new_population, population_capacity };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send BuildingDestroyedMsg: {:?}", e);
+                }
+            }
+
+            BridgeEvent::SendOrganizationLiquidated { player_id, organization_id, affected_chunks } => {
+                let Some(srv) = srv else { continue; };
+                let target = NetworkTarget::Single(PeerId::Netcode(player_id));
+                let msg = OrganizationLiquidatedMsg { organization_id, affected_chunks };
+                if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
+                    tracing::error!("Failed to send OrganizationLiquidatedMsg: {:?}", e);
                 }
             }
         }
@@ -1131,6 +1153,35 @@ fn receive_debug_spawn_unit_messages(
             bridge.send_action(super::bridge::ActionRequest::DebugSpawnUnit {
                 player_id,
                 cell: msg.cell,
+            });
+        }
+    }
+}
+
+fn receive_destroy_building_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<DestroyBuildingMsg>, &RemoteId)>,
+    bridge: Res<NetworkBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::DestroyBuilding {
+                player_id,
+                cell: msg.cell,
+            });
+        }
+    }
+}
+
+fn receive_liquidate_organization_messages(
+    mut receivers: Query<(Entity, &mut MessageReceiver<LiquidateOrganizationMsg>, &RemoteId)>,
+    bridge: Res<NetworkBridge>,
+) {
+    for (_entity, mut receiver, remote_id) in receivers.iter_mut() {
+        let player_id = remote_id.0.to_bits();
+        for _msg in receiver.receive() {
+            bridge.send_action(super::bridge::ActionRequest::LiquidateOrganization {
+                player_id,
             });
         }
     }

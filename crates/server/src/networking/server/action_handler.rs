@@ -283,6 +283,12 @@ pub fn start_action_rpc_handler(
                 ActionRequest::DebugSpawnUnit { player_id, cell } => {
                     handle_debug_spawn_unit(player_id, cell, &bridge_sender, &db_tables).await;
                 }
+                ActionRequest::DestroyBuilding { player_id, cell } => {
+                    handle_destroy_building(player_id, cell, &bridge_sender, &db_tables).await;
+                }
+                ActionRequest::LiquidateOrganization { player_id } => {
+                    handle_liquidate_organization(player_id, &bridge_sender, &db_tables).await;
+                }
             }
         }
 
@@ -1933,6 +1939,18 @@ async fn handle_found_hamlet(
         territory_cells: claimed_cells,
     });
 
+    // Send population stats so client shows correct capacity
+    let pop_capacity = calculate_housing_capacity_for_org(db_tables, org_id).await;
+    let initial_pop = BuildingTypeEnum::Campement.housing_capacity() as i32;
+    bridge_sender.send(BridgeEvent::SendPopulationChanged {
+        player_id,
+        organization_id: org_id,
+        new_population: initial_pop,
+        named_unit_count: 0,
+        population_capacity: pop_capacity as i32,
+        immigrant: None,
+    });
+
     // Mark action as completed
     bridge_sender.send(BridgeEvent::SendActionStatus {
         player_id,
@@ -2251,4 +2269,272 @@ async fn handle_debug_spawn_unit(
             });
         }
     }
+}
+
+// ─── Destroy building / Liquidate organization (#216) ───────────────
+
+async fn calculate_housing_capacity_for_org(db_tables: &DatabaseTables, org_id: u64) -> u32 {
+    let rows = sqlx::query(
+        r#"SELECT b.building_type_id FROM buildings.buildings_base b
+           INNER JOIN organizations.territory_cells tc
+               ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
+           WHERE tc.organization_id = $1 AND b.is_built = true"#,
+    )
+    .bind(org_id as i64)
+    .fetch_all(&db_tables.pool)
+    .await
+    .unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| {
+            let id: i32 = r.get("building_type_id");
+            BuildingTypeEnum::from_id(id as i16).map(|bt| bt.housing_capacity())
+        })
+        .sum()
+}
+
+async fn handle_destroy_building(
+    player_id: u64,
+    cell: GridCell,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    // 1. Get building ID at cell
+    let building_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM buildings.buildings_base WHERE cell_q = $1 AND cell_r = $2",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Aucun bâtiment sur cette cellule".to_string(),
+            });
+            return;
+        }
+    };
+
+    // 2. Verify player owns this territory
+    let lord = match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(lord)) => lord,
+        _ => return,
+    };
+
+    let org_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+    )
+    .bind(lord.id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Pas d'organisation".to_string(),
+            });
+            return;
+        }
+    };
+
+    let in_territory = sqlx::query_scalar::<_, i64>(
+        "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .fetch_optional(&db_tables.pool)
+    .await
+    .ok()
+    .flatten();
+
+    if in_territory != Some(org_id as i64) {
+        bridge_sender.send(BridgeEvent::SendActionError {
+            player_id,
+            reason: "Bâtiment hors de votre territoire".to_string(),
+        });
+        return;
+    }
+
+    // 3. Free units on this cell
+    let _ = sqlx::query(
+        "UPDATE units.units SET slot_type = NULL, slot_index = NULL \
+         WHERE current_cell_q = $1 AND current_cell_r = $2 AND is_lord = false",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 4. Delete building
+    if let Err(e) = db_tables.buildings.delete_building(building_id).await {
+        bridge_sender.send(BridgeEvent::SendActionError {
+            player_id,
+            reason: format!("Échec: {}", e),
+        });
+        return;
+    }
+
+    // 5. Recalculate capacity and clamp population
+    let capacity = calculate_housing_capacity_for_org(db_tables, org_id).await;
+    let current_pop: i32 = sqlx::query_scalar(
+        "SELECT population FROM organizations.organizations WHERE id = $1",
+    )
+    .bind(org_id as i64)
+    .fetch_one(&db_tables.pool)
+    .await
+    .unwrap_or(0);
+
+    let new_pop = current_pop.min(capacity as i32);
+    if new_pop != current_pop {
+        let _ = sqlx::query(
+            "UPDATE organizations.organizations SET population = $1 WHERE id = $2",
+        )
+        .bind(new_pop)
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
+    }
+
+    tracing::info!(
+        "🗑️ Building {} destroyed at ({},{}) by player {}",
+        building_id, cell.q, cell.r, player_id
+    );
+
+    bridge_sender.send(BridgeEvent::SendBuildingDestroyed {
+        player_id,
+        cell,
+        building_id,
+        new_population: new_pop,
+        population_capacity: capacity as i32,
+    });
+}
+
+async fn handle_liquidate_organization(
+    player_id: u64,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    let lord = match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(lord)) => lord,
+        _ => return,
+    };
+
+    let org_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+    )
+    .bind(lord.id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Pas d'organisation à dissoudre".to_string(),
+            });
+            return;
+        }
+    };
+
+    tracing::info!(
+        "🏚️ Player {} liquidating organization {}",
+        player_id, org_id
+    );
+
+    // Collect affected chunks BEFORE deleting territory
+    let affected_chunks: Vec<TerrainChunkId> = sqlx::query(
+        "SELECT DISTINCT b.chunk_x, b.chunk_y FROM buildings.buildings_base b \
+         INNER JOIN organizations.territory_cells tc \
+             ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r \
+         WHERE tc.organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .fetch_all(&db_tables.pool)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|r| TerrainChunkId {
+        x: r.get("chunk_x"),
+        y: r.get("chunk_y"),
+    })
+    .collect();
+
+    // Order matters: delete buildings first (needs territory_cells), then clean up
+
+    // 1. Delete player-built buildings in territory (keep trees)
+    let _ = sqlx::query(
+        r#"DELETE FROM buildings.buildings_base
+           WHERE id IN (
+               SELECT b.id FROM buildings.buildings_base b
+               INNER JOIN organizations.territory_cells tc
+                   ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
+               WHERE tc.organization_id = $1 AND b.category_id != 1
+           )"#,
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 2. Delete territory contours
+    let _ = sqlx::query(
+        "DELETE FROM organizations.territory_contours WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 3. Delete territory cells
+    let _ = sqlx::query(
+        "DELETE FROM organizations.territory_cells WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 4. Delete non-lord member units
+    let _ = sqlx::query(
+        r#"DELETE FROM units.units WHERE id IN (
+            SELECT unit_id FROM organizations.members WHERE organization_id = $1
+        ) AND is_lord = false"#,
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 5. Delete members
+    let _ = sqlx::query(
+        "DELETE FROM organizations.members WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 6. Reset lord slot
+    let _ = sqlx::query(
+        "UPDATE units.units SET slot_type = NULL, slot_index = NULL WHERE id = $1",
+    )
+    .bind(lord.id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 7. Delete organization
+    let _ = sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
+
+    tracing::info!(
+        "✓ Organization {} liquidated ({} chunks affected)",
+        org_id, affected_chunks.len()
+    );
+
+    bridge_sender.send(BridgeEvent::SendOrganizationLiquidated {
+        player_id,
+        organization_id: org_id,
+        affected_chunks,
+    });
 }

@@ -193,6 +193,14 @@ impl BuildingCache {
         self.loaded.get(cell)
     }
 
+    pub fn remove_building(&mut self, cell: &GridCell) -> Option<BuildingData> {
+        let removed = self.loaded.remove(cell);
+        if removed.is_some() {
+            self.dirty = true;
+        }
+        removed
+    }
+
     pub fn unload_distant(
         &mut self,
         center: &TerrainChunkId,
@@ -656,6 +664,10 @@ impl WorldCache {
 
     pub fn get_building(&self, cell: &GridCell) -> Option<&BuildingData> {
         self.buildings.get_building(cell)
+    }
+
+    pub fn remove_building(&mut self, cell: &GridCell) -> Option<BuildingData> {
+        self.buildings.remove_building(cell)
     }
 
     pub fn unload_distant_building(
