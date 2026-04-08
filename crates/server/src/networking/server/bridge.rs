@@ -134,6 +134,8 @@ pub enum BridgeEvent {
         player_id: u64,
         organization_id: u64,
         new_population: i32,
+        named_unit_count: i32,
+        population_capacity: i32,
         immigrant: Option<shared::UnitData>,
     },
     SendHamletFounded {
