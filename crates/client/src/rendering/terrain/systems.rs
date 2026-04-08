@@ -6,6 +6,7 @@ use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology, prelude::*};
 use hexx::Hex;
 use rand::{Rng, SeedableRng};
 use shared::atlas::{BuildingAtlas, TreeAtlas};
+use shared::constants::{CHUNK_SIZE, HEX_SIZE};
 use shared::grid::GridConfig;
 use shared::{
     AgricultureData, AnimalBreedingData, BiomeChunkData, BiomeTypeEnum, BuildingCategoryEnum,
@@ -155,7 +156,7 @@ pub fn spawn_terrain(
         let all_normals = terrain.mesh_data.normals.clone();
         let all_uvs = terrain.mesh_data.uvs.clone();
 
-        extend_mesh_edges(&mut all_triangles, 600.0, 503.0, 1.0);
+        extend_mesh_edges(&mut all_triangles, CHUNK_SIZE.x, CHUNK_SIZE.y, 1.0);
 
         let mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -566,7 +567,7 @@ fn spawn_building_sprite(
             Vec2::new(size.width as f32, size.height as f32)
         });
 
-        let custom_size = image_size.map(|size| Vec2::new(48.0, 48.0 * (size.y / size.x)));
+        let custom_size = image_size.map(|size| Vec2::new(2.0 * HEX_SIZE, 2.0 * HEX_SIZE * (size.y / size.x)));
 
         let position = Vec2::new(world_position.x, world_position.y + 8.);
 
@@ -1003,7 +1004,7 @@ fn build_tree_mesh_for_chunk(
 
             quads.push(TreeQuad {
                 pos,
-                size: 48.0 * scale_var,
+                size: 2.0 * HEX_SIZE * scale_var,
                 uvs: sub_uvs,
                 flip_x,
             });

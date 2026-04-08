@@ -7,6 +7,7 @@ use bevy::{
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d},
 };
+use shared::constants::CHUNK_SIZE;
 
 /// Un segment du contour avec sa normale (pointant vers l'intérieur)
 #[derive(Clone, Copy, Debug)]
@@ -196,9 +197,6 @@ pub fn compute_bounds(points: &[Vec2]) -> (Vec2, Vec2) {
     (min, max)
 }
 
-pub const CHUNK_WIDTH: f32 = 600.0;
-pub const CHUNK_HEIGHT: f32 = 503.0;
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ChunkCoord {
     pub x: i32,
@@ -208,15 +206,15 @@ pub struct ChunkCoord {
 impl ChunkCoord {
     pub fn from_world_pos(pos: Vec2) -> Self {
         Self {
-            x: (pos.x / CHUNK_WIDTH).floor() as i32,
-            y: (pos.y / CHUNK_HEIGHT).floor() as i32,
+            x: (pos.x / CHUNK_SIZE.x).floor() as i32,
+            y: (pos.y / CHUNK_SIZE.y).floor() as i32,
         }
     }
 
     /// Retourne le rectangle (min, max) du chunk en coordonnées monde
     pub fn bounds(&self) -> (Vec2, Vec2) {
-        let min = Vec2::new(self.x as f32 * CHUNK_WIDTH, self.y as f32 * CHUNK_HEIGHT);
-        let max = min + Vec2::new(CHUNK_WIDTH, CHUNK_HEIGHT);
+        let min = Vec2::new(self.x as f32 * CHUNK_SIZE.x, self.y as f32 * CHUNK_SIZE.y);
+        let max = min + Vec2::new(CHUNK_SIZE.x, CHUNK_SIZE.y);
         (min, max)
     }
 }
