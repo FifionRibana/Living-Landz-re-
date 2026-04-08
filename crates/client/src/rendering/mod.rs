@@ -1,3 +1,4 @@
+pub mod debug_voronoi;
 pub mod lake;
 pub mod mist;
 pub mod ocean;
