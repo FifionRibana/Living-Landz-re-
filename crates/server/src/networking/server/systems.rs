@@ -510,10 +510,10 @@ pub fn poll_bridge_events(
                 }
             }
 
-            BridgeEvent::SendPopulationChanged { player_id, organization_id, new_population, immigrant } => {
+            BridgeEvent::SendPopulationChanged { player_id, organization_id, new_population, named_unit_count, population_capacity, immigrant } => {
                 let Some(srv) = srv else { continue; };
                 let target = NetworkTarget::Single(PeerId::Netcode(player_id));
-                let msg = PopulationChangedMsg { organization_id, new_population, immigrant };
+                let msg = PopulationChangedMsg { organization_id, new_population, named_unit_count, population_capacity, immigrant };
                 if let Err(e) = msg_sender.send::<_, ReliableGameChannel>(&msg, srv, &target) {
                     tracing::error!("Failed to send PopulationChangedMsg to player {}: {:?}", player_id, e);
                 }

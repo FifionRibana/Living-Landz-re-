@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use shared::grid::GridCell;
 use shared::protocol::ColorData;
+use sqlx::Row;
 use shared::{
     ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ContourSegmentData, GameState,
     OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, SlotPosition, TerrainChunkId,
@@ -1245,6 +1246,8 @@ async fn handle_load_organization_at_cell(
                         organization_type: org_data.organization_type,
                         leader_unit_id: org_data.leader_unit_id,
                         population: org_data.population,
+                        named_unit_count: 0,
+                        population_capacity: 0,
                         emblem_url: org_data.emblem_url,
                     };
                     bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
@@ -1426,12 +1429,34 @@ async fn handle_load_player_data(
         match sqlx::query_as::<_, (i64, String, i16, Option<i64>, i32, Option<String>)>(
             "SELECT o.id, o.name, o.organization_type_id, o.leader_unit_id, o.population, o.emblem_url FROM organizations.organizations o WHERE o.leader_unit_id = $1 LIMIT 1",
         ).bind(lord_data.id as i64).fetch_optional(&db_tables.pool).await {
-            Ok(Some((id, name, type_id, leader_id, pop, emblem))) => Some(shared::OrganizationSummary {
-                id: id as u64, name,
-                organization_type: shared::OrganizationType::from_id(type_id),
-                leader_unit_id: leader_id.map(|l| l as u64),
-                population: pop, emblem_url: emblem,
-            }),
+            Ok(Some((id, name, type_id, leader_id, pop, emblem))) => {
+                let org_id = id;
+                let named_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM units.units u INNER JOIN organizations.territory_cells tc ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r WHERE tc.organization_id = $1 AND u.is_lord = false"
+                ).bind(org_id).fetch_one(&db_tables.pool).await.unwrap_or(0);
+
+                let building_rows = sqlx::query(
+                    "SELECT building_type_id FROM buildings.buildings_base b INNER JOIN organizations.territory_cells tc ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r WHERE tc.organization_id = $1 AND b.is_built = true"
+                ).bind(org_id).fetch_all(&db_tables.pool).await.unwrap_or_default();
+
+                let pop_capacity: i32 = building_rows.iter()
+                    .filter_map(|r| {
+                        let type_id: i32 = r.get("building_type_id");
+                        shared::BuildingTypeEnum::from_id(type_id as i16)
+                            .map(|bt| bt.housing_capacity() as i32)
+                    })
+                    .sum();
+
+                Some(shared::OrganizationSummary {
+                    id: id as u64, name,
+                    organization_type: shared::OrganizationType::from_id(type_id),
+                    leader_unit_id: leader_id.map(|l| l as u64),
+                    population: pop,
+                    named_unit_count: named_count as i32,
+                    population_capacity: pop_capacity,
+                    emblem_url: emblem,
+                })
+            },
             _ => None,
         }
     } else { None };
@@ -1602,6 +1627,12 @@ async fn handle_found_hamlet(
             return;
         }
     };
+
+    // Initialize population to 10 (lord + first followers)
+    let _ = sqlx::query("UPDATE organizations.organizations SET population = 10 WHERE id = $1")
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
 
     // Claim territory via Voronoi zones
     let mut claimed_cells = Vec::new();

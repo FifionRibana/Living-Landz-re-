@@ -1533,20 +1533,32 @@ fn receive_hamlet_founded(
                 name: msg.name.clone(),
                 organization_type: shared::OrganizationType::Hamlet,
                 leader_unit_id: lord_unit_id,
-                population: 0,
+                population: 10,
+                named_unit_count: 0,
+                population_capacity: 0,
                 emblem_url: None,
             });
         }
     }
 }
 
-fn receive_population_changed(mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>) {
+fn receive_population_changed(
+    mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
             info!(
-                "Population changed: org {} now has {} members via lightyear",
-                msg.organization_id, msg.new_population
+                "Population changed: org {} pop {} / {} ({} named) via lightyear",
+                msg.organization_id, msg.new_population, msg.population_capacity, msg.named_unit_count
             );
+            if let Some(ref mut org) = player_info.organization {
+                if org.id == msg.organization_id {
+                    org.population = msg.new_population;
+                    org.named_unit_count = msg.named_unit_count;
+                    org.population_capacity = msg.population_capacity;
+                }
+            }
         }
     }
 }

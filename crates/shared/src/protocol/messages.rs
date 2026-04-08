@@ -237,6 +237,8 @@ pub struct TerritoryBorderCellsMsg {
 pub struct PopulationChangedMsg {
     pub organization_id: u64,
     pub new_population: i32,
+    pub named_unit_count: i32,
+    pub population_capacity: i32,
     pub immigrant: Option<UnitData>,
 }
 

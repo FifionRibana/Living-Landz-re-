@@ -1,5 +1,5 @@
-use shared::{BuildingTypeEnum, ProfessionEnum, TerrainChunkId, grid::GridCell};
-use sqlx::{PgPool, Row};
+use shared::{BuildingTypeEnum, ProfessionEnum, SlotConfiguration, SlotPosition, SlotType, TerrainChunkId, grid::GridCell};
+use sqlx::Row;
 use std::sync::Arc;
 
 use crate::database::client::DatabaseTables;
@@ -25,9 +25,8 @@ impl PopulationSystem {
         }
     }
 
-    /// Tick principal — appelé toutes les ~60 secondes
+    /// Main tick — called every ~60 seconds
     pub async fn tick(&self) {
-        // Charger toutes les organisations actives
         let orgs = match self.load_active_organizations().await {
             Ok(orgs) => orgs,
             Err(e) => {
@@ -43,10 +42,10 @@ impl PopulationSystem {
         }
     }
 
-    /// Charge les organisations qui ont un leader (donc fondées par un joueur)
+    /// Load organizations that have a leader (founded by a player)
     async fn load_active_organizations(&self) -> Result<Vec<(u64, u64)>, String> {
         let rows = sqlx::query(
-            "SELECT id, leader_unit_id FROM organizations.organizations WHERE leader_unit_id IS NOT NULL"
+            "SELECT id, leader_unit_id FROM organizations.organizations WHERE leader_unit_id IS NOT NULL",
         )
         .fetch_all(&self.db_tables.pool)
         .await
@@ -63,84 +62,114 @@ impl PopulationSystem {
             .collect())
     }
 
-    /// Tick une organisation individuelle
+    /// Tick an individual organization — logistic growth + named unit emergence
     async fn tick_organization(&self, org_id: u64, leader_unit_id: u64) -> Result<(), String> {
-        // 1. Calculer la capacité de logement (somme des housing_capacity des bâtiments)
-        let housing_capacity = self.calculate_housing_capacity(org_id).await?;
+        // 1. Housing capacity = sum of housing_capacity() of all built buildings
+        let capacity = self.calculate_housing_capacity(org_id).await?;
 
-        // 2. Compter la population actuelle (unités NPC sur les cellules du territoire)
-        let current_population = self.count_population(org_id).await?;
+        // 2. Current aggregated population from DB
+        let current_pop = self.load_population(org_id).await?;
 
-        tracing::debug!(
-            "Org {}: housing={}, population={}",
-            org_id,
-            housing_capacity,
-            current_population
-        );
+        // 3. Named unit count (non-lord units in territory)
+        let named_count = self.count_named_units(org_id).await?;
 
-        // 3. Si de la place → spawn un immigrant
-        if housing_capacity > current_population as u32 && housing_capacity > 0 {
-            match self.spawn_immigrant(org_id, leader_unit_id).await {
-                Ok(unit_data) => {
-                    let new_pop = current_population + 1;
+        // 4. Logistic growth (only if capacity > 0 and room available)
+        let mut new_pop = current_pop;
+        if capacity > 0 && current_pop < capacity as i32 {
+            let cap = capacity as f64;
+            let pop = current_pop as f64;
+            let r = 0.05; // 5% growth rate per tick
+            let growth = (r * pop * (1.0 - pop / cap)).max(0.0);
+            // Bootstrap: minimum +1 if below capacity (so pop=1 can grow)
+            let growth = if pop < cap && growth < 1.0 {
+                1.0
+            } else {
+                growth
+            };
+            new_pop = ((pop + growth) as i32).min(capacity as i32);
 
-                    // Mettre à jour le compteur de population
-                    let _ = sqlx::query(
-                        "UPDATE organizations.organizations SET population = $1 WHERE id = $2",
-                    )
-                    .bind(new_pop as i32)
-                    .bind(org_id as i64)
-                    .execute(&self.db_tables.pool)
-                    .await;
+            if new_pop > current_pop {
+                self.update_population(org_id, new_pop).await?;
+                self.notify_population_changed(
+                    org_id,
+                    leader_unit_id,
+                    new_pop,
+                    named_count as i32,
+                    capacity as i32,
+                    None,
+                )
+                .await;
 
-                    tracing::info!(
-                        "✓ Immigrant {} {} joined org {} (pop: {} → {})",
-                        unit_data.first_name,
-                        unit_data.last_name,
-                        org_id,
-                        current_population,
-                        new_pop
-                    );
+                tracing::info!(
+                    "📈 Org {} population: {} → {} / {} ({} named)",
+                    org_id,
+                    current_pop,
+                    new_pop,
+                    capacity,
+                    named_count
+                );
+            }
+        }
 
-                    // Notifier le leader (le joueur qui possède cette org)
-                    // Trouver le player_id du leader
-                    if let Ok(leader) = self.db_tables.units.load_unit(leader_unit_id).await {
-                        if let Some(player_id) = leader.player_id {
-                            self.bridge_sender.send(BridgeEvent::SendPopulationChanged {
-                                player_id,
-                                organization_id: org_id,
-                                new_population: new_pop as i32,
-                                immigrant: Some(unit_data.clone()),
-                            });
+        // 5. Named unit emergence check
+        let emergence_threshold = 25 * (named_count as i32 + 1);
 
-                            self.bridge_sender.send(BridgeEvent::SendDebugUnitSpawned {
-                                player_id,
-                                unit_data,
-                            });
+        if new_pop >= emergence_threshold {
+            match self.find_cell_with_free_slot(org_id).await {
+                Ok((cell, chunk, building_type)) => {
+                    match self
+                        .spawn_named_unit(org_id, leader_unit_id, cell, chunk, building_type)
+                        .await
+                    {
+                        Ok(unit_data) => {
+                            let new_named = named_count + 1;
+                            tracing::info!(
+                                "🌟 Notable {} {} emerged in org {} (pop {}, {} named)",
+                                unit_data.first_name,
+                                unit_data.last_name,
+                                org_id,
+                                new_pop,
+                                new_named
+                            );
+                            self.notify_population_changed(
+                                org_id,
+                                leader_unit_id,
+                                new_pop,
+                                new_named as i32,
+                                capacity as i32,
+                                Some(unit_data.clone()),
+                            )
+                            .await;
+                            if let Ok(player_id) = self.get_player_id(leader_unit_id).await {
+                                self.bridge_sender.send(BridgeEvent::SendDebugUnitSpawned {
+                                    player_id,
+                                    unit_data,
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            tracing::debug!("No emergence for org {}: {}", org_id, e);
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to spawn immigrant for org {}: {}", org_id, e);
-                }
+                Err(_) => {} // No free slot — no emergence
             }
         }
 
         Ok(())
     }
 
-    /// Calcule la capacité totale de logement pour une organisation
+    // ─── Helpers ────────────────────────────────────────────────────────
+
+    /// Sum housing_capacity() of all built buildings in the territory
     async fn calculate_housing_capacity(&self, org_id: u64) -> Result<u32, String> {
-        // Joindre les bâtiments avec les cellules du territoire
         let rows = sqlx::query(
-            r#"
-            SELECT b.building_type_id
+            r#"SELECT b.building_type_id
             FROM buildings.buildings_base b
             INNER JOIN organizations.territory_cells tc
                 ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
             WHERE tc.organization_id = $1
-              AND b.is_built = true
-            "#,
+              AND b.is_built = true"#,
         )
         .bind(org_id as i64)
         .fetch_all(&self.db_tables.pool)
@@ -158,118 +187,98 @@ impl PopulationSystem {
         Ok(total)
     }
 
-    /// Compte les unités NPC dans le territoire d'une organisation
-    async fn count_population(&self, org_id: u64) -> Result<usize, String> {
-        let row = sqlx::query(
-            r#"
-            SELECT COUNT(*) as cnt
-            FROM units.units u
-            INNER JOIN organizations.territory_cells tc
-                ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r
-            WHERE tc.organization_id = $1
-              AND u.is_lord = false
-            "#,
+    async fn load_population(&self, org_id: u64) -> Result<i32, String> {
+        sqlx::query_scalar::<_, i32>(
+            "SELECT population FROM organizations.organizations WHERE id = $1",
         )
         .bind(org_id as i64)
         .fetch_one(&self.db_tables.pool)
         .await
-        .map_err(|e| format!("Failed to count population: {}", e))?;
-
-        Ok(row.get::<i64, _>("cnt") as usize)
+        .map_err(|e| format!("Failed to load population: {}", e))
     }
 
-    /// Spawn un immigrant NPC dans l'organisation
-    async fn spawn_immigrant(
+    async fn update_population(&self, org_id: u64, new_pop: i32) -> Result<(), String> {
+        sqlx::query("UPDATE organizations.organizations SET population = $1 WHERE id = $2")
+            .bind(new_pop)
+            .bind(org_id as i64)
+            .execute(&self.db_tables.pool)
+            .await
+            .map_err(|e| format!("Failed to update population: {}", e))?;
+        Ok(())
+    }
+
+    async fn count_named_units(&self, org_id: u64) -> Result<usize, String> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*) FROM units.units u
+               INNER JOIN organizations.territory_cells tc
+                   ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r
+               WHERE tc.organization_id = $1 AND u.is_lord = false"#,
+        )
+        .bind(org_id as i64)
+        .fetch_one(&self.db_tables.pool)
+        .await
+        .map_err(|e| format!("Failed to count named units: {}", e))?;
+        Ok(count as usize)
+    }
+
+    async fn get_player_id(&self, leader_unit_id: u64) -> Result<u64, String> {
+        let leader = self.db_tables.units.load_unit(leader_unit_id).await?;
+        leader
+            .player_id
+            .ok_or_else(|| "Leader has no player_id".to_string())
+    }
+
+    async fn notify_population_changed(
         &self,
         org_id: u64,
         leader_unit_id: u64,
-    ) -> Result<shared::UnitData, String> {
-        // 1. Trouver une cellule avec un bâtiment qui a de la place
-        let target = self.find_available_cell(org_id).await?;
-        let (cell, chunk, building_type) = target;
-
-        let (is_male, gender_str, profession) = {
-            // 2. Settlers arrive untrained - The player must train them
-            let profession = ProfessionEnum::Settler;
-
-            // 3. Générer nom/genre/portrait
-            use rand::Rng;
-            let mut rng = rand::rng();
-            let is_male: bool = rng.random_bool(0.5);
-            let gender_str = if is_male { "male" } else { "female" };
-            (is_male, gender_str, profession)
-        };
-
-        let (first_name, last_name) = self.name_generator.generate_random_name(Some(is_male));
-        let (variant_id, avatar_url) =
-            PortraitGenerator::generate_variant_and_url(gender_str, profession);
-
-        // 4. Créer l'unité
-        let unit_id = self
-            .db_tables
-            .units
-            .create_unit(
-                None, // NPC — pas de player_id
-                first_name.clone(),
-                last_name.clone(),
-                gender_str.to_string(),
-                variant_id,
-                avatar_url,
-                cell,
-                chunk,
-                profession,
-                false, // is_lord = false
-                None,  // portrait_layers = None
-            )
-            .await?;
-
-        // 5. Assigner un slot (trouver un slot libre sur la cellule)
-        self.assign_random_slot(unit_id, &cell, &chunk, building_type)
-            .await;
-
-        // 6. Ajouter comme membre de l'organisation
-        let _ = self
-            .db_tables
-            .organizations
-            .add_member(org_id, unit_id, None)
-            .await;
-
-        // 7. Charger et retourner les données complètes
-        self.db_tables.units.load_unit(unit_id).await
+        new_pop: i32,
+        named_count: i32,
+        capacity: i32,
+        immigrant: Option<shared::UnitData>,
+    ) {
+        if let Ok(player_id) = self.get_player_id(leader_unit_id).await {
+            self.bridge_sender.send(BridgeEvent::SendPopulationChanged {
+                player_id,
+                organization_id: org_id,
+                new_population: new_pop,
+                named_unit_count: named_count,
+                population_capacity: capacity,
+                immigrant,
+            });
+        }
     }
 
-    /// Trouve une cellule du territoire avec un bâtiment qui a de la place
-    async fn find_available_cell(
+    /// Find a cell in the territory with a building that has a free slot
+    async fn find_cell_with_free_slot(
         &self,
         org_id: u64,
     ) -> Result<(GridCell, TerrainChunkId, BuildingTypeEnum), String> {
-        // Charger tous les bâtiments du territoire avec leurs infos
         let rows = sqlx::query(
-            r#"
-            SELECT b.cell_q, b.cell_r, b.chunk_x, b.chunk_y, b.building_type_id,
-                   (SELECT COUNT(*) FROM units.units u
-                    WHERE u.current_cell_q = b.cell_q AND u.current_cell_r = b.cell_r
-                      AND u.is_lord = false) as unit_count
-            FROM buildings.buildings_base b
-            INNER JOIN organizations.territory_cells tc
-                ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
-            WHERE tc.organization_id = $1
-              AND b.is_built = true
-            ORDER BY unit_count ASC
-            "#,
+            r#"SELECT b.cell_q, b.cell_r, b.chunk_x, b.chunk_y, b.building_type_id,
+                      (SELECT COUNT(*) FROM units.units u
+                       WHERE u.current_cell_q = b.cell_q AND u.current_cell_r = b.cell_r
+                         AND u.is_lord = false) as unit_count
+               FROM buildings.buildings_base b
+               INNER JOIN organizations.territory_cells tc
+                   ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
+               WHERE tc.organization_id = $1 AND b.is_built = true
+               ORDER BY unit_count ASC"#,
         )
         .bind(org_id as i64)
         .fetch_all(&self.db_tables.pool)
         .await
-        .map_err(|e| format!("Failed to find available cell: {}", e))?;
+        .map_err(|e| format!("Failed to find cell with free slot: {}", e))?;
 
         for row in &rows {
             let type_id: i32 = row.get("building_type_id");
             let unit_count: i64 = row.get("unit_count");
 
             if let Some(building_type) = BuildingTypeEnum::from_id(type_id as i16) {
-                let capacity = building_type.housing_capacity();
-                if unit_count < capacity as i64 {
+                let slot_config = SlotConfiguration::for_building_type(building_type);
+                let total_slots =
+                    (slot_config.interior_slots() + slot_config.exterior_slots()) as i64;
+                if unit_count < total_slots {
                     return Ok((
                         GridCell {
                             q: row.get("cell_q"),
@@ -285,10 +294,62 @@ impl PopulationSystem {
             }
         }
 
-        Err("No available cell with housing capacity".to_string())
+        Err("No building with free slot in territory".to_string())
     }
 
-    /// Assigne un slot aléatoire disponible à l'unité
+    /// Spawn a named unit (settler) in the organization
+    async fn spawn_named_unit(
+        &self,
+        org_id: u64,
+        _leader_unit_id: u64,
+        cell: GridCell,
+        chunk: TerrainChunkId,
+        building_type: BuildingTypeEnum,
+    ) -> Result<shared::UnitData, String> {
+        let (is_male, gender_str, profession) = {
+            let profession = ProfessionEnum::Settler;
+            use rand::Rng;
+            let mut rng = rand::rng();
+            let is_male: bool = rng.random_bool(0.5);
+            let gender_str = if is_male { "male" } else { "female" };
+            (is_male, gender_str, profession)
+        };
+
+        let (first_name, last_name) = self.name_generator.generate_random_name(Some(is_male));
+        let (variant_id, avatar_url) =
+            PortraitGenerator::generate_variant_and_url(gender_str, profession);
+
+        let unit_id = self
+            .db_tables
+            .units
+            .create_unit(
+                None,
+                first_name.clone(),
+                last_name.clone(),
+                gender_str.to_string(),
+                variant_id,
+                avatar_url,
+                cell,
+                chunk,
+                profession,
+                false,
+                None,
+            )
+            .await?;
+
+        self.assign_random_slot(unit_id, &cell, &chunk, building_type)
+            .await;
+
+        let _ = self
+            .db_tables
+            .organizations
+            .add_member(org_id, unit_id, None)
+            .await;
+
+        self.db_tables.units.load_unit(unit_id).await
+    }
+
+    /// Assign a random free slot to a unit on a cell
     async fn assign_random_slot(
         &self,
         unit_id: u64,
@@ -296,11 +357,8 @@ impl PopulationSystem {
         chunk: &TerrainChunkId,
         building_type: BuildingTypeEnum,
     ) {
-        use shared::{SlotConfiguration, SlotPosition, SlotType};
-
         let slot_config = SlotConfiguration::for_building_type(building_type);
 
-        // Récupérer les slots déjà occupés
         let occupied = self
             .db_tables
             .units
@@ -308,7 +366,6 @@ impl PopulationSystem {
             .await
             .unwrap_or_default();
 
-        // Essayer les slots intérieurs d'abord, puis extérieurs
         let slot_candidates: Vec<SlotPosition> = (0..slot_config.interior_slots())
             .map(|i| SlotPosition {
                 slot_type: SlotType::Interior,
@@ -350,7 +407,7 @@ impl PopulationSystem {
 
 pub fn start_population_tick(system: Arc<PopulationSystem>) {
     tokio::task::spawn(async move {
-        // Premier tick après 30 secondes (laisser le serveur se stabiliser)
+        // First tick after 30 seconds (let the server stabilize)
         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
