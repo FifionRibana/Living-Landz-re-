@@ -56,4 +56,13 @@ impl TerritoryContourCache {
     pub fn remove_chunk(&mut self, chunk_id: &TerrainChunkId) {
         self.contours.remove(&chunk_id);
     }
+
+    /// Remove all contours for a specific organization
+    pub fn remove_organization(&mut self, organization_id: u64) {
+        for contours in self.contours.values_mut() {
+            contours.retain(|c| c.organization_id != organization_id);
+        }
+        // Remove empty chunks
+        self.contours.retain(|_, v| !v.is_empty());
+    }
 }

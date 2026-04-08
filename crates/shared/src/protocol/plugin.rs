@@ -23,6 +23,8 @@ use crate::protocol::{
         CreateLordMsg, FoundHamletMsg, MoveUnitToSlotMsg, AssignUnitToSlotMsg,
         SendMessageMsg, DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg,
         DebugSpawnUnitMsg, LordCreatedMsg, LordCreateErrorMsg,
+        DestroyBuildingMsg, BuildingDestroyedMsg,
+        LiquidateOrganizationMsg, OrganizationLiquidatedMsg,
     },
 };
 
@@ -154,6 +156,16 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<LordCreatedMsg>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<LordCreateErrorMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+
+        // Destroy / Liquidate (#216)
+        app.register_message::<DestroyBuildingMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<BuildingDestroyedMsg>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<LiquidateOrganizationMsg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<OrganizationLiquidatedMsg>()
             .add_direction(NetworkDirection::ServerToClient);
     }
 }

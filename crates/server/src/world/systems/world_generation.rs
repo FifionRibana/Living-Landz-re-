@@ -337,6 +337,105 @@ pub async fn load_or_generate_world_globals(
     }
 }
 
+/// Check if voronoi zone seeds exist in DB; generate them if missing.
+/// Called at server startup. Only stores seeds — zone cell membership
+/// is computed on demand via shared::voronoi (like the exploration/mist system).
+pub async fn ensure_voronoi_zones(db_tables: &DatabaseTables, global_state: &WorldGlobalState) {
+    let zone_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM terrain.voronoi_zones")
+        .fetch_one(&db_tables.pool)
+        .await
+        .unwrap_or(0);
+
+    if zone_count > 0 {
+        tracing::info!("✓ Voronoi zones OK: {} seeds in database", zone_count);
+        return;
+    }
+
+    tracing::info!("⚠️ Voronoi zones table is empty — generating seeds...");
+
+    let Some(ref grid_config) = global_state.grid_config else {
+        tracing::warn!("No grid config — cannot generate Voronoi zones");
+        return;
+    };
+
+    // Compute hex bounds from all 4 world corners
+    let n_chunk_x = global_state.n_chunk_x;
+    let n_chunk_y = global_state.n_chunk_y;
+    let world_w = n_chunk_x as f32 * shared::constants::CHUNK_SIZE.x;
+    let world_h = n_chunk_y as f32 * shared::constants::CHUNK_SIZE.y;
+
+    let c0 = grid_config.layout.world_pos_to_hex(Vec2::new(0.0, 0.0));
+    let c1 = grid_config
+        .layout
+        .world_pos_to_hex(Vec2::new(world_w, 0.0));
+    let c2 = grid_config
+        .layout
+        .world_pos_to_hex(Vec2::new(0.0, world_h));
+    let c3 = grid_config
+        .layout
+        .world_pos_to_hex(Vec2::new(world_w, world_h));
+
+    let min_q = c0.x.min(c1.x).min(c2.x).min(c3.x) - 1;
+    let max_q = c0.x.max(c1.x).max(c2.x).max(c3.x) + 2;
+    let min_r = c0.y.min(c1.y).min(c2.y).min(c3.y) - 1;
+    let max_r = c0.y.max(c1.y).max(c2.y).max(c3.y) + 2;
+
+    tracing::info!(
+        "World hex bounds: q[{},{}] r[{},{}]",
+        min_q, max_q, min_r, max_r
+    );
+
+    // Get terrain chunks for land filtering (seeds only on land)
+    let chunk_rows = sqlx::query("SELECT DISTINCT chunk_x, chunk_y FROM terrain.terrains")
+        .fetch_all(&db_tables.pool)
+        .await
+        .unwrap_or_default();
+
+    let terrain_chunks: std::collections::HashSet<(i32, i32)> = chunk_rows
+        .iter()
+        .map(|r| (r.get::<i32, _>("chunk_x"), r.get::<i32, _>("chunk_y")))
+        .collect();
+
+    // Generate seeds, filter to land
+    let base_spacing = 16;
+    let jitter = 3;
+    let voronoi_seed = 12345u64;
+
+    let seeds = crate::world::voronoi::seed_generator::generate_seeds_simple(
+        min_q, max_q, min_r, max_r, base_spacing, jitter, voronoi_seed,
+    );
+
+    let land_seeds: Vec<shared::grid::GridCell> = seeds
+        .into_iter()
+        .filter(|s| {
+            let chunk = s.to_chunk_id(&grid_config.layout);
+            terrain_chunks.contains(&(chunk.x, chunk.y))
+        })
+        .collect();
+
+    tracing::info!("Generated {} land seeds", land_seeds.len());
+
+    if land_seeds.is_empty() {
+        tracing::warn!("No land seeds generated — cannot create Voronoi zones");
+        return;
+    }
+
+    // Store seeds in DB (that's all — no cell partitioning needed)
+    let mut count = 0;
+    for seed_cell in &land_seeds {
+        if db_tables
+            .voronoi_zones
+            .create_zone(*seed_cell, shared::BiomeTypeEnum::Grassland)
+            .await
+            .is_ok()
+        {
+            count += 1;
+        }
+    }
+
+    tracing::info!("✓ Voronoi seed generation complete: {} seeds stored", count);
+}
+
 /// Generate a single chunk's data on demand: terrain mesh, cells, buildings.
 /// Saves everything to DB and returns the data for immediate client response.
 pub async fn generate_chunk_data(
@@ -600,7 +699,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 ///   - terrain.terrains (chunk meshes)
 ///   - terrain.terrain_biomes (biome chunk data)
 ///   - terrain.cells (hex cells)
-///   - terrain.voronoi_zone_cells → terrain.voronoi_zones (FK order)
+///   - terrain.voronoi_zones (seeds only — cell membership computed on demand)
 ///   - terrain.ocean_data
 ///   - terrain.lake_data
 ///   - terrain.road_chunk_visibility (regenerated cache, not player roads)
@@ -641,16 +740,7 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         natural_deleted.rows_affected()
     );
 
-    // 3. Voronoi (FK order: cells first)
-    let vzc_deleted = sqlx::query("DELETE FROM terrain.voronoi_zone_cells")
-        .execute(&mut *tx)
-        .await
-        .expect("Failed to clear voronoi zone cells");
-    tracing::info!(
-        "  🗑️  terrain.voronoi_zone_cells: {} rows",
-        vzc_deleted.rows_affected()
-    );
-
+    // 3. Voronoi seeds
     let vz_deleted = sqlx::query("DELETE FROM terrain.voronoi_zones")
         .execute(&mut *tx)
         .await
@@ -665,7 +755,10 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         .execute(&mut *tx)
         .await
         .expect("Failed to clear explored voronoi");
-    tracing::info!("  🗑️  terrain.explored_voronoi: {} rows", ev_deleted.rows_affected());
+    tracing::info!(
+        "  🗑️  terrain.explored_voronoi: {} rows",
+        ev_deleted.rows_affected()
+    );
 
     // 4. Cells
     let cells_deleted = sqlx::query("DELETE FROM terrain.cells")

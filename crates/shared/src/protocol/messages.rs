@@ -237,6 +237,8 @@ pub struct TerritoryBorderCellsMsg {
 pub struct PopulationChangedMsg {
     pub organization_id: u64,
     pub new_population: i32,
+    pub named_unit_count: i32,
+    pub population_capacity: i32,
     pub immigrant: Option<UnitData>,
 }
 
@@ -355,4 +357,32 @@ pub struct LordCreatedMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LordCreateErrorMsg {
     pub reason: String,
+}
+
+// ─── Destroy / Liquidate messages (#216) ────────────────────────────
+
+/// Client requests building destruction.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DestroyBuildingMsg {
+    pub cell: GridCell,
+}
+
+/// Server confirms building destroyed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BuildingDestroyedMsg {
+    pub cell: GridCell,
+    pub building_id: u64,
+    pub new_population: i32,
+    pub population_capacity: i32,
+}
+
+/// Client requests organization liquidation.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LiquidateOrganizationMsg;
+
+/// Server confirms organization liquidated.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct OrganizationLiquidatedMsg {
+    pub organization_id: u64,
+    pub affected_chunks: Vec<TerrainChunkId>,
 }

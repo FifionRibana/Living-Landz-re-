@@ -6,6 +6,7 @@ use lightyear::prelude::*;
 use shared::TerrainChunkId;
 use shared::grid::GridCell;
 use shared::protocol::channels::ReliableGameChannel;
+use shared::protocol::messages::HamletFoundErrorMsg;
 
 use crate::networking::client::auth_task::AuthTask;
 use crate::networking::client::http_client::{
@@ -21,15 +22,17 @@ use shared::protocol::components::{LordPosition, MovingUnitId, MovingUnitPositio
 use shared::protocol::messages::{
     ActionBuildBuildingMsg, ActionBuildRoadMsg, ActionCompletedMsg, ActionCraftResourceMsg,
     ActionErrorMsg, ActionExploreMsg, ActionHarvestResourceMsg, ActionMoveUnitMsg, ActionStatusMsg,
-    ActionTrainUnitMsg, AssignUnitToSlotMsg, CreateLordMsg, DebugCreateOrganizationMsg,
-    DebugDeleteOrganizationMsg, DebugErrorMsg, DebugOrganizationCreatedMsg,
-    DebugOrganizationDeletedMsg, DebugSpawnUnitMsg, DebugUnitSpawnedMsg, ExplorationPatchMsg,
-    FoundHamletMsg, GameDataMsg, HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg,
+    ActionTrainUnitMsg, AssignUnitToSlotMsg, BuildingDestroyedMsg, CreateLordMsg,
+    DebugCreateOrganizationMsg, DebugDeleteOrganizationMsg, DebugErrorMsg,
+    DebugOrganizationCreatedMsg, DebugOrganizationDeletedMsg, DebugSpawnUnitMsg,
+    DebugUnitSpawnedMsg, DestroyBuildingMsg, ExplorationPatchMsg, FoundHamletMsg, GameDataMsg,
+    HamletFoundedMsg, InventoryDataMsg, InventoryUpdateMsg, LiquidateOrganizationMsg,
     LoginSuccessMsg, LordCreateErrorMsg, LordCreatedMsg, LordDataMsg, MoveUnitToSlotMsg,
-    OrganizationAtCellMsg, PlayerOrganizationDataMsg, PopulationChangedMsg, RequestInventoryMsg,
-    RequestOrganizationAtCellMsg, RoadChunkSdfUpdateMsg, TerrainChunkDataMsg,
-    TerritoryBorderSdfUpdateMsg, TerritoryContourUpdateMsg, UnitPositionUpdatedMsg,
-    UnitProfessionChangedMsg, UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
+    OrganizationAtCellMsg, OrganizationLiquidatedMsg, PlayerOrganizationDataMsg,
+    PopulationChangedMsg, RequestInventoryMsg, RequestOrganizationAtCellMsg,
+    RoadChunkSdfUpdateMsg, TerrainChunkDataMsg, TerritoryBorderSdfUpdateMsg,
+    TerritoryContourUpdateMsg, UnitPositionUpdatedMsg, UnitProfessionChangedMsg,
+    UnitSlotUpdatedMsg, UnitWorkStatusUpdateMsg,
 };
 
 /// Bevy Message: UI systems write this, lightyear send system reads it.
@@ -94,6 +97,9 @@ pub struct SendRequestOrganizationAtCell {
     pub cell: GridCell,
 }
 
+#[derive(Resource, Default)]
+pub struct TerritoryDebugCells(pub Vec<GridCell>);
+
 // ─── Remaining command Bevy Messages (#138) ─────────────────────────
 
 #[derive(Message, Clone)]
@@ -105,6 +111,14 @@ pub struct SendCreateLord {
 
 #[derive(Message, Clone)]
 pub struct SendFoundHamlet;
+
+#[derive(Message, Clone)]
+pub struct SendDestroyBuilding {
+    pub cell: GridCell,
+}
+
+#[derive(Message, Clone)]
+pub struct SendLiquidateOrganization;
 
 #[derive(Message, Clone)]
 pub struct SendMoveUnitToSlot {
@@ -154,6 +168,7 @@ impl Plugin for GameClientPlugin {
             .insert_resource(HttpTerrainReceiver::new(terrain_rx))
             .insert_resource(HttpGlobalSender { tx: global_tx })
             .insert_resource(HttpGlobalReceiver::new(global_rx))
+            .init_resource::<TerritoryDebugCells>()
             .add_systems(
                 Update,
                 (
@@ -189,6 +204,8 @@ impl Plugin for GameClientPlugin {
             .add_message::<SendRequestOrganizationAtCell>()
             .add_message::<SendCreateLord>()
             .add_message::<SendFoundHamlet>()
+            .add_message::<SendDestroyBuilding>()
+            .add_message::<SendLiquidateOrganization>()
             .add_message::<SendMoveUnitToSlot>()
             .add_message::<SendAssignUnitToSlot>()
             .add_message::<SendDebugCreateOrganization>()
@@ -219,6 +236,8 @@ impl Plugin for GameClientPlugin {
                     send_debug_create_organization,
                     send_debug_delete_organization,
                     send_debug_spawn_unit,
+                    send_destroy_building,
+                    send_liquidate_organization,
                     receive_lord_created,
                     receive_lord_create_error,
                 ),
@@ -246,10 +265,13 @@ impl Plugin for GameClientPlugin {
                 receive_territory_contour_update,
                 receive_territory_border_sdf_update,
                 receive_hamlet_founded,
+                receive_hamlet_found_error,
                 receive_population_changed,
                 receive_organization_at_cell,
                 receive_unit_slot_updated,
                 receive_debug_messages,
+                receive_building_destroyed,
+                receive_organization_liquidated,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -614,36 +636,38 @@ fn receive_lord_data(
                 // Spawn HTTP fetches for global bulk data in parallel
                 let client = http_client.clone();
                 let sender = global_sender.clone();
-                IoTaskPool::get().spawn(async_compat::Compat::new(async move {
-                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                        client.fetch_ocean("Gaulyia"),
-                        client.fetch_lake("Gaulyia"),
-                        client.fetch_terrain_global("Gaulyia"),
-                        client.fetch_exploration("Gaulyia"),
-                    )
-                    .await;
+                IoTaskPool::get()
+                    .spawn(async_compat::Compat::new(async move {
+                        let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                            client.fetch_ocean("Gaulyia"),
+                            client.fetch_lake("Gaulyia"),
+                            client.fetch_terrain_global("Gaulyia"),
+                            client.fetch_exploration("Gaulyia"),
+                        )
+                        .await;
 
-                    if let Ok(data) = ocean {
-                        let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
-                    } else if let Err(e) = ocean {
-                        bevy::log::error!("HTTP ocean fetch failed: {}", e);
-                    }
-                    if let Ok(data) = lake {
-                        let _ = sender.tx.send(HttpGlobalResult::Lake(data));
-                    } else if let Err(e) = lake {
-                        bevy::log::error!("HTTP lake fetch failed: {}", e);
-                    }
-                    if let Ok(data) = terrain_global {
-                        let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
-                    } else if let Err(e) = terrain_global {
-                        bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
-                    }
-                    if let Ok(data) = exploration {
-                        let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
-                    } else if let Err(e) = exploration {
-                        bevy::log::error!("HTTP exploration fetch failed: {}", e);
-                    }
-                })).detach();
+                        if let Ok(data) = ocean {
+                            let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                        } else if let Err(e) = ocean {
+                            bevy::log::error!("HTTP ocean fetch failed: {}", e);
+                        }
+                        if let Ok(data) = lake {
+                            let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                        } else if let Err(e) = lake {
+                            bevy::log::error!("HTTP lake fetch failed: {}", e);
+                        }
+                        if let Ok(data) = terrain_global {
+                            let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                        } else if let Err(e) = terrain_global {
+                            bevy::log::error!("HTTP terrain-global fetch failed: {}", e);
+                        }
+                        if let Ok(data) = exploration {
+                            let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                        } else if let Err(e) = exploration {
+                            bevy::log::error!("HTTP exploration fetch failed: {}", e);
+                        }
+                    }))
+                    .detach();
             } else {
                 info!("No lord — entering character creation (via lightyear)");
                 next_app_state.set(AppState::CharacterCreation);
@@ -928,33 +952,45 @@ fn process_pending_terrain_chunks(
             }
         };
 
-        let (mut terrain_chunk_data, biome_chunk_data, cell_data, building_data, unit_data, road_sdf, contours) = payload;
+        let (
+            mut terrain_chunk_data,
+            biome_chunk_data,
+            cell_data,
+            building_data,
+            unit_data,
+            road_sdf,
+            contours,
+        ) = payload;
 
-        if cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id) {
-            continue;
-        }
+        let terrain_already_loaded =
+            cache.is_terrain_loaded(&terrain_chunk_data.name, &terrain_chunk_data.id);
 
-        // Apply road SDF to the terrain chunk before inserting into cache
-        if let Some(road_sdf_data) = road_sdf {
-            terrain_chunk_data.road_sdf_data = Some(road_sdf_data);
-        }
+        if !terrain_already_loaded {
+            // Apply road SDF to the terrain chunk before inserting into cache
+            if let Some(road_sdf_data) = road_sdf {
+                terrain_chunk_data.road_sdf_data = Some(road_sdf_data);
+            }
 
-        let is_update = cache.insert_terrain(&terrain_chunk_data);
-        if is_update {
-            let terrain_name = &terrain_chunk_data.name;
-            let terrain_id = terrain_chunk_data.id;
-            for (entity, terrain) in terrain_query.iter() {
-                if &terrain.name == terrain_name && terrain.id == terrain_id {
-                    commands.entity(entity).despawn();
-                    break;
+            let is_update = cache.insert_terrain(&terrain_chunk_data);
+            if is_update {
+                let terrain_name = &terrain_chunk_data.name;
+                let terrain_id = terrain_chunk_data.id;
+                for (entity, terrain) in terrain_query.iter() {
+                    if &terrain.name == terrain_name && terrain.id == terrain_id {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
                 }
             }
+
+            for chunk_data in &biome_chunk_data {
+                cache.insert_biome(chunk_data);
+            }
+            cache.insert_cells(&cell_data);
         }
 
-        for chunk_data in &biome_chunk_data {
-            cache.insert_biome(chunk_data);
-        }
-        cache.insert_cells(&cell_data);
+        // Always update buildings/units/contours — they can change after terrain is loaded
+        // (e.g. new building constructed, unit moved in)
         cache.insert_buildings(&building_data);
 
         for unit in &unit_data {
@@ -975,7 +1011,11 @@ fn process_pending_terrain_chunks(
             contour_cache.add_contour(
                 msg.chunk_id,
                 contour_data.organization_id,
-                contour_data.segments.iter().map(|s| s.to_contour_segment()).collect(),
+                contour_data
+                    .segments
+                    .iter()
+                    .map(|s| s.to_contour_segment())
+                    .collect(),
                 Color::linear_rgba(
                     contour_data.border_color.r,
                     contour_data.border_color.g,
@@ -1304,27 +1344,29 @@ fn receive_lord_created(
             // Spawn HTTP fetches for global bulk data
             let client = http_client.clone();
             let sender = global_sender.clone();
-            IoTaskPool::get().spawn(async_compat::Compat::new(async move {
-                let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                    client.fetch_ocean("Gaulyia"),
-                    client.fetch_lake("Gaulyia"),
-                    client.fetch_terrain_global("Gaulyia"),
-                    client.fetch_exploration("Gaulyia"),
-                )
-                .await;
-                if let Ok(data) = ocean {
-                    let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
-                }
-                if let Ok(data) = lake {
-                    let _ = sender.tx.send(HttpGlobalResult::Lake(data));
-                }
-                if let Ok(data) = terrain_global {
-                    let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
-                }
-                if let Ok(data) = exploration {
-                    let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
-                }
-            })).detach();
+            IoTaskPool::get()
+                .spawn(async_compat::Compat::new(async move {
+                    let (ocean, lake, terrain_global, exploration) = futures::future::join4(
+                        client.fetch_ocean("Gaulyia"),
+                        client.fetch_lake("Gaulyia"),
+                        client.fetch_terrain_global("Gaulyia"),
+                        client.fetch_exploration("Gaulyia"),
+                    )
+                    .await;
+                    if let Ok(data) = ocean {
+                        let _ = sender.tx.send(HttpGlobalResult::Ocean(data));
+                    }
+                    if let Ok(data) = lake {
+                        let _ = sender.tx.send(HttpGlobalResult::Lake(data));
+                    }
+                    if let Ok(data) = terrain_global {
+                        let _ = sender.tx.send(HttpGlobalResult::TerrainGlobal(data));
+                    }
+                    if let Ok(data) = exploration {
+                        let _ = sender.tx.send(HttpGlobalResult::Exploration(data));
+                    }
+                }))
+                .detach();
         }
     }
 }
@@ -1520,6 +1562,7 @@ fn receive_territory_border_sdf_update(
 fn receive_hamlet_founded(
     mut receivers: Query<&mut MessageReceiver<HamletFoundedMsg>>,
     mut player_info: ResMut<PlayerInfo>,
+    mut debug_cells: ResMut<TerritoryDebugCells>,
 ) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
@@ -1528,25 +1571,42 @@ fn receive_hamlet_founded(
                 msg.name, msg.organization_id
             );
             let lord_unit_id = player_info.lord.as_ref().map(|l| l.id);
+            let camp_cap = shared::BuildingTypeEnum::Campement.housing_capacity() as i32;
             player_info.organization = Some(shared::OrganizationSummary {
                 id: msg.organization_id,
                 name: msg.name.clone(),
                 organization_type: shared::OrganizationType::Hamlet,
                 leader_unit_id: lord_unit_id,
-                population: 0,
+                population: camp_cap,
+                named_unit_count: 0,
+                population_capacity: camp_cap,
                 emblem_url: None,
             });
+            debug_cells.0 = msg.territory_cells.clone();
         }
     }
 }
 
-fn receive_population_changed(mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>) {
+fn receive_population_changed(
+    mut receivers: Query<&mut MessageReceiver<PopulationChangedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+) {
     for mut receiver in receivers.iter_mut() {
         for msg in receiver.receive() {
             info!(
-                "Population changed: org {} now has {} members via lightyear",
-                msg.organization_id, msg.new_population
+                "Population changed: org {} pop {} / {} ({} named) via lightyear",
+                msg.organization_id,
+                msg.new_population,
+                msg.population_capacity,
+                msg.named_unit_count
             );
+            if let Some(ref mut org) = player_info.organization {
+                if org.id == msg.organization_id {
+                    org.population = msg.new_population;
+                    org.named_unit_count = msg.named_unit_count;
+                    org.population_capacity = msg.population_capacity;
+                }
+            }
         }
     }
 }
@@ -1588,6 +1648,14 @@ fn receive_unit_slot_updated(
     }
 }
 
+fn receive_hamlet_found_error(mut receivers: Query<&mut MessageReceiver<HamletFoundErrorMsg>>) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            warn!("❌ Hamlet founding failed: {}", msg.reason);
+        }
+    }
+}
+
 fn receive_debug_messages(
     mut debug_created: Query<&mut MessageReceiver<DebugOrganizationCreatedMsg>>,
     mut debug_deleted: Query<&mut MessageReceiver<DebugOrganizationDeletedMsg>>,
@@ -1621,6 +1689,152 @@ fn receive_debug_messages(
                 "✓ Debug: Unit spawned: {} via lightyear",
                 msg.unit_data.full_name()
             );
+        }
+    }
+}
+
+// ─── Destroy building ──────────────────────────────────────────────
+
+fn send_destroy_building(
+    mut events: MessageReader<SendDestroyBuilding>,
+    mut senders: Query<&mut MessageSender<DestroyBuildingMsg>>,
+) {
+    for event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(DestroyBuildingMsg { cell: event.cell });
+            break;
+        }
+    }
+}
+
+fn receive_building_destroyed(
+    mut receivers: Query<&mut MessageReceiver<BuildingDestroyedMsg>>,
+    mut world_cache: Option<ResMut<WorldCache>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut commands: Commands,
+    buildings: Query<(Entity, &crate::rendering::terrain::components::Building)>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "Building {} destroyed at ({},{}) via lightyear",
+                msg.building_id, msg.cell.q, msg.cell.r
+            );
+            if let Some(ref mut cache) = world_cache {
+                cache.remove_building(&msg.cell);
+            }
+            for (entity, building) in buildings.iter() {
+                if building.id == msg.building_id as i64 {
+                    commands.entity(entity).despawn();
+                }
+            }
+            if let Some(ref mut org) = player_info.organization {
+                org.population = msg.new_population;
+                org.population_capacity = msg.population_capacity;
+            }
+        }
+    }
+}
+
+// ─── Liquidate organization ────────────────────────────────────────
+
+fn send_liquidate_organization(
+    mut events: MessageReader<SendLiquidateOrganization>,
+    mut senders: Query<&mut MessageSender<LiquidateOrganizationMsg>>,
+) {
+    for _event in events.read() {
+        if let Some(mut sender) = senders.iter_mut().next() {
+            sender.send::<ReliableGameChannel>(LiquidateOrganizationMsg);
+            break;
+        }
+    }
+}
+
+fn receive_organization_liquidated(
+    mut receivers: Query<&mut MessageReceiver<OrganizationLiquidatedMsg>>,
+    mut player_info: ResMut<PlayerInfo>,
+    mut commands: Commands,
+    contour_entities: Query<(Entity, &crate::rendering::territory::TerritoryContourEntity)>,
+    building_entities: Query<(Entity, &crate::rendering::terrain::components::Building)>,
+    mut contour_cache: ResMut<crate::rendering::territory::TerritoryContourCache>,
+    mut world_cache: Option<ResMut<crate::state::resources::WorldCache>>,
+    http_client: Res<HttpBulkClient>,
+    http_sender: Res<HttpTerrainSender>,
+    mut next_game_view: ResMut<NextState<crate::states::GameView>>,
+) {
+    for mut receiver in receivers.iter_mut() {
+        for msg in receiver.receive() {
+            info!(
+                "Organization {} liquidated via lightyear ({} chunks affected)",
+                msg.organization_id, msg.affected_chunks.len()
+            );
+
+            player_info.organization = None;
+
+            // Despawn all territory contour entities for this org
+            for (entity, contour) in contour_entities.iter() {
+                if contour.organization_id == msg.organization_id {
+                    commands.entity(entity).despawn();
+                }
+            }
+
+            // Clear contour cache for this org
+            contour_cache.remove_organization(msg.organization_id);
+
+            // Clear buildings from WorldCache for affected chunks and despawn sprites
+            if let Some(ref mut cache) = world_cache {
+                // Remove all non-tree buildings from cache
+                let cells_to_remove: Vec<_> = cache
+                    .loaded_buildings()
+                    .filter(|b| b.base_data.category != shared::BuildingCategoryEnum::Natural)
+                    .map(|b| b.base_data.cell)
+                    .collect();
+                for cell in &cells_to_remove {
+                    cache.remove_building(cell);
+                }
+            }
+
+            // Despawn all non-tree building sprites
+            for (entity, _building) in building_entities.iter() {
+                commands.entity(entity).despawn();
+            }
+
+            // Re-fetch affected chunks to get clean state (trees remain, buildings gone)
+            for chunk_id in &msg.affected_chunks {
+                let sender = http_sender.clone();
+                let client = http_client.client.clone();
+                let base_url = http_client.base_url.clone();
+                let cid = *chunk_id;
+
+                IoTaskPool::get()
+                    .spawn(async_compat::Compat::new(async move {
+                        let body = serde_json::json!({
+                            "terrain_name": "Gaulyia",
+                            "chunk_ids": [[cid.x, cid.y]],
+                        });
+                        match client
+                            .post(format!("{}/api/terrain/chunks", base_url))
+                            .json(&body)
+                            .send()
+                            .await
+                        {
+                            Ok(response) => match response.bytes().await {
+                                Ok(bytes) => {
+                                    match crate::networking::client::http_client::parse_terrain_response_pub(&bytes) {
+                                        Ok(parsed) => { let _ = sender.tx.send(parsed); }
+                                        Err(e) => bevy::log::error!("HTTP terrain parse error: {}", e),
+                                    }
+                                }
+                                Err(e) => bevy::log::error!("HTTP terrain response error: {}", e),
+                            },
+                            Err(e) => bevy::log::error!("HTTP terrain request error: {}", e),
+                        }
+                    }))
+                    .detach();
+            }
+
+            // Switch back to map view (closes management panel)
+            next_game_view.set(crate::states::GameView::Map);
         }
     }
 }

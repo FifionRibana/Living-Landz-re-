@@ -13,10 +13,10 @@ pub fn setup_building_atlas(mut commands: Commands, asset_server: Res<AssetServe
     info!("Loading building atlas with {} building types", building_types.len());
 
     for building_type in building_types {
-        let sprite_variations = atlas
-            .get_variations(building_type)
-            .expect(format!("No variation found for building type {:?}", building_type).as_str())
-            .to_vec();
+        let Some(sprite_variations) = atlas.get_variations(building_type) else {
+            continue; // No sprite defined yet for this building type
+        };
+        let sprite_variations = sprite_variations.to_vec();
 
         info!("Loading building type {:?} with {} variations", building_type, sprite_variations.len());
 

@@ -146,8 +146,12 @@ fn main() {
         tracing::info!("=== Loading World Globals ===");
         let world_global_state =
             world::systems::load_or_generate_world_globals(&map_name, &db_tables).await;
-        let world_global_state_arc = Arc::new(world_global_state);
         tracing::info!("✓ World globals loaded");
+
+        // ── Voronoi zones (regenerate if missing) ──
+        world::systems::ensure_voronoi_zones(&db_tables, &world_global_state).await;
+
+        let world_global_state_arc = Arc::new(world_global_state);
 
         // ── Shared state ──
         let db_tables_arc = Arc::new(db_tables);

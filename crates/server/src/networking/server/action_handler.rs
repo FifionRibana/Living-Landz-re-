@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
+use crate::action_processor::ActionProcessor;
+use crate::database::client::DatabaseTables;
+use crate::dev::DevConfig;
+use crate::units::PortraitGenerator;
+use crate::world;
+use crate::world::resources::WorldGlobalState;
 use shared::grid::GridCell;
 use shared::protocol::ColorData;
 use shared::{
     ActionStatusEnum, ActionTypeEnum, BuildingTypeEnum, ContourSegmentData, GameState,
     OrganizationType, ProfessionEnum, ResourceSpecificTypeEnum, SlotPosition, TerrainChunkId,
 };
-use crate::action_processor::ActionProcessor;
-use crate::database::client::DatabaseTables;
-use crate::dev::DevConfig;
-use crate::units::PortraitGenerator;
-use crate::world::resources::WorldGlobalState;
-use crate::world;
+use sqlx::Row;
 
 use super::bridge::{ActionRequest, ActionRequestReceiver, BridgeEvent, BridgeSender};
 
@@ -178,33 +179,15 @@ pub fn start_action_rpc_handler(
                     )
                     .await;
                 }
-                ActionRequest::LoadInventory {
-                    player_id,
-                    unit_id,
-                } => {
-                    handle_load_inventory(
-                        player_id,
-                        unit_id,
-                        &bridge_sender,
-                        &db_tables,
-                    )
-                    .await;
+                ActionRequest::LoadInventory { player_id, unit_id } => {
+                    handle_load_inventory(player_id, unit_id, &bridge_sender, &db_tables).await;
                 }
-                ActionRequest::LoadOrganizationAtCell {
-                    player_id,
-                    cell,
-                } => {
-                    handle_load_organization_at_cell(
-                        player_id,
-                        cell,
-                        &bridge_sender,
-                        &db_tables,
-                    )
-                    .await;
+                ActionRequest::LoadOrganizationAtCell { player_id, cell } => {
+                    handle_load_organization_at_cell(player_id, cell, &bridge_sender, &db_tables)
+                        .await;
                 }
 
                 // ── Remaining commands migrated from tungstenite (#138) ──
-
                 ActionRequest::CreateLord {
                     player_id,
                     first_name,
@@ -212,53 +195,100 @@ pub fn start_action_rpc_handler(
                     portrait_layers,
                 } => {
                     handle_create_lord(
-                        player_id, &first_name, &gender, &portrait_layers,
-                        &bridge_sender, &db_tables,
-                    ).await;
+                        player_id,
+                        &first_name,
+                        &gender,
+                        &portrait_layers,
+                        &bridge_sender,
+                        &db_tables,
+                    )
+                    .await;
                 }
                 ActionRequest::FoundHamlet { player_id } => {
                     handle_found_hamlet(
                         player_id,
-                        &bridge_sender, &db_tables, &grid_config, &world_global_state,
-                    ).await;
+                        &bridge_sender,
+                        &db_tables,
+                        &grid_config,
+                        &world_global_state,
+                        &dev_config,
+                    )
+                    .await;
                 }
                 ActionRequest::MoveUnitToSlot {
-                    player_id, unit_id, cell, from_slot, to_slot,
+                    player_id,
+                    unit_id,
+                    cell,
+                    from_slot,
+                    to_slot,
                 } => {
                     handle_move_unit_to_slot(
-                        player_id, unit_id, cell, from_slot, to_slot,
-                        &bridge_sender, &db_tables,
-                    ).await;
+                        player_id,
+                        unit_id,
+                        cell,
+                        from_slot,
+                        to_slot,
+                        &bridge_sender,
+                        &db_tables,
+                    )
+                    .await;
                 }
                 ActionRequest::AssignUnitToSlot {
-                    player_id, unit_id, cell, slot,
+                    player_id,
+                    unit_id,
+                    cell,
+                    slot,
                 } => {
                     handle_assign_unit_to_slot(
-                        player_id, unit_id, cell, slot,
-                        &bridge_sender, &db_tables,
-                    ).await;
+                        player_id,
+                        unit_id,
+                        cell,
+                        slot,
+                        &bridge_sender,
+                        &db_tables,
+                    )
+                    .await;
                 }
                 ActionRequest::DebugCreateOrganization {
-                    player_id, name, organization_type, cell, parent_organization_id,
+                    player_id,
+                    name,
+                    organization_type,
+                    cell,
+                    parent_organization_id,
                 } => {
                     handle_debug_create_organization(
-                        player_id, &name, organization_type, cell, parent_organization_id,
-                        &bridge_sender, &db_tables, &grid_config, &world_global_state,
-                    ).await;
+                        player_id,
+                        &name,
+                        organization_type,
+                        cell,
+                        parent_organization_id,
+                        &bridge_sender,
+                        &db_tables,
+                        &grid_config,
+                        &world_global_state,
+                    )
+                    .await;
                 }
                 ActionRequest::DebugDeleteOrganization {
-                    player_id, organization_id,
+                    player_id,
+                    organization_id,
                 } => {
                     handle_debug_delete_organization(
-                        player_id, organization_id,
-                        &bridge_sender, &db_tables,
-                    ).await;
+                        player_id,
+                        organization_id,
+                        &bridge_sender,
+                        &db_tables,
+                    )
+                    .await;
                 }
                 ActionRequest::DebugSpawnUnit { player_id, cell } => {
-                    handle_debug_spawn_unit(
-                        player_id, cell,
-                        &bridge_sender, &db_tables,
-                    ).await;
+                    handle_debug_spawn_unit(player_id, cell, &bridge_sender, &db_tables).await;
+                }
+                ActionRequest::DestroyBuilding { player_id, cell } => {
+                    handle_destroy_building(player_id, cell, &bridge_sender, &db_tables).await;
+                }
+                ActionRequest::LiquidateOrganization { player_id } => {
+                    handle_liquidate_organization(player_id, &bridge_sender, &db_tables).await;
                 }
             }
         }
@@ -441,8 +471,13 @@ async fn handle_build_building(
 
     tracing::info!(
         "Player {} requested to build {:?} ({:?}) at chunk ({},{}) cell ({},{}) [via lightyear]",
-        player_id, building_type, building_specific_type,
-        chunk_id.x, chunk_id.y, cell.q, cell.r
+        player_id,
+        building_type,
+        building_specific_type,
+        chunk_id.x,
+        chunk_id.y,
+        cell.q,
+        cell.r
     );
 
     // 1. Find the lord
@@ -546,7 +581,11 @@ async fn handle_build_building(
     };
 
     match action_processor
-        .add_action_from_rpc(&db_tables.actions, &action_data, ActionTypeEnum::BuildBuilding)
+        .add_action_from_rpc(
+            &db_tables.actions,
+            &action_data,
+            ActionTypeEnum::BuildBuilding,
+        )
         .await
     {
         Ok(action_id) => {
@@ -594,7 +633,11 @@ async fn handle_build_road(
 
     tracing::info!(
         "Player {} requested to build road from ({},{}) to ({},{}) [via lightyear]",
-        player_id, start_cell.q, start_cell.r, end_cell.q, end_cell.r
+        player_id,
+        start_cell.q,
+        start_cell.r,
+        end_cell.q,
+        end_cell.r
     );
 
     let specific_data = SpecificAction::BuildRoad(BuildRoadAction {
@@ -636,10 +679,7 @@ async fn handle_build_road(
         .await
     {
         Ok(action_id) => {
-            tracing::info!(
-                "Scheduled build road action {} [via lightyear]",
-                action_id
-            );
+            tracing::info!("Scheduled build road action {} [via lightyear]", action_id);
             bridge_sender.send(BridgeEvent::SendActionStatus {
                 player_id,
                 action_id,
@@ -801,10 +841,7 @@ async fn handle_harvest_resource(
                     .set_units_working_on(&unit_ids, action_id)
                     .await
                 {
-                    tracing::error!(
-                        "Failed to assign units to action {}: {}",
-                        action_id, e
-                    );
+                    tracing::error!("Failed to assign units to action {}: {}", action_id, e);
                 }
             }
 
@@ -856,7 +893,8 @@ async fn handle_craft_resource(
         None => {
             tracing::warn!(
                 "Player {} requested unknown recipe '{}'",
-                player_id, recipe_id
+                player_id,
+                recipe_id
             );
             bridge_sender.send(BridgeEvent::SendActionError {
                 player_id,
@@ -981,8 +1019,8 @@ async fn handle_craft_resource(
         .unwrap()
         .as_secs();
 
-    let duration_ms = dev_config
-        .apply_speed((recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64));
+    let duration_ms =
+        dev_config.apply_speed((recipe.craft_duration_seconds as u64) * 1000 * (quantity as u64));
 
     let action_data = ActionData {
         base_data: ActionBaseData {
@@ -1015,16 +1053,17 @@ async fn handle_craft_resource(
                     .set_units_working_on(&unit_ids, action_id)
                     .await
                 {
-                    tracing::error!(
-                        "Failed to assign units to action {}: {}",
-                        action_id, e
-                    );
+                    tracing::error!("Failed to assign units to action {}: {}", action_id, e);
                 }
             }
 
             tracing::info!(
                 "Craft action {} scheduled: recipe '{}' x{} for player {} (duration: {}s) [via lightyear]",
-                action_id, recipe.name, quantity, player_id, duration_ms / 1000
+                action_id,
+                recipe.name,
+                quantity,
+                player_id,
+                duration_ms / 1000
             );
 
             bridge_sender.send(BridgeEvent::SendActionStatus {
@@ -1132,7 +1171,9 @@ async fn handle_train_unit(
         Ok(action_id) => {
             tracing::info!(
                 "Training unit {} to {:?} (action {}) [via lightyear]",
-                unit_id, target_profession, action_id
+                unit_id,
+                target_profession,
+                action_id
             );
             bridge_sender.send(BridgeEvent::SendActionStatus {
                 player_id,
@@ -1187,8 +1228,8 @@ async fn handle_load_inventory(
 
             let items: Vec<InventoryItemData> = grouped
                 .into_iter()
-                .map(|(item_id, (name, item_type, weight, quality, qty))| {
-                    InventoryItemData {
+                .map(
+                    |(item_id, (name, item_type, weight, quality, qty))| InventoryItemData {
                         instance_id: 0,
                         item_id,
                         name,
@@ -1198,8 +1239,8 @@ async fn handle_load_inventory(
                         quantity: qty,
                         is_equipped: false,
                         equipment_slot: None,
-                    }
-                })
+                    },
+                )
                 .collect();
 
             bridge_sender.send(BridgeEvent::SendInventoryData {
@@ -1245,6 +1286,8 @@ async fn handle_load_organization_at_cell(
                         organization_type: org_data.organization_type,
                         leader_unit_id: org_data.leader_unit_id,
                         population: org_data.population,
+                        named_unit_count: 0,
+                        population_capacity: 0,
                         emblem_url: org_data.emblem_url,
                     };
                     bridge_sender.send(BridgeEvent::SendOrganizationAtCell {
@@ -1292,7 +1335,6 @@ async fn handle_explore(
     world_global_state: &WorldGlobalState,
     bridge_sender: &BridgeSender,
 ) {
-
     // player_id is u64 but exploration DB uses i64
     let player_id_i64 = player_id as i64;
 
@@ -1315,13 +1357,15 @@ async fn handle_explore(
             if !newly_explored.is_empty() {
                 tracing::info!(
                     "Player {} explored {} new voronoi zones around ({},{}) [via lightyear]",
-                    player_id, newly_explored.len(), cell.q, cell.r
+                    player_id,
+                    newly_explored.len(),
+                    cell.q,
+                    cell.r
                 );
 
                 // Compute all seeds for rasterization
-                let all_seeds = crate::exploration::compute_all_seeds(
-                    n_chunk_x, n_chunk_y, layout, world_seed,
-                );
+                let all_seeds =
+                    crate::exploration::compute_all_seeds(n_chunk_x, n_chunk_y, layout, world_seed);
 
                 // Get seeds for newly explored zones to compute patch bounds
                 let new_seeds: Vec<_> = all_seeds
@@ -1353,8 +1397,7 @@ async fn handle_explore(
                     ph,
                 );
 
-                let compressed_patch =
-                    shared::protocol::bulk_compress::compress(&patch_data);
+                let compressed_patch = shared::protocol::bulk_compress::compress(&patch_data);
                 bridge_sender.send(BridgeEvent::SendExplorationPatch {
                     player_id,
                     patch_x: px,
@@ -1384,11 +1427,20 @@ async fn handle_load_player_data(
     let player_id_i64 = player_id as i64;
 
     let player = match shared::types::game::methods::get_player_by_id(
-        &db_tables.pool, player_id_i64,
-    ).await {
+        &db_tables.pool,
+        player_id_i64,
+    )
+    .await
+    {
         Ok(Some(p)) => p,
-        Ok(None) => { tracing::error!("LoadPlayerData: player {} not found", player_id); return; }
-        Err(e) => { tracing::error!("LoadPlayerData: DB error for player {}: {}", player_id, e); return; }
+        Ok(None) => {
+            tracing::error!("LoadPlayerData: player {} not found", player_id);
+            return;
+        }
+        Err(e) => {
+            tracing::error!("LoadPlayerData: DB error for player {}: {}", player_id, e);
+            return;
+        }
     };
 
     let player_data = shared::protocol::PlayerData {
@@ -1400,25 +1452,40 @@ async fn handle_load_player_data(
         origin_location: player.origin_location.clone(),
     };
 
-    let characters = shared::types::game::methods::get_player_characters(
-        &db_tables.pool, player_id_i64,
-    ).await.unwrap_or_default();
+    let characters =
+        shared::types::game::methods::get_player_characters(&db_tables.pool, player_id_i64)
+            .await
+            .unwrap_or_default();
 
-    let character_data = characters.into_iter().next().map(|c| shared::protocol::CharacterData {
-        id: c.id, player_id: c.player_id, first_name: c.first_name, family_name: c.family_name,
-        second_name: c.second_name, nickname: c.nickname, coat_of_arms_id: c.coat_of_arms_id,
-        image_id: c.image_id, motto: c.motto,
-    });
+    let character_data = characters
+        .into_iter()
+        .next()
+        .map(|c| shared::protocol::CharacterData {
+            id: c.id,
+            player_id: c.player_id,
+            first_name: c.first_name,
+            family_name: c.family_name,
+            second_name: c.second_name,
+            nickname: c.nickname,
+            coat_of_arms_id: c.coat_of_arms_id,
+            image_id: c.image_id,
+            motto: c.motto,
+        });
 
-    let lord = db_tables.units.load_lord_for_player(player_id).await.unwrap_or(None);
+    let lord = db_tables
+        .units
+        .load_lord_for_player(player_id)
+        .await
+        .unwrap_or(None);
 
-    crate::exploration::ensure_spawn_explored(
-        lord.clone(), db_tables, player_id_i64, grid_config,
-    ).await;
+    crate::exploration::ensure_spawn_explored(lord.clone(), db_tables, player_id_i64, grid_config)
+        .await;
 
     if let Some(ref lord_data) = lord {
         bridge_sender.send(BridgeEvent::SpawnLord {
-            player_id, chunk: lord_data.current_chunk, cell: lord_data.current_cell,
+            player_id,
+            chunk: lord_data.current_chunk,
+            cell: lord_data.current_cell,
         });
     }
 
@@ -1426,20 +1493,49 @@ async fn handle_load_player_data(
         match sqlx::query_as::<_, (i64, String, i16, Option<i64>, i32, Option<String>)>(
             "SELECT o.id, o.name, o.organization_type_id, o.leader_unit_id, o.population, o.emblem_url FROM organizations.organizations o WHERE o.leader_unit_id = $1 LIMIT 1",
         ).bind(lord_data.id as i64).fetch_optional(&db_tables.pool).await {
-            Ok(Some((id, name, type_id, leader_id, pop, emblem))) => Some(shared::OrganizationSummary {
-                id: id as u64, name,
-                organization_type: shared::OrganizationType::from_id(type_id),
-                leader_unit_id: leader_id.map(|l| l as u64),
-                population: pop, emblem_url: emblem,
-            }),
+            Ok(Some((id, name, type_id, leader_id, pop, emblem))) => {
+                let org_id = id;
+                let named_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM units.units u INNER JOIN organizations.territory_cells tc ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r WHERE tc.organization_id = $1 AND u.is_lord = false"
+                ).bind(org_id).fetch_one(&db_tables.pool).await.unwrap_or(0);
+
+                let building_rows = sqlx::query(
+                    "SELECT building_type_id FROM buildings.buildings_base b INNER JOIN organizations.territory_cells tc ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r WHERE tc.organization_id = $1 AND b.is_built = true"
+                ).bind(org_id).fetch_all(&db_tables.pool).await.unwrap_or_default();
+
+                let pop_capacity: i32 = building_rows.iter()
+                    .filter_map(|r| {
+                        let type_id: i32 = r.get("building_type_id");
+                        shared::BuildingTypeEnum::from_id(type_id as i16)
+                            .map(|bt| bt.housing_capacity() as i32)
+                    })
+                    .sum();
+
+                Some(shared::OrganizationSummary {
+                    id: id as u64, name,
+                    organization_type: shared::OrganizationType::from_id(type_id),
+                    leader_unit_id: leader_id.map(|l| l as u64),
+                    population: pop,
+                    named_unit_count: named_count as i32,
+                    population_capacity: pop_capacity,
+                    emblem_url: emblem,
+                })
+            },
             _ => None,
         }
-    } else { None };
+    } else {
+        None
+    };
 
     let game_data = crate::game_data::build_game_data_payload(game_state, dev_config);
 
     bridge_sender.send(BridgeEvent::SendLoginData {
-        player_id, player: player_data, character: character_data, lord, organization, game_data,
+        player_id,
+        player: player_data,
+        character: character_data,
+        lord,
+        organization,
+        game_data,
     });
 
     tracing::info!("📦 LoadPlayerData complete for player {}", player_id);
@@ -1448,75 +1544,119 @@ async fn handle_load_player_data(
 // ─── Remaining command handlers (#138) ──────────────────────────────
 
 async fn handle_create_lord(
-    player_id: u64, first_name: &str, gender: &str, portrait_layers: &str,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    player_id: u64,
+    first_name: &str,
+    gender: &str,
+    portrait_layers: &str,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
 ) {
-    tracing::info!("Player {} creating lord: {} ({})", player_id, first_name, gender);
+    tracing::info!(
+        "Player {} creating lord: {} ({})",
+        player_id,
+        first_name,
+        gender
+    );
 
     // Check no existing lord
     match db_tables.units.load_lord_for_player(player_id).await {
         Ok(Some(_)) => {
             bridge_sender.send(BridgeEvent::SendLordCreateError {
-                player_id, reason: "Vous avez déjà un Lord/Lady".to_string(),
+                player_id,
+                reason: "Vous avez déjà un Lord/Lady".to_string(),
             });
             return;
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendLordCreateError {
-                player_id, reason: format!("Erreur: {}", e),
+                player_id,
+                reason: format!("Erreur: {}", e),
             });
             return;
         }
         Ok(None) => {}
     }
 
-    let family_name = match shared::types::game::methods::get_player_by_id(&db_tables.pool, player_id as i64).await {
-        Ok(Some(p)) => p.family_name,
-        _ => {
-            bridge_sender.send(BridgeEvent::SendLordCreateError {
-                player_id, reason: "Joueur introuvable".to_string(),
-            });
-            return;
-        }
-    };
+    let family_name =
+        match shared::types::game::methods::get_player_by_id(&db_tables.pool, player_id as i64)
+            .await
+        {
+            Ok(Some(p)) => p.family_name,
+            _ => {
+                bridge_sender.send(BridgeEvent::SendLordCreateError {
+                    player_id,
+                    reason: "Joueur introuvable".to_string(),
+                });
+                return;
+            }
+        };
 
     let starting_cell = GridCell { q: 0, r: 0 };
     let starting_chunk = TerrainChunkId { x: 0, y: 0 };
     let avatar_url = format!("lord_{}_{}", gender, player_id);
 
-    match db_tables.units.create_unit(
-        Some(player_id), first_name.to_string(), family_name.clone(), gender.to_string(),
-        "lord".to_string(), avatar_url, starting_cell, starting_chunk,
-        ProfessionEnum::Unknown, true, Some(portrait_layers.to_string()),
-    ).await {
+    match db_tables
+        .units
+        .create_unit(
+            Some(player_id),
+            first_name.to_string(),
+            family_name.clone(),
+            gender.to_string(),
+            "lord".to_string(),
+            avatar_url,
+            starting_cell,
+            starting_chunk,
+            ProfessionEnum::Unknown,
+            true,
+            Some(portrait_layers.to_string()),
+        )
+        .await
+    {
         Ok(unit_id) => {
             let _ = shared::types::game::methods::create_character(
-                &db_tables.pool, player_id as i64, first_name, &family_name,
-                None, None, None,
-            ).await;
+                &db_tables.pool,
+                player_id as i64,
+                first_name,
+                &family_name,
+                None,
+                None,
+                None,
+            )
+            .await;
             match db_tables.units.load_unit(unit_id).await {
                 Ok(unit_data) => {
-                    bridge_sender.send(BridgeEvent::SendLordCreated { player_id, unit_data });
+                    bridge_sender.send(BridgeEvent::SendLordCreated {
+                        player_id,
+                        unit_data,
+                    });
                 }
                 Err(e) => {
                     bridge_sender.send(BridgeEvent::SendLordCreateError {
-                        player_id, reason: format!("Lord créé mais erreur au chargement: {}", e),
+                        player_id,
+                        reason: format!("Lord créé mais erreur au chargement: {}", e),
                     });
                 }
             }
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendLordCreateError {
-                player_id, reason: format!("Erreur lors de la création: {}", e),
+                player_id,
+                reason: format!("Erreur lors de la création: {}", e),
             });
         }
     }
 }
 
+/// Duration for founding a hamlet (surveying + camp setup), in seconds.
+const FOUND_HAMLET_DURATION_SECS: u64 = 30;
+
 async fn handle_found_hamlet(
     player_id: u64,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
-    grid_config: &shared::grid::GridConfig, world_global_state: &WorldGlobalState,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+    grid_config: &shared::grid::GridConfig,
+    world_global_state: &WorldGlobalState,
+    dev_config: &DevConfig,
 ) {
     tracing::info!("Player {} requesting to found a hamlet", player_id);
 
@@ -1524,19 +1664,22 @@ async fn handle_found_hamlet(
         Ok(Some(lord)) => lord,
         Ok(None) => {
             bridge_sender.send(BridgeEvent::SendHamletFoundError {
-                player_id, reason: "Vous n'avez pas de Lord/Lady".to_string(),
+                player_id,
+                reason: "Vous n'avez pas de Lord/Lady".to_string(),
             });
             return;
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendHamletFoundError {
-                player_id, reason: format!("Erreur: {}", e),
+                player_id,
+                reason: format!("Erreur: {}", e),
             });
             return;
         }
     };
 
     let cell = lord.current_cell;
+    let chunk = cell.to_chunk_id(&grid_config.layout);
 
     // Check cell not already in a territory
     match sqlx::query_scalar::<_, i64>(
@@ -1559,29 +1702,70 @@ async fn handle_found_hamlet(
 
     // Check player doesn't already have an org
     match sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1"
-    ).bind(lord.id as i64).fetch_optional(&db_tables.pool).await {
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+    )
+    .bind(lord.id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
         Ok(Some(id)) => {
             bridge_sender.send(BridgeEvent::SendHamletFoundError {
-                player_id, reason: format!("Vous avez déjà une organisation (ID: {})", id),
+                player_id,
+                reason: format!("Vous avez déjà une organisation (ID: {})", id),
             });
             return;
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendHamletFoundError {
-                player_id, reason: format!("Erreur DB: {}", e),
+                player_id,
+                reason: format!("Erreur DB: {}", e),
             });
             return;
         }
         Ok(None) => {}
     }
 
-    let family_name = match shared::types::game::methods::get_player_by_id(
-        &db_tables.pool, player_id as i64,
-    ).await {
-        Ok(Some(p)) => p.family_name,
-        _ => "Inconnu".to_string(),
-    };
+    // Validation passed — send Pending status to client
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let duration_ms = dev_config.apply_speed(FOUND_HAMLET_DURATION_SECS * 1000);
+    let duration_secs = duration_ms / 1000;
+    let completion_time = now + duration_secs;
+
+    // Use a synthetic action_id (negative to avoid collision with real actions)
+    let action_id = now; // unique enough for display purposes
+
+    bridge_sender.send(BridgeEvent::SendActionStatus {
+        player_id,
+        action_id,
+        chunk_id: chunk,
+        cell,
+        status: ActionStatusEnum::InProgress,
+        action_type: ActionTypeEnum::FoundHamlet,
+        completion_time,
+        action_name: Some("Fondation du hameau".to_string()),
+        unit_ids: vec![lord.id],
+    });
+
+    tracing::info!(
+        "⏳ FoundHamlet action started for player {} — {}ms duration (dev speed applied)",
+        player_id, duration_ms
+    );
+
+    // Wait for the duration, then execute the founding
+    tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
+
+    tracing::info!("✓ FoundHamlet duration elapsed for player {}, executing...", player_id);
+
+    let family_name =
+        match shared::types::game::methods::get_player_by_id(&db_tables.pool, player_id as i64)
+            .await
+        {
+            Ok(Some(p)) => p.family_name,
+            _ => "Inconnu".to_string(),
+        };
 
     let hamlet_name = format!("Hameau de {}", family_name);
 
@@ -1597,11 +1781,58 @@ async fn handle_found_hamlet(
         Ok(id) => id,
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendHamletFoundError {
-                player_id, reason: format!("Échec de la création: {}", e),
+                player_id,
+                reason: format!("Échec de la création: {}", e),
             });
             return;
         }
     };
+
+    // Auto-place base camp on lord's cell
+    let camp_type = BuildingTypeEnum::Campement;
+    let camp_id: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(id), 0) + 1 FROM buildings.buildings_base",
+    )
+    .fetch_one(&db_tables.pool)
+    .await
+    .unwrap_or(1);
+
+    let chunk = cell.to_chunk_id(&grid_config.layout);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let camp_data = shared::BuildingData {
+        base_data: shared::BuildingBaseData {
+            id: camp_id as u64,
+            specific_type: shared::BuildingSpecificTypeEnum::Unknown,
+            category: shared::BuildingCategoryEnum::Residential,
+            building_type_id: camp_type.to_id(),
+            cell,
+            chunk,
+            quality: 1.0,
+            durability: 1.0,
+            damage: 0.0,
+            created_at: now,
+        },
+        specific_data: shared::BuildingSpecific::Unknown(),
+    };
+
+    if let Err(e) = db_tables.buildings.create_building(&camp_data).await {
+        tracing::warn!("Failed to create base camp: {}", e);
+    } else {
+        let _ = db_tables.buildings.mark_building_as_built(camp_id as u64).await;
+        tracing::info!("⛺ Base camp placed at ({},{}) for org {}", cell.q, cell.r, org_id);
+    }
+
+    // Initialize population to base camp housing capacity
+    let initial_pop = camp_type.housing_capacity() as i32;
+    let _ = sqlx::query("UPDATE organizations.organizations SET population = $1 WHERE id = $2")
+        .bind(initial_pop)
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
 
     // Claim territory via Voronoi zones
     let mut claimed_cells = Vec::new();
@@ -1609,133 +1840,276 @@ async fn handle_found_hamlet(
         Ok(Some(zone_id)) => {
             match db_tables.voronoi_zones.is_zone_available(zone_id).await {
                 Ok(true) => {
-                    if let Ok(zone_cells) = db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                    if let Ok(zone_cells) = db_tables.voronoi_zones.compute_zone_cells(zone_id).await {
                         for zone_cell in &zone_cells {
-                            if db_tables.organizations.add_territory_cell(org_id, zone_cell).await.is_ok() {
+                            if db_tables
+                                .organizations
+                                .add_territory_cell(org_id, zone_cell)
+                                .await
+                                .is_ok()
+                            {
                                 claimed_cells.push(*zone_cell);
                             }
                         }
                         let _ = sqlx::query("UPDATE organizations.organizations SET voronoi_zone_id = $1 WHERE id = $2")
                             .bind(zone_id).bind(org_id as i64).execute(&db_tables.pool).await;
                     } else {
-                        crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                        crate::world::territory::claim_cell_and_neighbors(
+                            db_tables,
+                            org_id,
+                            &cell,
+                            &mut claimed_cells,
+                        )
+                        .await;
                     }
                 }
                 _ => {
-                    crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                    crate::world::territory::claim_cell_and_neighbors(
+                        db_tables,
+                        org_id,
+                        &cell,
+                        &mut claimed_cells,
+                    )
+                    .await;
                 }
             }
         }
         _ => {
-            crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+            crate::world::territory::claim_cell_and_neighbors(
+                db_tables,
+                org_id,
+                &cell,
+                &mut claimed_cells,
+            )
+            .await;
         }
     }
 
     // Generate territory contours
-    if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await {
-        if !territory_cells.is_empty() {
-            use hexx::Hex;
-            let territory_hex: std::collections::HashSet<Hex> =
-                territory_cells.iter().map(|c| c.to_hex()).collect();
-            let contour_points = &world::territory::build_contour(
-                &grid_config.layout, &territory_hex, 0.0, org_id as u64,
-            );
-            let contour_chunks = crate::utils::chunks::split_contour_into_chunks(contour_points);
-            for (chunk_id, contour_segments) in &contour_chunks {
-                let _ = db_tables.territory_contours.store_contour(org_id, chunk_id.x, chunk_id.y, contour_segments).await;
-                let (border_color, fill_color) = world::territory::generate_org_colors(org_id);
-                bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
+    if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await
+        && !territory_cells.is_empty()
+    {
+        tracing::info!(
+            "Building contour for org {} from {} territory cells. Sample: {:?}",
+            org_id,
+            territory_cells.len(),
+            &territory_cells[..territory_cells.len().min(5)]
+        );
+
+        use hexx::Hex;
+        let territory_hex: std::collections::HashSet<Hex> =
+            territory_cells.iter().map(|c| c.to_hex()).collect();
+        let contour_points = &world::territory::build_contour(
+            &grid_config.layout,
+            &territory_hex,
+            0.0,
+            org_id as u64,
+        );
+        let contour_chunks = crate::utils::chunks::split_contour_into_chunks(contour_points);
+
+        tracing::info!(
+            "Contour generated: {} points, split into {} chunks",
+            contour_points.len(),
+            contour_chunks.len()
+        );
+        for (chunk_id, contour_segments) in &contour_chunks {
+            let _ = db_tables
+                .territory_contours
+                .store_contour(org_id, chunk_id.x, chunk_id.y, contour_segments)
+                .await;
+            let (border_color, fill_color) = world::territory::generate_org_colors(org_id);
+            bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
+                chunk_id: *chunk_id,
+                contours: vec![shared::protocol::TerritoryContourChunkData {
+                    organization_id: org_id,
                     chunk_id: *chunk_id,
-                    contours: vec![shared::protocol::TerritoryContourChunkData {
-                        organization_id: org_id,
-                        chunk_id: *chunk_id,
-                        segments: contour_segments.iter().map(ContourSegmentData::from_contour_segment).collect(),
-                        border_color: ColorData::from_array(border_color),
-                        fill_color: ColorData::from_array(fill_color),
-                    }],
-                });
-            }
+                    segments: contour_segments
+                        .iter()
+                        .map(ContourSegmentData::from_contour_segment)
+                        .collect(),
+                    border_color: ColorData::from_array(border_color),
+                    fill_color: ColorData::from_array(fill_color),
+                }],
+            });
         }
     }
 
     bridge_sender.send(BridgeEvent::SendHamletFounded {
-        player_id, organization_id: org_id, name: hamlet_name,
-        headquarters: cell, territory_cells: claimed_cells,
+        player_id,
+        organization_id: org_id,
+        name: hamlet_name,
+        headquarters: cell,
+        territory_cells: claimed_cells,
+    });
+
+    // Send population stats so client shows correct capacity
+    let pop_capacity = calculate_housing_capacity_for_org(db_tables, org_id).await;
+    let initial_pop = BuildingTypeEnum::Campement.housing_capacity() as i32;
+    bridge_sender.send(BridgeEvent::SendPopulationChanged {
+        player_id,
+        organization_id: org_id,
+        new_population: initial_pop,
+        named_unit_count: 0,
+        population_capacity: pop_capacity as i32,
+        immigrant: None,
+    });
+
+    // Mark action as completed
+    bridge_sender.send(BridgeEvent::SendActionStatus {
+        player_id,
+        action_id,
+        chunk_id: chunk,
+        cell,
+        status: ActionStatusEnum::Completed,
+        action_type: ActionTypeEnum::FoundHamlet,
+        completion_time: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        action_name: Some("Fondation du hameau".to_string()),
+        unit_ids: vec![lord.id],
+    });
+
+    bridge_sender.send(BridgeEvent::BroadcastActionCompleted {
+        action_id,
+        chunk_id: chunk,
+        cell,
+        action_type: ActionTypeEnum::FoundHamlet,
     });
 }
 
 async fn handle_move_unit_to_slot(
-    player_id: u64, unit_id: u64, cell: GridCell, _from_slot: SlotPosition, to_slot: SlotPosition,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    player_id: u64,
+    unit_id: u64,
+    cell: GridCell,
+    _from_slot: SlotPosition,
+    to_slot: SlotPosition,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
 ) {
     let slot_type_str = match to_slot.slot_type {
         shared::SlotType::Interior => "interior",
         shared::SlotType::Exterior => "exterior",
     };
-    match db_tables.units.update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(to_slot.index as i32)).await {
+    match db_tables
+        .units
+        .update_slot_position(
+            unit_id,
+            Some(slot_type_str.to_string()),
+            Some(to_slot.index as i32),
+        )
+        .await
+    {
         Ok(_) => {
             bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
-                player_id, unit_id, cell, slot_position: Some(to_slot),
+                player_id,
+                unit_id,
+                cell,
+                slot_position: Some(to_slot),
             });
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendActionError {
-                player_id, reason: format!("Failed to update slot position: {}", e),
+                player_id,
+                reason: format!("Failed to update slot position: {}", e),
             });
         }
     }
 }
 
 async fn handle_assign_unit_to_slot(
-    player_id: u64, unit_id: u64, cell: GridCell, slot: SlotPosition,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    player_id: u64,
+    unit_id: u64,
+    cell: GridCell,
+    slot: SlotPosition,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
 ) {
     let slot_type_str = match slot.slot_type {
         shared::SlotType::Interior => "interior",
         shared::SlotType::Exterior => "exterior",
     };
-    match db_tables.units.update_slot_position(unit_id, Some(slot_type_str.to_string()), Some(slot.index as i32)).await {
+    match db_tables
+        .units
+        .update_slot_position(
+            unit_id,
+            Some(slot_type_str.to_string()),
+            Some(slot.index as i32),
+        )
+        .await
+    {
         Ok(_) => {
             bridge_sender.send(BridgeEvent::SendUnitSlotUpdated {
-                player_id, unit_id, cell, slot_position: Some(slot),
+                player_id,
+                unit_id,
+                cell,
+                slot_position: Some(slot),
             });
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendActionError {
-                player_id, reason: format!("Failed to assign slot position: {}", e),
+                player_id,
+                reason: format!("Failed to assign slot position: {}", e),
             });
         }
     }
 }
 
 async fn handle_debug_create_organization(
-    player_id: u64, name: &str, organization_type: OrganizationType,
-    cell: GridCell, parent_organization_id: Option<u64>,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
-    grid_config: &shared::grid::GridConfig, world_global_state: &WorldGlobalState,
+    player_id: u64,
+    name: &str,
+    organization_type: OrganizationType,
+    cell: GridCell,
+    parent_organization_id: Option<u64>,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+    grid_config: &shared::grid::GridConfig,
+    world_global_state: &WorldGlobalState,
 ) {
-    tracing::info!("DEBUG: Creating org '{}' type {:?} at {:?}", name, organization_type, cell);
+    tracing::info!(
+        "DEBUG: Creating org '{}' type {:?} at {:?}",
+        name,
+        organization_type,
+        cell
+    );
 
     // Create leader unit
     let (first, last) = (format!("Leader_{}", name), "Debug".to_string());
-    let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Merchant);
+    let (variant_id, avatar_url) =
+        PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Merchant);
 
-    let founder_unit_id = match db_tables.units.create_unit(
-        None, first, last, "male".to_string(), variant_id, avatar_url,
-        cell, TerrainChunkId { x: 0, y: 0 }, ProfessionEnum::Merchant, false, None,
-    ).await {
+    let founder_unit_id = match db_tables
+        .units
+        .create_unit(
+            None,
+            first,
+            last,
+            "male".to_string(),
+            variant_id,
+            avatar_url,
+            cell,
+            TerrainChunkId { x: 0, y: 0 },
+            ProfessionEnum::Merchant,
+            false,
+            None,
+        )
+        .await
+    {
         Ok(id) => id,
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendDebugError {
-                player_id, reason: format!("Failed to create leader unit: {}", e),
+                player_id,
+                reason: format!("Failed to create leader unit: {}", e),
             });
             return;
         }
     };
 
     let request = shared::CreateOrganizationRequest {
-        name: name.to_string(), organization_type,
-        headquarters_cell: Some(cell), parent_organization_id,
+        name: name.to_string(),
+        organization_type,
+        headquarters_cell: Some(cell),
+        parent_organization_id,
         founder_unit_id,
     };
 
@@ -1745,9 +2119,14 @@ async fn handle_debug_create_organization(
             let mut claimed_cells = Vec::new();
             if let Ok(Some(zone_id)) = db_tables.voronoi_zones.get_zone_at_cell(cell).await {
                 if let Ok(true) = db_tables.voronoi_zones.is_zone_available(zone_id).await {
-                    if let Ok(zone_cells) = db_tables.voronoi_zones.get_zone_cells(zone_id).await {
+                    if let Ok(zone_cells) = db_tables.voronoi_zones.compute_zone_cells(zone_id).await {
                         for zc in &zone_cells {
-                            if db_tables.organizations.add_territory_cell(org_id, zc).await.is_ok() {
+                            if db_tables
+                                .organizations
+                                .add_territory_cell(org_id, zc)
+                                .await
+                                .is_ok()
+                            {
                                 claimed_cells.push(*zc);
                             }
                         }
@@ -1757,25 +2136,47 @@ async fn handle_debug_create_organization(
                 }
             }
             if claimed_cells.is_empty() {
-                crate::world::territory::claim_cell_and_neighbors(db_tables, org_id, &cell, &mut claimed_cells).await;
+                crate::world::territory::claim_cell_and_neighbors(
+                    db_tables,
+                    org_id,
+                    &cell,
+                    &mut claimed_cells,
+                )
+                .await;
             }
 
             // Generate contours
-            if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await {
+            if let Ok(territory_cells) = db_tables.organizations.load_territory_cells(org_id).await
+            {
                 if !territory_cells.is_empty() {
                     use hexx::Hex;
-                    let territory_hex: std::collections::HashSet<Hex> = territory_cells.iter().map(|c| c.to_hex()).collect();
-                    let contour_points = &world::territory::build_contour(&grid_config.layout, &territory_hex, 0.0, org_id as u64);
-                    let contour_chunks = crate::utils::chunks::split_contour_into_chunks(contour_points);
+                    let territory_hex: std::collections::HashSet<Hex> =
+                        territory_cells.iter().map(|c| c.to_hex()).collect();
+                    let contour_points = &world::territory::build_contour(
+                        &grid_config.layout,
+                        &territory_hex,
+                        0.0,
+                        org_id as u64,
+                    );
+                    let contour_chunks =
+                        crate::utils::chunks::split_contour_into_chunks(contour_points);
                     for (chunk_id, segs) in &contour_chunks {
-                        let _ = db_tables.territory_contours.store_contour(org_id, chunk_id.x, chunk_id.y, segs).await;
+                        let _ = db_tables
+                            .territory_contours
+                            .store_contour(org_id, chunk_id.x, chunk_id.y, segs)
+                            .await;
                         let (bc, fc) = world::territory::generate_org_colors(org_id);
                         bridge_sender.send(BridgeEvent::BroadcastTerritoryContourUpdate {
                             chunk_id: *chunk_id,
                             contours: vec![shared::protocol::TerritoryContourChunkData {
-                                organization_id: org_id, chunk_id: *chunk_id,
-                                segments: segs.iter().map(ContourSegmentData::from_contour_segment).collect(),
-                                border_color: ColorData::from_array(bc), fill_color: ColorData::from_array(fc),
+                                organization_id: org_id,
+                                chunk_id: *chunk_id,
+                                segments: segs
+                                    .iter()
+                                    .map(ContourSegmentData::from_contour_segment)
+                                    .collect(),
+                                border_color: ColorData::from_array(bc),
+                                fill_color: ColorData::from_array(fc),
                             }],
                         });
                     }
@@ -1783,20 +2184,25 @@ async fn handle_debug_create_organization(
             }
 
             bridge_sender.send(BridgeEvent::SendDebugOrganizationCreated {
-                player_id, organization_id: org_id, name: name.to_string(),
+                player_id,
+                organization_id: org_id,
+                name: name.to_string(),
             });
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendDebugError {
-                player_id, reason: format!("Failed to create org: {}", e),
+                player_id,
+                reason: format!("Failed to create org: {}", e),
             });
         }
     }
 }
 
 async fn handle_debug_delete_organization(
-    player_id: u64, organization_id: u64,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    player_id: u64,
+    organization_id: u64,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
 ) {
     tracing::info!("DEBUG: Deleting organization {}", organization_id);
     match sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
@@ -1806,44 +2212,332 @@ async fn handle_debug_delete_organization(
     {
         Ok(_) => {
             bridge_sender.send(BridgeEvent::SendDebugOrganizationDeleted {
-                player_id, organization_id,
+                player_id,
+                organization_id,
             });
         }
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendDebugError {
-                player_id, reason: format!("Failed to delete org: {}", e),
+                player_id,
+                reason: format!("Failed to delete org: {}", e),
             });
         }
     }
 }
 
 async fn handle_debug_spawn_unit(
-    player_id: u64, cell: GridCell,
-    bridge_sender: &BridgeSender, db_tables: &DatabaseTables,
+    player_id: u64,
+    cell: GridCell,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
 ) {
     tracing::info!("DEBUG: Spawning unit at {:?}", cell);
-    let (variant_id, avatar_url) = PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Settler);
-    match db_tables.units.create_unit(
-        Some(player_id), "Debug".to_string(), "Unit".to_string(), "male".to_string(),
-        variant_id, avatar_url, cell, TerrainChunkId { x: 0, y: 0 },
-        ProfessionEnum::Settler, false, None,
-    ).await {
-        Ok(unit_id) => {
-            match db_tables.units.load_unit(unit_id).await {
-                Ok(unit_data) => {
-                    bridge_sender.send(BridgeEvent::SendDebugUnitSpawned { player_id, unit_data });
-                }
-                Err(e) => {
-                    bridge_sender.send(BridgeEvent::SendDebugError {
-                        player_id, reason: format!("Unit created but failed to load: {}", e),
-                    });
-                }
+    let (variant_id, avatar_url) =
+        PortraitGenerator::generate_variant_and_url("male", ProfessionEnum::Settler);
+    match db_tables
+        .units
+        .create_unit(
+            Some(player_id),
+            "Debug".to_string(),
+            "Unit".to_string(),
+            "male".to_string(),
+            variant_id,
+            avatar_url,
+            cell,
+            TerrainChunkId { x: 0, y: 0 },
+            ProfessionEnum::Settler,
+            false,
+            None,
+        )
+        .await
+    {
+        Ok(unit_id) => match db_tables.units.load_unit(unit_id).await {
+            Ok(unit_data) => {
+                bridge_sender.send(BridgeEvent::SendDebugUnitSpawned {
+                    player_id,
+                    unit_data,
+                });
             }
-        }
+            Err(e) => {
+                bridge_sender.send(BridgeEvent::SendDebugError {
+                    player_id,
+                    reason: format!("Unit created but failed to load: {}", e),
+                });
+            }
+        },
         Err(e) => {
             bridge_sender.send(BridgeEvent::SendDebugError {
-                player_id, reason: format!("Failed to spawn unit: {}", e),
+                player_id,
+                reason: format!("Failed to spawn unit: {}", e),
             });
         }
     }
+}
+
+// ─── Destroy building / Liquidate organization (#216) ───────────────
+
+async fn calculate_housing_capacity_for_org(db_tables: &DatabaseTables, org_id: u64) -> u32 {
+    let rows = sqlx::query(
+        r#"SELECT b.building_type_id FROM buildings.buildings_base b
+           INNER JOIN organizations.territory_cells tc
+               ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
+           WHERE tc.organization_id = $1 AND b.is_built = true"#,
+    )
+    .bind(org_id as i64)
+    .fetch_all(&db_tables.pool)
+    .await
+    .unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| {
+            let id: i32 = r.get("building_type_id");
+            BuildingTypeEnum::from_id(id as i16).map(|bt| bt.housing_capacity())
+        })
+        .sum()
+}
+
+async fn handle_destroy_building(
+    player_id: u64,
+    cell: GridCell,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    // 1. Get building ID at cell
+    let building_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM buildings.buildings_base WHERE cell_q = $1 AND cell_r = $2",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Aucun bâtiment sur cette cellule".to_string(),
+            });
+            return;
+        }
+    };
+
+    // 2. Verify player owns this territory
+    let lord = match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(lord)) => lord,
+        _ => return,
+    };
+
+    let org_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+    )
+    .bind(lord.id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Pas d'organisation".to_string(),
+            });
+            return;
+        }
+    };
+
+    let in_territory = sqlx::query_scalar::<_, i64>(
+        "SELECT organization_id FROM organizations.territory_cells WHERE cell_q = $1 AND cell_r = $2",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .fetch_optional(&db_tables.pool)
+    .await
+    .ok()
+    .flatten();
+
+    if in_territory != Some(org_id as i64) {
+        bridge_sender.send(BridgeEvent::SendActionError {
+            player_id,
+            reason: "Bâtiment hors de votre territoire".to_string(),
+        });
+        return;
+    }
+
+    // 3. Free units on this cell
+    let _ = sqlx::query(
+        "UPDATE units.units SET slot_type = NULL, slot_index = NULL \
+         WHERE current_cell_q = $1 AND current_cell_r = $2 AND is_lord = false",
+    )
+    .bind(cell.q)
+    .bind(cell.r)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 4. Delete building
+    if let Err(e) = db_tables.buildings.delete_building(building_id).await {
+        bridge_sender.send(BridgeEvent::SendActionError {
+            player_id,
+            reason: format!("Échec: {}", e),
+        });
+        return;
+    }
+
+    // 5. Recalculate capacity and clamp population
+    let capacity = calculate_housing_capacity_for_org(db_tables, org_id).await;
+    let current_pop: i32 = sqlx::query_scalar(
+        "SELECT population FROM organizations.organizations WHERE id = $1",
+    )
+    .bind(org_id as i64)
+    .fetch_one(&db_tables.pool)
+    .await
+    .unwrap_or(0);
+
+    let new_pop = current_pop.min(capacity as i32);
+    if new_pop != current_pop {
+        let _ = sqlx::query(
+            "UPDATE organizations.organizations SET population = $1 WHERE id = $2",
+        )
+        .bind(new_pop)
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
+    }
+
+    tracing::info!(
+        "🗑️ Building {} destroyed at ({},{}) by player {}",
+        building_id, cell.q, cell.r, player_id
+    );
+
+    bridge_sender.send(BridgeEvent::SendBuildingDestroyed {
+        player_id,
+        cell,
+        building_id,
+        new_population: new_pop,
+        population_capacity: capacity as i32,
+    });
+}
+
+async fn handle_liquidate_organization(
+    player_id: u64,
+    bridge_sender: &BridgeSender,
+    db_tables: &DatabaseTables,
+) {
+    let lord = match db_tables.units.load_lord_for_player(player_id).await {
+        Ok(Some(lord)) => lord,
+        _ => return,
+    };
+
+    let org_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM organizations.organizations WHERE leader_unit_id = $1",
+    )
+    .bind(lord.id as i64)
+    .fetch_optional(&db_tables.pool)
+    .await
+    {
+        Ok(Some(id)) => id as u64,
+        _ => {
+            bridge_sender.send(BridgeEvent::SendActionError {
+                player_id,
+                reason: "Pas d'organisation à dissoudre".to_string(),
+            });
+            return;
+        }
+    };
+
+    tracing::info!(
+        "🏚️ Player {} liquidating organization {}",
+        player_id, org_id
+    );
+
+    // Collect affected chunks BEFORE deleting territory
+    let affected_chunks: Vec<TerrainChunkId> = sqlx::query(
+        "SELECT DISTINCT b.chunk_x, b.chunk_y FROM buildings.buildings_base b \
+         INNER JOIN organizations.territory_cells tc \
+             ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r \
+         WHERE tc.organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .fetch_all(&db_tables.pool)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|r| TerrainChunkId {
+        x: r.get("chunk_x"),
+        y: r.get("chunk_y"),
+    })
+    .collect();
+
+    // Order matters: delete buildings first (needs territory_cells), then clean up
+
+    // 1. Delete player-built buildings in territory (keep trees)
+    let _ = sqlx::query(
+        r#"DELETE FROM buildings.buildings_base
+           WHERE id IN (
+               SELECT b.id FROM buildings.buildings_base b
+               INNER JOIN organizations.territory_cells tc
+                   ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r
+               WHERE tc.organization_id = $1 AND b.category_id != 1
+           )"#,
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 2. Delete territory contours
+    let _ = sqlx::query(
+        "DELETE FROM organizations.territory_contours WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 3. Delete territory cells
+    let _ = sqlx::query(
+        "DELETE FROM organizations.territory_cells WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 4. Delete non-lord member units
+    let _ = sqlx::query(
+        r#"DELETE FROM units.units WHERE id IN (
+            SELECT unit_id FROM organizations.members WHERE organization_id = $1
+        ) AND is_lord = false"#,
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 5. Delete members
+    let _ = sqlx::query(
+        "DELETE FROM organizations.members WHERE organization_id = $1",
+    )
+    .bind(org_id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 6. Reset lord slot
+    let _ = sqlx::query(
+        "UPDATE units.units SET slot_type = NULL, slot_index = NULL WHERE id = $1",
+    )
+    .bind(lord.id as i64)
+    .execute(&db_tables.pool)
+    .await;
+
+    // 7. Delete organization
+    let _ = sqlx::query("DELETE FROM organizations.organizations WHERE id = $1")
+        .bind(org_id as i64)
+        .execute(&db_tables.pool)
+        .await;
+
+    tracing::info!(
+        "✓ Organization {} liquidated ({} chunks affected)",
+        org_id, affected_chunks.len()
+    );
+
+    bridge_sender.send(BridgeEvent::SendOrganizationLiquidated {
+        player_id,
+        organization_id: org_id,
+        affected_chunks,
+    });
 }

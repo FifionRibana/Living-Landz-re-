@@ -364,6 +364,9 @@ impl ActionProcessor {
                         tracing::error!("Failed to mark building {} as built: {}", action_id, e);
                     } else {
                         tracing::info!("Building {} marked as built", action_id);
+
+                        // Notify client of updated population capacity
+                        self.send_population_update(action_info.player_id).await;
                     }
                 }
 
@@ -955,12 +958,11 @@ impl ActionProcessor {
         let specific_data = match building_specific_type {
             shared::BuildingSpecificTypeEnum::ManufacturingWorkshop => {
                 let workshop_type = match building_type {
-                    BuildingTypeEnum::Blacksmith => ManufacturingWorkshopTypeEnum::Blacksmith,
-                    BuildingTypeEnum::BlastFurnace => ManufacturingWorkshopTypeEnum::BlastFurnace,
-                    BuildingTypeEnum::Bloomery => ManufacturingWorkshopTypeEnum::Bloomery,
-                    BuildingTypeEnum::CarpenterShop => ManufacturingWorkshopTypeEnum::CarpenterShop,
-                    BuildingTypeEnum::GlassFactory => ManufacturingWorkshopTypeEnum::GlassFactory,
-                    _ => ManufacturingWorkshopTypeEnum::Blacksmith,
+                    BuildingTypeEnum::Forge => ManufacturingWorkshopTypeEnum::Forge,
+                    BuildingTypeEnum::Fonderie => ManufacturingWorkshopTypeEnum::Fonderie,
+                    BuildingTypeEnum::AtelierCharpentier => ManufacturingWorkshopTypeEnum::AtelierCharpentier,
+                    BuildingTypeEnum::Verrerie => ManufacturingWorkshopTypeEnum::Verrerie,
+                    _ => ManufacturingWorkshopTypeEnum::Forge,
                 };
                 BuildingSpecific::ManufacturingWorkshop(ManufacturingWorkshopData {
                     workshop_type,
@@ -969,8 +971,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Agriculture => {
                 let agriculture_type = match building_type {
-                    BuildingTypeEnum::Farm => AgricultureTypeEnum::Farm,
-                    _ => AgricultureTypeEnum::Farm,
+                    BuildingTypeEnum::Ferme => AgricultureTypeEnum::Ferme,
+                    _ => AgricultureTypeEnum::Ferme,
                 };
                 BuildingSpecific::Agriculture(AgricultureData {
                     agriculture_type,
@@ -979,11 +981,11 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::AnimalBreeding => {
                 let animal_type = match building_type {
-                    BuildingTypeEnum::Cowshed => AnimalBreedingTypeEnum::Cowshed,
-                    BuildingTypeEnum::Piggery => AnimalBreedingTypeEnum::Piggery,
-                    BuildingTypeEnum::Sheepfold => AnimalBreedingTypeEnum::Sheepfold,
-                    BuildingTypeEnum::Stable => AnimalBreedingTypeEnum::Stable,
-                    _ => AnimalBreedingTypeEnum::Cowshed,
+                    BuildingTypeEnum::Etable => AnimalBreedingTypeEnum::Etable,
+                    BuildingTypeEnum::Porcherie => AnimalBreedingTypeEnum::Porcherie,
+                    BuildingTypeEnum::Bergerie => AnimalBreedingTypeEnum::Bergerie,
+                    BuildingTypeEnum::Ecurie => AnimalBreedingTypeEnum::Ecurie,
+                    _ => AnimalBreedingTypeEnum::Etable,
                 };
                 BuildingSpecific::AnimalBreeding(AnimalBreedingData {
                     animal_type,
@@ -992,8 +994,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Entertainment => {
                 let entertainment_type = match building_type {
-                    BuildingTypeEnum::Theater => EntertainmentTypeEnum::Theater,
-                    _ => EntertainmentTypeEnum::Theater,
+                    BuildingTypeEnum::Theatre => EntertainmentTypeEnum::Theatre,
+                    _ => EntertainmentTypeEnum::Theatre,
                 };
                 BuildingSpecific::Entertainment(EntertainmentData {
                     entertainment_type,
@@ -1002,8 +1004,8 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Cult => {
                 let cult_type = match building_type {
-                    BuildingTypeEnum::Temple => CultTypeEnum::Temple,
-                    _ => CultTypeEnum::Temple,
+                    BuildingTypeEnum::LieuDeCulte => CultTypeEnum::LieuDeCulte,
+                    _ => CultTypeEnum::LieuDeCulte,
                 };
                 BuildingSpecific::Cult(CultData {
                     cult_type,
@@ -1012,13 +1014,12 @@ impl ActionProcessor {
             }
             shared::BuildingSpecificTypeEnum::Commerce => {
                 let commerce_type = match building_type {
-                    BuildingTypeEnum::Bakehouse => CommerceTypeEnum::Bakehouse,
-                    BuildingTypeEnum::Brewery => CommerceTypeEnum::Brewery,
-                    BuildingTypeEnum::Distillery => CommerceTypeEnum::Distillery,
-                    BuildingTypeEnum::Slaughterhouse => CommerceTypeEnum::Slaughterhouse,
-                    BuildingTypeEnum::IceHouse => CommerceTypeEnum::IceHouse,
-                    BuildingTypeEnum::Market => CommerceTypeEnum::Market,
-                    _ => CommerceTypeEnum::Bakehouse,
+                    BuildingTypeEnum::Cuisine => CommerceTypeEnum::Cuisine,
+                    BuildingTypeEnum::Brasserie => CommerceTypeEnum::Brasserie,
+                    BuildingTypeEnum::Abattoir => CommerceTypeEnum::Abattoir,
+                    BuildingTypeEnum::Glaciere => CommerceTypeEnum::Glaciere,
+                    BuildingTypeEnum::PlaceMarche => CommerceTypeEnum::PlaceMarche,
+                    _ => CommerceTypeEnum::Cuisine,
                 };
                 BuildingSpecific::Commerce(CommerceData {
                     commerce_type,
@@ -1034,6 +1035,7 @@ impl ActionProcessor {
                 id: action_id,
                 category,
                 specific_type: building_specific_type,
+                building_type_id: building_type.to_id(),
                 chunk: action_info.chunk_id,
                 cell: action_info.cell,
                 created_at: std::time::SystemTime::now()
@@ -2076,6 +2078,78 @@ impl ActionProcessor {
         .await;
 
         Ok(action_id)
+    }
+
+    /// Recalculate population stats and notify the client.
+    /// Called after building construction/destruction to update capacity.
+    async fn send_population_update(&self, player_id: u64) {
+        // Find the player's organization
+        let org_row = sqlx::query(
+            "SELECT o.id, o.leader_unit_id, o.population FROM organizations.organizations o \
+             INNER JOIN units.units u ON u.id = o.leader_unit_id \
+             WHERE u.player_id = $1 LIMIT 1",
+        )
+        .bind(player_id as i64)
+        .fetch_optional(&self.db_tables.pool)
+        .await;
+
+        let Some(row) = org_row.ok().flatten() else {
+            return;
+        };
+
+        use sqlx::Row;
+        let org_id: i64 = row.get("id");
+        let leader_unit_id: i64 = row.get("leader_unit_id");
+        let population: i32 = row.get("population");
+
+        // Calculate housing capacity from built buildings
+        let capacity_rows = sqlx::query(
+            "SELECT b.building_type_id FROM buildings.buildings_base b \
+             INNER JOIN organizations.territory_cells tc \
+                 ON b.cell_q = tc.cell_q AND b.cell_r = tc.cell_r \
+             WHERE tc.organization_id = $1 AND b.is_built = true",
+        )
+        .bind(org_id)
+        .fetch_all(&self.db_tables.pool)
+        .await
+        .unwrap_or_default();
+
+        let pop_capacity: i32 = capacity_rows
+            .iter()
+            .filter_map(|r| {
+                let type_id: i32 = r.get("building_type_id");
+                shared::BuildingTypeEnum::from_id(type_id as i16)
+                    .map(|bt| bt.housing_capacity() as i32)
+            })
+            .sum();
+
+        // Count named units
+        let named_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM units.units u \
+             INNER JOIN organizations.territory_cells tc \
+                 ON u.current_cell_q = tc.cell_q AND u.current_cell_r = tc.cell_r \
+             WHERE tc.organization_id = $1 AND u.is_lord = false",
+        )
+        .bind(org_id)
+        .fetch_one(&self.db_tables.pool)
+        .await
+        .unwrap_or(0);
+
+        self.bridge_sender.send(
+            crate::networking::server::bridge::BridgeEvent::SendPopulationChanged {
+                player_id,
+                organization_id: org_id as u64,
+                new_population: population,
+                named_unit_count: named_count as i32,
+                population_capacity: pop_capacity,
+                immigrant: None,
+            },
+        );
+
+        tracing::info!(
+            "📊 Population update for org {}: {} / {} ({} named)",
+            org_id, population, pop_capacity, named_count
+        );
     }
 }
 

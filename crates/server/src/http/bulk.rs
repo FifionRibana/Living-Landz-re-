@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
+use sqlx::Row;
 
 use shared::TerrainChunkId;
 use shared::grid::GridConfig;
@@ -327,5 +328,65 @@ pub async fn exploration_map(
             tracing::error!("Failed to load exploration data: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
+    }
+}
+
+// ─── GET /api/debug/voronoi-seeds ───────────────────────────────────
+
+pub async fn voronoi_seeds_debug(
+    State(state): State<BulkState>,
+) -> impl IntoResponse {
+    let rows = sqlx::query(
+        "SELECT id, seed_cell_q, seed_cell_r FROM terrain.voronoi_zones",
+    )
+    .fetch_all(&state.db_tables.pool)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let seeds: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "zone_id": r.get::<i64, _>("id"),
+                        "q": r.get::<i32, _>("seed_cell_q"),
+                        "r": r.get::<i32, _>("seed_cell_r"),
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(seeds)).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR,
+             format!("Failed to load voronoi seeds: {}", e)).into_response()
+        }
+    }
+}
+
+// ─── GET /api/debug/territory-cells?org_id=N ────────────────────────
+
+pub async fn territory_cells_debug(
+    State(state): State<BulkState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let org_id: u64 = params
+        .get("org_id")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if org_id == 0 {
+        return (StatusCode::BAD_REQUEST, "Missing or invalid org_id").into_response();
+    }
+
+    match state.db_tables.organizations.load_territory_cells(org_id).await {
+        Ok(cells) => {
+            let data: Vec<(i32, i32)> = cells.iter().map(|c| (c.q, c.r)).collect();
+            Json(data).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load territory cells: {}", e),
+        )
+            .into_response(),
     }
 }

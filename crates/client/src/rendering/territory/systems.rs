@@ -5,6 +5,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
+use shared::constants::CHUNK_SIZE;
 use shared::{
     TerritoryBorderChunkSdfData,
     grid::{GridCell, GridConfig},
@@ -109,7 +110,7 @@ pub fn process_territory_border_sdf_data(
     existing_layers: Query<(Entity, &TerritoryBorderLayer)>,
 ) {
     // Example chunk size (should match terrain chunk size)
-    let chunk_size = Vec2::new(600.0, 503.0);
+    let chunk_size = Vec2::new(CHUNK_SIZE.x, CHUNK_SIZE.y);
 
     // Process cached chunks (each chunk may have multiple organizations)
     for ((chunk_x, chunk_y), sdf_data_list) in sdf_cache.chunks.iter() {
@@ -156,7 +157,7 @@ pub fn debug_territory_borders(
         return;
     }
 
-    let chunk_size = Vec2::new(600.0, 503.0);
+    let chunk_size = Vec2::new(CHUNK_SIZE.x, CHUNK_SIZE.y);
 
     for (chunk_id, contours) in cache.contours.iter() {
         for contour in contours {
