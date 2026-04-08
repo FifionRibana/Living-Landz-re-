@@ -34,7 +34,8 @@ impl TreeAtlas {
                 let mut variations = Vec::new();
                 for age in TreeAge::iter() {
                     for v in 1..=*variation {
-                        variations.push(format!("{}_{}_{:02}01", name, age.to_name(), v));
+                        // TODO: Add variations into tree sprite (density variation)
+                        variations.push(format!("{}_{}_{:02}", name, age.to_name(), v));
                     }
                 }
                 (*tree_type, variations)
