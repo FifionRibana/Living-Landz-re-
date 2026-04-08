@@ -15,7 +15,7 @@ impl BuildingAtlas {
         let building_types = [
             // Residential
             (BuildingTypeEnum::Campement, "base_camp", 1),
-            (BuildingTypeEnum::ChaumierePalierI, "cottage_tier_i", 2),
+            (BuildingTypeEnum::ChaumierePalierI, "cottage_tier_i", 3),
             // Metal
             (BuildingTypeEnum::Forge, "forge", 1),
             (BuildingTypeEnum::Fonderie, "smelter", 2),
