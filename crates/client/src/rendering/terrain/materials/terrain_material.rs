@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d};
+use shared::constants::CHUNK_SIZE;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub struct TerrainMaterial {
@@ -155,8 +156,8 @@ impl Default for ChunkInfo {
         Self {
             world_offset_x: 0.0,
             world_offset_y: 0.0,
-            chunk_width: 600.0,
-            chunk_height: 503.0,
+            chunk_width: CHUNK_SIZE.x,
+            chunk_height: CHUNK_SIZE.y,
         }
     }
 }
