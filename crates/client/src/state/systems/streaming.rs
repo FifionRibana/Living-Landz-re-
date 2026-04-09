@@ -12,6 +12,7 @@ use crate::networking::client::http_client::{HttpBulkClient, HttpTerrainSender};
 use crate::rendering::terrain::components::{Biome, Building, Terrain, TreeChunkMesh};
 use crate::state::resources::streaming_config::MAX_IN_FLIGHT_CHUNKS;
 use crate::state::resources::{StreamingConfig, WorldCache};
+use crate::ui::debug::layer_state::{DebugLayerVisibility, DebugOverride};
 
 pub fn request_chunks_around_camera(
     camera: Query<&Transform, With<MainCamera>>,
@@ -21,6 +22,7 @@ pub fn request_chunks_around_camera(
     pending_chunks: Res<PendingTerrainChunks>,
     http_client: Res<HttpBulkClient>,
     http_sender: Res<HttpTerrainSender>,
+    layer_vis: Option<Res<DebugLayerVisibility>>,
 ) {
     let Some(mut world_cache) = world_cache_opt else {
         return;
@@ -65,7 +67,13 @@ pub fn request_chunks_around_camera(
 
             // If exploration map is loaded, filter by explored/coastal.
             // If not loaded yet, still request chunks (they'll arrive when ready).
-            if world_cache.is_exploration_loaded()
+            // Debug override: LoadUnexploredChunks bypasses this check.
+            let force_load = layer_vis
+                .as_ref()
+                .map(|v| v.is_override_active(DebugOverride::LoadUnexploredChunks))
+                .unwrap_or(false);
+            if !force_load
+                && world_cache.is_exploration_loaded()
                 && !world_cache.is_chunk_near_explored(&id)
                 && !world_cache.is_chunk_coastal(&id)
             {

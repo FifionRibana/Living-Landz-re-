@@ -365,12 +365,8 @@ pub async fn ensure_voronoi_zones(db_tables: &DatabaseTables, global_state: &Wor
     let world_h = n_chunk_y as f32 * shared::constants::CHUNK_SIZE.y;
 
     let c0 = grid_config.layout.world_pos_to_hex(Vec2::new(0.0, 0.0));
-    let c1 = grid_config
-        .layout
-        .world_pos_to_hex(Vec2::new(world_w, 0.0));
-    let c2 = grid_config
-        .layout
-        .world_pos_to_hex(Vec2::new(0.0, world_h));
+    let c1 = grid_config.layout.world_pos_to_hex(Vec2::new(world_w, 0.0));
+    let c2 = grid_config.layout.world_pos_to_hex(Vec2::new(0.0, world_h));
     let c3 = grid_config
         .layout
         .world_pos_to_hex(Vec2::new(world_w, world_h));
@@ -382,7 +378,10 @@ pub async fn ensure_voronoi_zones(db_tables: &DatabaseTables, global_state: &Wor
 
     tracing::info!(
         "World hex bounds: q[{},{}] r[{},{}]",
-        min_q, max_q, min_r, max_r
+        min_q,
+        max_q,
+        min_r,
+        max_r
     );
 
     // Get terrain chunks for land filtering (seeds only on land)
@@ -402,7 +401,13 @@ pub async fn ensure_voronoi_zones(db_tables: &DatabaseTables, global_state: &Wor
     let voronoi_seed = 12345u64;
 
     let seeds = crate::world::voronoi::seed_generator::generate_seeds_simple(
-        min_q, max_q, min_r, max_r, base_spacing, jitter, voronoi_seed,
+        min_q,
+        max_q,
+        min_r,
+        max_r,
+        base_spacing,
+        jitter,
+        voronoi_seed,
     );
 
     let land_seeds: Vec<shared::grid::GridCell> = seeds
@@ -703,6 +708,7 @@ pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_sta
 ///   - terrain.ocean_data
 ///   - terrain.lake_data
 ///   - terrain.road_chunk_visibility (regenerated cache, not player roads)
+///   - terrain.terrain_global_data
 ///   - buildings.trees → buildings.buildings_base WHERE category_id = 1 (Natural only)
 ///
 /// PRESERVES:
@@ -803,14 +809,26 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         ocean_deleted.rows_affected()
     );
 
-    // 8. Lake data (may not exist on all DB versions)
-    match sqlx::query("DELETE FROM terrain.lake_data WHERE name = $1")
-        .bind(map_name)
-        .execute(&mut *tx)
-        .await
-    {
-        Ok(r) => tracing::info!("  🗑️  terrain.lake_data: {} rows", r.rows_affected()),
-        Err(_) => tracing::info!("  ⏩  terrain.lake_data: table not found, skipping"),
+    // 8. Lake data (only if table exists may not exist on all DB versions)
+    let lake_table_exists = sqlx::query_scalar::<_, bool>(
+    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'terrain' AND table_name = 'lake_data')"
+)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap_or(false);
+
+    if lake_table_exists {
+        let lake_deleted = sqlx::query("DELETE FROM terrain.lake_data WHERE name = $1")
+            .bind(map_name)
+            .execute(&mut *tx)
+            .await
+            .expect("Failed to clear lake data");
+        tracing::info!(
+            "  🗑️  terrain.lake_data: {} rows",
+            lake_deleted.rows_affected()
+        );
+    } else {
+        tracing::info!("  ⏩  terrain.lake_data: table not found, skipping");
     }
 
     // 9. Road chunk visibility cache (not the road_segments themselves)
@@ -823,25 +841,43 @@ pub async fn clear_world(map_name: &str, db_tables: &DatabaseTables) {
         road_cache_deleted.rows_affected()
     );
 
-    // 10. Territory contours (regenerated from territory data)
-    let contours_deleted = sqlx::query("DELETE FROM terrain.territory_chunk_contours")
+    // 10. Terrain global data
+    let global_deleted = sqlx::query("DELETE FROM terrain.terrain_global_data WHERE name = $1")
+        .bind(map_name)
         .execute(&mut *tx)
-        .await;
-    match contours_deleted {
-        Ok(r) => tracing::info!(
+        .await
+        .expect("Failed to clear terrain global data");
+    tracing::info!(
+        "  🗑️  terrain.terrain_global_data: {} rows",
+        global_deleted.rows_affected()
+    );
+
+    // 11. Territory contours (only if table exists and regenerated from territory data)
+    let table_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'terrain' AND table_name = 'territory_chunk_contours')"
+    )
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap_or(false);
+
+    if table_exists {
+        let contours_deleted = sqlx::query("DELETE FROM terrain.territory_chunk_contours")
+            .execute(&mut *tx)
+            .await
+            .expect("Failed to clear territory chunk contours");
+        tracing::info!(
             "  🗑️  terrain.territory_chunk_contours: {} rows",
-            r.rows_affected()
-        ),
-        Err(_) => {
-            tracing::info!("  ⏩  terrain.territory_chunk_contours: table not found, skipping")
-        }
+            contours_deleted.rows_affected()
+        );
+    } else {
+        tracing::info!("  ⏩  terrain.territory_chunk_contours: table not found, skipping");
     }
 
     tx.commit()
         .await
         .expect("Failed to commit clear transaction");
 
-    // 11. Clean up .bin cache files
+    // 12. Clean up .bin cache files
     let cache_patterns = [
         format!("assets/maps/{}_binarymap.bin", map_name),
         format!("assets/maps/{}_biomemap.bin", map_name),
