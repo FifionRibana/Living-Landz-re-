@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::camera::MainCamera;
 use crate::networking::client::game_client::TerritoryDebugCells;
 use crate::networking::client::http_client::HttpBulkClient;
+use crate::ui::debug::DebugOverlayState;
 
 // ─── Resources ──────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ fn draw_voronoi_borders(
 pub fn toggle_org_voronoi_debug(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut org_debug: ResMut<OrgVoronoiDebug>,
+    debug_state: Res<DebugOverlayState>,
     http_client: Res<HttpBulkClient>,
     sender: Res<OrgVoronoiSender>,
     tc_sender: Res<TerritoryCellsSender>,
@@ -102,8 +104,13 @@ pub fn toggle_org_voronoi_debug(
         org_debug.enabled = !org_debug.enabled;
         let state = if org_debug.enabled { "ON" } else { "OFF" };
         info!("Org Voronoi debug: {}", state);
+    }
 
-        if org_debug.enabled && !org_debug.loaded {
+    // Also trigger data load when panel enables domain voronoi or domain hexes
+    let needs_data = (org_debug.enabled || debug_state.voronoi_domains || debug_state.domain_hexes)
+        && !org_debug.loaded;
+
+    if needs_data {
             // Fetch voronoi seeds
             let client = http_client.client.clone();
             let base_url = http_client.base_url.clone();
@@ -189,7 +196,6 @@ pub fn toggle_org_voronoi_debug(
                     }))
                     .detach();
             }
-        }
     }
 }
 
@@ -219,10 +225,11 @@ pub fn poll_territory_cells(
 pub fn draw_org_voronoi_debug(
     mut gizmos: Gizmos,
     org_debug: Res<OrgVoronoiDebug>,
+    debug_state: Res<DebugOverlayState>,
     grid_config: Res<GridConfig>,
     camera_query: Query<&Transform, With<MainCamera>>,
 ) {
-    if !org_debug.enabled || org_debug.seeds.is_empty() {
+    if (!org_debug.enabled && !debug_state.voronoi_domains) || org_debug.seeds.is_empty() {
         return;
     }
     let Ok(camera_tf) = camera_query.single() else {
@@ -277,10 +284,11 @@ pub fn toggle_mist_voronoi_debug(
 pub fn draw_mist_voronoi_debug(
     mut gizmos: Gizmos,
     mist_debug: Res<MistVoronoiDebug>,
+    debug_state: Res<DebugOverlayState>,
     grid_config: Res<GridConfig>,
     camera_query: Query<&Transform, With<MainCamera>>,
 ) {
-    if !mist_debug.enabled {
+    if !mist_debug.enabled && !debug_state.voronoi_mist {
         return;
     }
     let Ok(camera_tf) = camera_query.single() else {
@@ -337,11 +345,12 @@ pub fn draw_mist_voronoi_debug(
 
 pub fn draw_territory_debug_cells(
     mut gizmos: Gizmos,
-    debug: Res<OrgVoronoiDebug>,
+    org_debug: Res<OrgVoronoiDebug>,
+    debug_state: Res<DebugOverlayState>,
     grid_config: Res<GridConfig>,
     debug_cells: Res<TerritoryDebugCells>,
 ) {
-    if !debug.enabled || debug_cells.0.is_empty() {
+    if (!org_debug.enabled && !debug_state.domain_hexes) || debug_cells.0.is_empty() {
         return;
     }
 

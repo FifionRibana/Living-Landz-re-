@@ -18,7 +18,6 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(Material2dPlugin::<TerrainMaterial>::default())
             .add_plugins(Material2dPlugin::<TreeMaterial>::default())
             .init_resource::<debug::ChunkDebugEnabled>()
-            .init_resource::<debug::SlopeDebugEnabled>()
             .init_resource::<debug_voronoi::OrgVoronoiDebug>()
             .init_resource::<debug_voronoi::MistVoronoiDebug>();
 
@@ -33,8 +32,9 @@ impl Plugin for TerrainPlugin {
                     systems::spawn_terrain,
                     systems::spawn_building,
                     debug::toggle_chunk_debug,
-                    debug::toggle_slope_debug,
+                    debug::sync_debug_uniforms,
                     debug::draw_shore_type_gizmos,
+                    debug::draw_chunk_boundary_gizmos,
                     debug::draw_chunk_gizmos,
                     debug::draw_outline_points,
                     debug::update_chunk_debug_text,
