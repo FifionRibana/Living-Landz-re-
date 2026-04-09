@@ -146,9 +146,9 @@ mod tests {
         let (border, fill) = generate_org_colors(123);
 
         // Border should be opaque
-        assert_eq!(border.3, 1.0);
+        assert_eq!(border[3], 1.0);
 
         // Fill should be semi-transparent
-        assert_eq!(fill.3, 0.3);
+        assert_eq!(fill[3], 0.3);
     }
 }

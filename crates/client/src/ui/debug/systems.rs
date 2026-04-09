@@ -48,7 +48,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                         font_size: 14.0,
                         ..default()
                     },
-                    TextColor(Color::srgb(1.0, 0.0, 0.0)),
+                    TextColor(Color::srgb_u8(64, 230, 120)),
                     Node {
                         ..default()
                     },
@@ -68,7 +68,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -85,7 +85,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -102,7 +102,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -119,7 +119,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -136,7 +136,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -153,7 +153,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -183,7 +183,7 @@ pub fn setup_debug_ui(mut commands: Commands) {
                     font_size: 12.0,
                     ..default()
                 },
-                TextColor(Color::srgb(1.0, 1.0, 0.0)),
+                TextColor(Color::srgb_u8(64, 230, 120)),
                 Node {
                     ..default()
                 },
@@ -202,6 +202,7 @@ pub fn update_debug_ui(
     connection_status: Res<ConnectionStatus>,
     grid_config: Res<GridConfig>,
     world_cache: Option<Res<WorldCache>>,
+    images: Res<Assets<Image>>,
     mut query: Query<(
         &mut Text,
         Option<&FpsText>,
@@ -313,11 +314,88 @@ pub fn update_debug_ui(
                     Some(cell_data) => (cell_data.biome, cell_data.shore_type),
                     _ => (BiomeTypeEnum::Undefined, ShoreType::None)
                 };
+
+                // Sample altitude from the heightmap texture
+                let alt_str = sample_altitude_at(
+                    world_cache.as_ref(),
+                    &images,
+                    position.x,
+                    position.y,
+                );
+
                 **text = format!(
-                    "Cell: (q: {}, r: {})\nBiome: {:?}\nShore: {:?}",
-                    hovered_cell.x, hovered_cell.y, biome, shore_type
+                    "Cell: (q: {}, r: {})\nBiome: {:?}\nShore: {:?}\n{}",
+                    hovered_cell.x, hovered_cell.y, biome, shore_type, alt_str
                 );
             }
         }
+    }
+}
+
+/// Sample the enriched heightmap at a world position and return a display string.
+fn sample_altitude_at(
+    world_cache: &WorldCache,
+    images: &Assets<Image>,
+    world_x: f32,
+    world_y: f32,
+) -> String {
+    let global = match world_cache.get_terrain_global() {
+        Some(g) => g,
+        None => return String::new(),
+    };
+    let hm_handle = match world_cache.get_terrain_global_heightmap_handle() {
+        Some(h) => h,
+        None => return String::new(),
+    };
+    let image = match images.get(hm_handle) {
+        Some(img) => img,
+        None => return String::new(),
+    };
+
+    let hm_w = global.heightmap_width as usize;
+    let hm_h = global.heightmap_height as usize;
+
+    // World position → UV (0-1 over entire map)
+    let u = world_x / global.world_width;
+    let v = world_y / global.world_height;
+
+    let px = (u * hm_w as f32) as i32;
+    let py = (v * hm_h as f32) as i32;
+
+    if px < 0 || py < 0 || px >= hm_w as i32 || py >= hm_h as i32 {
+        return String::new();
+    }
+
+    let px = px as usize;
+    let py = py as usize;
+    let data = match image.data.as_ref() {
+        Some(d) => d,
+        None => return String::new(),
+    };
+
+    // Detect format: R16Unorm = 2 bytes/pixel, R8Unorm = 1 byte/pixel
+    let expected_u16_len = hm_w * hm_h * 2;
+    let is_u16 = data.len() >= expected_u16_len;
+    let (height_norm, raw_val) = if is_u16 {
+        let idx = (py * hm_w + px) * 2;
+        if idx + 1 >= data.len() {
+            return String::new();
+        }
+        let val = u16::from_le_bytes([data[idx], data[idx + 1]]);
+        (val as f32 / 65535.0, val as u32)
+    } else {
+        let idx = py * hm_w + px;
+        if idx >= data.len() {
+            return String::new();
+        }
+        (data[idx] as f32 / 255.0, data[idx] as u32)
+    };
+
+    let altitude_m = (height_norm * 2500.0).round() as i32;
+
+    if altitude_m == 0 {
+        "Alt: sea level".to_string()
+    } else {
+        format!("Alt: {}m", altitude_m)
     }
 }

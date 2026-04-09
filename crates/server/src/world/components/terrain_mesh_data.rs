@@ -14,6 +14,8 @@ use shared::{RoadChunkSdfData, TerrainChunkSdfData, constants};
 use crate::utils::{algorithm, file_system};
 use crate::world::resources::{SdfConfig, WorldGlobalState};
 
+use super::heightmap_enriched::{EnrichedHeightmapConfig, generate_enriched_heightmap};
+
 #[derive(Default, Encode, Decode, Clone)]
 pub struct TerrainChunkMeshData {
     pub width: u32,
@@ -111,24 +113,33 @@ impl TerrainMeshData {
                 t_biome.elapsed()
             );
 
-            tracing::info!("Generating global heightmap");
+            tracing::info!("Generating enriched heightmap");
             let t_hm = std::time::Instant::now();
-            let hm_base_resolution = 2048usize;
-            let source_aspect = if let Some(hm_img) = heightmap_image {
-                hm_img.height() as f32 / hm_img.width() as f32
-            } else {
-                0.5
-            };
-            let hm_width = hm_base_resolution;
-            let hm_height = (hm_base_resolution as f32 * source_aspect).round() as usize;
 
-            let global_heightmap = if let Some(hm_img) = heightmap_image {
-                generate_global_heightmap(&hm_img, hm_width, hm_height)
+            let (hm_width, hm_height, global_heightmap) = if let Some(hm_img) = heightmap_image {
+                let enriched_config = EnrichedHeightmapConfig::default();
+                let result = generate_enriched_heightmap(
+                    hm_img,
+                    binary_image,
+                    lake_image,
+                    biome_img,
+                    &enriched_config,
+                );
+                (result.width as usize, result.height as usize, result.data)
             } else {
-                vec![128u8; hm_width * hm_height]
+                let hm_base_resolution = 2048usize;
+                let hm_w = hm_base_resolution;
+                let hm_h = (hm_base_resolution as f32 * 0.5).round() as usize;
+                // Fallback: flat u16 mid-height (LE bytes)
+                let mid = 32768u16;
+                let bytes = mid.to_le_bytes();
+                let data: Vec<u8> = (0..hm_w * hm_h)
+                    .flat_map(|_| [bytes[0], bytes[1]])
+                    .collect();
+                (hm_w, hm_h, data)
             };
             tracing::info!(
-                "    Global heightmap {}x{} generated in {:?}",
+                "    Global heightmap {}x{} (u16) generated in {:?}",
                 hm_width,
                 hm_height,
                 t_hm.elapsed()

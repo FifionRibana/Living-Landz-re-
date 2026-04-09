@@ -1,5 +1,6 @@
 mod biome_mesh_data;
 mod biome_triangulation;
+pub mod heightmap_enriched;
 mod mesh_data;
 mod natural_building_generator;
 mod terrain_mesh_data;

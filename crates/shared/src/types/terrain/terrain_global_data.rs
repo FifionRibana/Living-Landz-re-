@@ -21,7 +21,7 @@ pub struct TerrainGlobalData {
     pub heightmap_width: u32,
     pub heightmap_height: u32,
 
-    /// Heightmap in R8 format (0-255 elevation)
+    /// Heightmap in R16 format (u16 LE bytes, 0-65535 elevation)
     pub heightmap_values: Vec<u8>,
 
     /// World dimensions in pixels (for UV computation)
@@ -40,7 +40,7 @@ impl Default for TerrainGlobalData {
             biome_values: vec![5 * 17, 5 * 17, 0, 255],
             heightmap_width: 1,
             heightmap_height: 1,
-            heightmap_values: vec![128],
+            heightmap_values: vec![0, 128], // single u16 LE pixel
             world_width: 1.0,
             world_height: 1.0,
             generated_at: 0,
