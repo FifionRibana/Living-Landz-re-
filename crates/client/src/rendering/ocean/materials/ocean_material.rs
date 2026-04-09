@@ -37,33 +37,41 @@ pub struct OceanMaterial {
     #[texture(0)]
     #[sampler(1, sampler_type = "filtering")]
     pub heightmap: Handle<Image>,
-    
+
     #[texture(2)]
     #[sampler(3, sampler_type = "filtering")]
     pub sdf_texture: Handle<Image>,
-    
+
     #[uniform(4)]
     pub shallow_color: LinearRgba,
-    
+
     #[uniform(5)]
     pub deep_color: LinearRgba,
-    
+
     #[uniform(6)]
     pub foam_color: LinearRgba,
-    
+
     #[uniform(7)]
     pub params: OceanParams,
+
+    /// Terrain global heightmap (enriched, R16Unorm) — used for accurate
+    /// coastline discard so the ocean boundary matches the heightmap's
+    /// coastal slope rather than the binary map SDF.
+    #[texture(8)]
+    #[sampler(9, sampler_type = "filtering")]
+    pub terrain_heightmap: Handle<Image>,
 }
 
 impl Default for OceanMaterial {
     fn default() -> Self {
         Self {
             heightmap: Handle::default(),
-            sdf_texture: Handle::default(), 
+            sdf_texture: Handle::default(),
             shallow_color: LinearRgba::new(0.18, 0.38, 0.42, 1.0),
             deep_color: LinearRgba::new(0.04, 0.10, 0.18, 1.0),
             foam_color: LinearRgba::new(0.88, 0.90, 0.92, 1.0),
             params: OceanParams::default(),
+            terrain_heightmap: Handle::default(),
         }
     }
 }
