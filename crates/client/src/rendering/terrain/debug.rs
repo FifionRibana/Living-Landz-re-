@@ -194,31 +194,136 @@ pub fn draw_outline_points(
     }
 }
 
-// ─── F4 — Slope Debug Mode ─────────────────────────────────────────
+// ─── F4 — Terrain Debug Modes ───────────────────────────────────────
+//
+// Cycle: Normal → Slope → LevelLines → Slope+ShoreType → LevelLines+ShoreType → Normal
+//
+// shader_mode  controls debug_params.x  (0=normal, 1=slope, 2=levellines)
+// show_shore_types  toggles gizmos hex overlay (additive, drawn on top of shader mode)
 
-/// Resource to toggle slope debug visualization (F4)
+/// Shader-side debug visualisation (uniform debug_params.x)
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
+pub enum ShaderDebugMode {
+    #[default]
+    Normal,
+    Slope,
+    LevelLines,
+}
+
+impl ShaderDebugMode {
+    pub fn shader_value(&self) -> f32 {
+        match self {
+            Self::Normal => 0.0,
+            Self::Slope => 1.0,
+            Self::LevelLines => 2.0,
+        }
+    }
+}
+
+/// Combined terrain debug state, cycled with F4.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TerrainDebugState {
+    pub shader_mode: ShaderDebugMode,
+    pub show_shore_types: bool,
+}
+
+impl Default for TerrainDebugState {
+    fn default() -> Self {
+        Self {
+            shader_mode: ShaderDebugMode::Normal,
+            show_shore_types: false,
+        }
+    }
+}
+
+impl TerrainDebugState {
+    /// Advance to next state in the cycle.
+    pub fn next(&self) -> Self {
+        use ShaderDebugMode::*;
+        match (self.shader_mode, self.show_shore_types) {
+            (Normal, false) => Self { shader_mode: Slope, show_shore_types: false },
+            (Slope, false) => Self { shader_mode: LevelLines, show_shore_types: false },
+            (LevelLines, false) => Self { shader_mode: Slope, show_shore_types: true },
+            (Slope, true) => Self { shader_mode: LevelLines, show_shore_types: true },
+            (LevelLines, true) => Self { shader_mode: Normal, show_shore_types: false },
+            _ => Self::default(),
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        use ShaderDebugMode::*;
+        match (self.shader_mode, self.show_shore_types) {
+            (Normal, false) => "OFF",
+            (Slope, false) => "Slope",
+            (LevelLines, false) => "Level Lines",
+            (Slope, true) => "Slope + Shore Types",
+            (LevelLines, true) => "Level Lines + Shore Types",
+            _ => "OFF",
+        }
+    }
+}
+
+/// Resource for the current terrain debug state (F4)
 #[derive(Resource, Default)]
-pub struct SlopeDebugEnabled(pub bool);
+pub struct SlopeDebugEnabled(pub TerrainDebugState);
 
-/// System to toggle slope debug mode with F4 key.
-/// Updates the debug_params uniform on all terrain materials.
+/// System to cycle terrain debug mode with F4 key.
+/// Updates debug_params.x on all terrain materials.
 pub fn toggle_slope_debug(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut slope_debug: ResMut<SlopeDebugEnabled>,
+    mut debug_state: ResMut<SlopeDebugEnabled>,
     terrains: Query<&MeshMaterial2d<TerrainMaterial>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
     if keyboard.just_pressed(KeyCode::F4) {
-        slope_debug.0 = !slope_debug.0;
-        let state = if slope_debug.0 { "ON" } else { "OFF" };
-        info!("Slope debug mode: {}", state);
+        debug_state.0 = debug_state.0.next();
+        info!("Terrain debug mode: {}", debug_state.0.label());
     }
 
-    // Sync the debug_params uniform on all terrain materials
-    let val = if slope_debug.0 { 1.0 } else { 0.0 };
+    let val = debug_state.0.shader_mode.shader_value();
     for mat_handle in terrains.iter() {
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
             mat.debug_params.slope_debug = val;
         }
+    }
+}
+
+// ─── Shore Type Gizmos Overlay ──────────────────────────────────────
+
+/// Draw hex outlines for cells tagged Shoreline or Lakebank.
+/// Active when show_shore_types is true in TerrainDebugState.
+pub fn draw_shore_type_gizmos(
+    mut gizmos: Gizmos,
+    debug_state: Res<SlopeDebugEnabled>,
+    world_cache: Option<Res<WorldCache>>,
+    grid_config: Res<shared::grid::GridConfig>,
+) {
+    if !debug_state.0.show_shore_types {
+        return;
+    }
+
+    let Some(cache) = world_cache else {
+        return;
+    };
+
+    for cell_data in cache.iter_cells() {
+        let color = match cell_data.shore_type {
+            shared::ShoreType::Shoreline => Color::srgba(0.3, 0.6, 1.0, 0.8),
+            shared::ShoreType::Lakebank => Color::srgba(0.2, 0.8, 0.6, 0.8),
+            _ => continue,
+        };
+
+        let center = grid_config.layout.hex_to_world_pos(cell_data.cell.to_hex());
+        draw_hex_outline(&mut gizmos, center, &grid_config.layout, color);
+    }
+}
+
+/// Draw a hex outline using the layout's corner positions.
+fn draw_hex_outline(gizmos: &mut Gizmos, center: Vec2, layout: &hexx::HexLayout, color: Color) {
+    let corners = layout.hex_corners(hexx::Hex::ZERO);
+    for i in 0..6 {
+        let start = center + corners[i];
+        let end = center + corners[(i + 1) % 6];
+        gizmos.line_2d(start, end, color);
     }
 }

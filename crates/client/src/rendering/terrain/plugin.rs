@@ -34,6 +34,7 @@ impl Plugin for TerrainPlugin {
                     systems::spawn_building,
                     debug::toggle_chunk_debug,
                     debug::toggle_slope_debug,
+                    debug::draw_shore_type_gizmos,
                     debug::draw_chunk_gizmos,
                     debug::draw_outline_points,
                     debug::update_chunk_debug_text,
