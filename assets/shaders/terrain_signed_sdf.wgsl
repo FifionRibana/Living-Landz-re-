@@ -259,7 +259,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let noise_amplitude = road_params.w;
 
         // Calculer la position monde approximative (chunk_size * uv)
-        let chunk_size = vec2<f32>(900.0, 670.0);
+        let chunk_size = vec2<f32>(900.0, 675.0);
         let world_pos = uv_corrected * chunk_size;
 
         final_color = render_road(

@@ -16,10 +16,14 @@ impl CellsTable {
     }
 
     pub async fn save_cells(&self, cells: &[CellData]) -> Result<(), sqlx::Error> {
+        // Sort by (q, r) to prevent deadlocks: concurrent transactions that lock
+        // rows in the same order cannot create lock cycles.
+        let mut sorted = cells.to_vec();
+        sorted.sort_by_key(|c| (c.cell.q, c.cell.r));
+
         const BATCH_SIZE: usize = 1000;
-        let chunks: Vec<_> = cells.chunks(BATCH_SIZE).collect();
-        println!("Inserting {} cells in {} chunks", cells.len(), chunks.len());
-        // Écrire les données
+        let chunks: Vec<_> = sorted.chunks(BATCH_SIZE).collect();
+        println!("Inserting {} cells in {} chunks", sorted.len(), chunks.len());
 
         let mut tx = self.pool.begin().await?;
         for chunk in chunks {
