@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use bevy::sprite_render::MeshMaterial2d;
 use shared::{TerrainChunkId, constants};
 
 use super::components::Terrain;
+use super::materials::{DebugParams, TerrainMaterial};
 use crate::state::resources::WorldCache;
 
 /// Debug mode for chunk visualization (F8)
@@ -188,6 +190,35 @@ pub fn draw_outline_points(
                     );
                 }
             }
+        }
+    }
+}
+
+// ─── F4 — Slope Debug Mode ─────────────────────────────────────────
+
+/// Resource to toggle slope debug visualization (F4)
+#[derive(Resource, Default)]
+pub struct SlopeDebugEnabled(pub bool);
+
+/// System to toggle slope debug mode with F4 key.
+/// Updates the debug_params uniform on all terrain materials.
+pub fn toggle_slope_debug(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut slope_debug: ResMut<SlopeDebugEnabled>,
+    terrains: Query<&MeshMaterial2d<TerrainMaterial>>,
+    mut materials: ResMut<Assets<TerrainMaterial>>,
+) {
+    if keyboard.just_pressed(KeyCode::F4) {
+        slope_debug.0 = !slope_debug.0;
+        let state = if slope_debug.0 { "ON" } else { "OFF" };
+        info!("Slope debug mode: {}", state);
+    }
+
+    // Sync the debug_params uniform on all terrain materials
+    let val = if slope_debug.0 { 1.0 } else { 0.0 };
+    for mat_handle in terrains.iter() {
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            mat.debug_params.slope_debug = val;
         }
     }
 }

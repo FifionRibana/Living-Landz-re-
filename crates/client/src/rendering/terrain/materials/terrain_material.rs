@@ -66,6 +66,18 @@ pub struct TerrainMaterial {
 
     #[uniform(20)]
     pub lake_params: LakeParams,
+
+    #[uniform(21)]
+    pub debug_params: DebugParams,
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct DebugParams {
+    /// 1.0 = slope debug mode enabled, 0.0 = normal rendering
+    pub slope_debug: f32,
+    pub _padding1: f32,
+    pub _padding2: f32,
+    pub _padding3: f32,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -191,6 +203,7 @@ impl Default for TerrainMaterial {
             heightmap_params: HeightmapParams::default(),
             lake_sdf_texture: Handle::default(),
             lake_params: LakeParams::default(),
+            debug_params: DebugParams::default(),
         }
     }
 }
