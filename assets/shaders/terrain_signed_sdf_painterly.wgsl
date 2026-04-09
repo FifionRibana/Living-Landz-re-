@@ -196,7 +196,7 @@ fn sample_height(uv: vec2<f32>) -> f32 {
 fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
     let hm_dims = vec2<f32>(textureDimensions(heightmap_texture));
     let hm_texel = 1.0 / hm_dims;
-    let step = hm_texel * 8.0;
+    let step = hm_texel * 2.0;
 
     let noise_offset = vec2<f32>(
         fbm(world_pos * 0.01 + vec2<f32>(55.5, 88.8), 2) - 0.5,
@@ -216,11 +216,11 @@ fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
     let h_lu = sample_height(clamp(uv_n + vec2<f32>(-step.x,  step.y), uv_min, uv_max));
     let h_rd = sample_height(clamp(uv_n + vec2<f32>( step.x, -step.y), uv_min, uv_max));
 
-    // Sobel-weighted gradient
+    // Sobel-weighted gradient (dzdy negated: image Y is down, hillshade expects Y up)
     let dzdx = ((h_rd + 2.0 * h_r + h_ru) - (h_ld + 2.0 * h_l + h_lu)) / 8.0;
-    let dzdy = ((h_lu + 2.0 * h_u + h_ru) - (h_ld + 2.0 * h_d + h_rd)) / 8.0;
+    let dzdy = -((h_lu + 2.0 * h_u + h_ru) - (h_ld + 2.0 * h_d + h_rd)) / 8.0;
 
-    let slope_scale = 8.0;
+    let slope_scale = 3.0;
     let slope_x = dzdx * slope_scale;
     let slope_y = dzdy * slope_scale;
 

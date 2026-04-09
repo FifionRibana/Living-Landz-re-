@@ -66,6 +66,33 @@ pub fn create_terrain_global_textures(
     );
     biome_image.sampler = bevy::image::ImageSampler::nearest();
 
+    let expected_u16_len = (data.heightmap_width * data.heightmap_height * 2) as usize;
+    let (heightmap_data, heightmap_format) =
+        if data.heightmap_values.len() == expected_u16_len {
+            // New enriched format: u16 LE bytes → R16Unorm
+            (data.heightmap_values.clone(), TextureFormat::R16Unorm)
+        } else {
+            // Legacy u8 data from old pipeline (DB cache) → convert to u16 LE
+            warn!(
+                "Heightmap data is {} bytes, expected {} for R16Unorm ({}x{}). \
+                 Converting legacy u8 → u16. Regenerate the world to use enriched heightmap.",
+                data.heightmap_values.len(),
+                expected_u16_len,
+                data.heightmap_width,
+                data.heightmap_height
+            );
+            let converted: Vec<u8> = data
+                .heightmap_values
+                .iter()
+                .flat_map(|&v| {
+                    // Map u8 0-255 → u16 0-65535 (v * 257)
+                    let v16 = (v as u16) * 257;
+                    v16.to_le_bytes()
+                })
+                .collect();
+            (converted, TextureFormat::R16Unorm)
+        };
+
     let heightmap_image = Image::new(
         Extent3d {
             width: data.heightmap_width,
@@ -73,8 +100,8 @@ pub fn create_terrain_global_textures(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        data.heightmap_values.clone(),
-        TextureFormat::R8Unorm,
+        heightmap_data,
+        heightmap_format,
         default(),
     );
 
