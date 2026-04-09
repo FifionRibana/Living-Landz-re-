@@ -4,6 +4,7 @@ use shared::{TerrainChunkId, constants};
 
 use super::components::Terrain;
 use super::materials::TerrainMaterial;
+use crate::rendering::ocean::materials::{OceanMaterial, OceanDebugParams};
 use crate::state::resources::WorldCache;
 use crate::ui::debug::DebugOverlayState;
 
@@ -220,6 +221,26 @@ pub fn sync_debug_uniforms(
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
             mat.debug_params.slope_debug = base;
             mat.debug_params._padding1 = overlay_f;
+        }
+    }
+}
+
+/// Sync DebugOverlayState → ocean material debug_params uniform.
+pub fn sync_ocean_debug_uniforms(
+    debug: Res<DebugOverlayState>,
+    oceans: Query<&MeshMaterial2d<OceanMaterial>>,
+    mut materials: ResMut<Assets<OceanMaterial>>,
+) {
+    let base = debug.shader_base.shader_value();
+    let mut overlay_flags: u32 = 0;
+    if debug.level_lines {
+        overlay_flags |= 1;
+    }
+
+    for mat_handle in oceans.iter() {
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            mat.debug_params.debug_base = base;
+            mat.debug_params.overlay_flags = overlay_flags as f32;
         }
     }
 }
