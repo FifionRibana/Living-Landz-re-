@@ -60,6 +60,19 @@ pub struct OceanMaterial {
     #[texture(8)]
     #[sampler(9, sampler_type = "filtering")]
     pub terrain_heightmap: Handle<Image>,
+
+    #[uniform(10)]
+    pub debug_params: OceanDebugParams,
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct OceanDebugParams {
+    /// Shader base mode (0=off, 1-6 = debug modes). Same encoding as terrain.
+    pub debug_base: f32,
+    /// Overlay bit-flags (bit 0 = level lines).
+    pub overlay_flags: f32,
+    pub _padding1: f32,
+    pub _padding2: f32,
 }
 
 impl Default for OceanMaterial {
@@ -72,6 +85,7 @@ impl Default for OceanMaterial {
             foam_color: LinearRgba::new(0.88, 0.90, 0.92, 1.0),
             params: OceanParams::default(),
             terrain_heightmap: Handle::default(),
+            debug_params: OceanDebugParams::default(),
         }
     }
 }

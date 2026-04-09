@@ -100,11 +100,10 @@ pub fn toggle_org_voronoi_debug(
     tc_sender: Res<TerritoryCellsSender>,
     player_info: Res<crate::state::resources::PlayerInfo>,
 ) {
-    if keyboard.just_pressed(KeyCode::F11) {
-        org_debug.enabled = !org_debug.enabled;
-        let state = if org_debug.enabled { "ON" } else { "OFF" };
-        info!("Org Voronoi debug: {}", state);
-    }
+    // F11 keyboard shortcut disabled — now controlled via F4 debug panel
+    // if keyboard.just_pressed(KeyCode::F11) {
+    //     org_debug.enabled = !org_debug.enabled;
+    // }
 
     // Also trigger data load when panel enables domain voronoi or domain hexes
     let needs_data = (org_debug.enabled || debug_state.voronoi_domains || debug_state.domain_hexes)
@@ -274,7 +273,8 @@ pub fn toggle_mist_voronoi_debug(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut mist_debug: ResMut<MistVoronoiDebug>,
 ) {
-    if keyboard.just_pressed(KeyCode::F12) {
+    // F12 keyboard shortcut disabled — now controlled via F4 debug panel
+    if false && keyboard.just_pressed(KeyCode::F12) {
         mist_debug.enabled = !mist_debug.enabled;
         let state = if mist_debug.enabled { "ON" } else { "OFF" };
         info!("Mist Voronoi debug: {}", state);

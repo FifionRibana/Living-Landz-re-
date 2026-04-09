@@ -22,6 +22,9 @@ struct OceanParams {
 @group(2) @binding(5) var<uniform> deep_color: vec4<f32>;
 @group(2) @binding(6) var<uniform> foam_color: vec4<f32>;
 @group(2) @binding(7) var<uniform> params: OceanParams;
+@group(2) @binding(8) var terrain_heightmap: texture_2d<f32>;
+@group(2) @binding(9) var terrain_heightmap_sampler: sampler;
+@group(2) @binding(10) var<uniform> debug_params: vec4<f32>; // x=base_mode, y=overlay_flags
 
 const TAU: f32 = 6.28318530718;
 const ABYSS_COLOR: vec3<f32> = vec3<f32>(0.015, 0.04, 0.08);
@@ -62,10 +65,49 @@ fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
+
+    // === World debug modes — ocean renders its own visualization ===
+    let debug_base = u32(debug_params.x + 0.5);
+    if (debug_base == 3u) {
+        // Raw heightmap: gamma-boosted greyscale (black = sea level, white = peak)
+        // Discard on land (same threshold as normal mode) — terrain renders there
+        let h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
+        if (h > 0.003) {
+            discard;
+        }
+        let vis = sqrt(h);
+        return vec4<f32>(vis, vis, vis, 1.0);
+    }
+    if (debug_base == 5u) {
+        // SDF coastal: blue (deep ocean) → white (shore) → green (land)
+        let sdf_raw_d = textureSample(sdf_texture, sdf_sampler, uv).r;
+        let sdf_d = (sdf_raw_d - 0.5) * 2.0;
+        var c: vec3<f32>;
+        if (sdf_d < 0.0) {
+            c = mix(vec3<f32>(0.10, 0.20, 0.50), vec3<f32>(0.80, 0.90, 1.00), sdf_d + 1.0);
+        } else {
+            c = mix(vec3<f32>(0.80, 0.90, 1.00), vec3<f32>(0.20, 0.60, 0.20), min(sdf_d * 3.0, 1.0));
+        }
+        return vec4<f32>(c, 1.0);
+    }
+
     let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv).r;
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
 
-    if sdf_signed > 0.02 {
+    // Terrain enriched heightmap: the source of truth for coastline.
+    // Discard where the terrain has non-trivial height (land).
+    let terrain_h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
+    if terrain_h > 0.003 { // ~7.5m — anything above this is definitely land
+        discard;
+    }
+
+    // Smooth transition: fade ocean out as terrain approaches shore
+    // terrain_h 0.0→0.003 maps to full ocean → discard
+    let shore_fade = 1.0 - smoothstep(0.0005, 0.003, terrain_h);
+
+    // Also keep the SDF discard for deep inland (where terrain heightmap might
+    // have tiny floating values due to noise)
+    if sdf_signed > 0.15 {
         discard;
     }
     let sdf_depth_raw = saturate(-sdf_signed);
@@ -293,5 +335,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     let opacity = smoothstep(0.02 + wave_advance, -0.08, sdf_signed);
 
-    return vec4<f32>(ocean_color, opacity);
+    // Apply terrain heightmap shore fade — smoothly hides ocean as terrain rises
+    let final_opacity = opacity * shore_fade;
+
+    return vec4<f32>(ocean_color, final_opacity);
 }

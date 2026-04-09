@@ -33,6 +33,7 @@ impl Plugin for TerrainPlugin {
                     systems::spawn_building,
                     debug::toggle_chunk_debug,
                     debug::sync_debug_uniforms,
+                    debug::sync_ocean_debug_uniforms,
                     debug::draw_shore_type_gizmos,
                     debug::draw_chunk_boundary_gizmos,
                     debug::draw_chunk_gizmos,

@@ -21,6 +21,7 @@
 @group(2) @binding(18) var lake_sdf_texture: texture_2d<f32>;
 @group(2) @binding(19) var lake_sdf_sampler: sampler;
 @group(2) @binding(20) var<uniform> lake_terrain_params: vec4<f32>; // x = has_lake
+@group(2) @binding(21) var<uniform> debug_params: vec4<f32>; // x = slope_debug_enabled
 
 // ============================================================================
 // CONSTANTES PALETTE PAINTERLY
@@ -191,9 +192,9 @@ fn sample_height(uv: vec2<f32>) -> f32 {
     return textureSample(heightmap_texture, heightmap_sampler, uv).r;
 }
 
-/// Compute hillshade with wide sampling + noise perturbation to avoid contour lines.
-/// Samples height at large offsets and adds FBM noise to break texel grid artifacts.
-fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
+/// Compute Sobel gradients at a UV position. Returns vec2(slope_x, slope_y).
+/// Used by both hillshade and slope magnitude calculations.
+fn compute_sobel_gradients(uv: vec2<f32>, world_pos: vec2<f32>) -> vec2<f32> {
     let hm_dims = vec2<f32>(textureDimensions(heightmap_texture));
     let hm_texel = 1.0 / hm_dims;
     let step = hm_texel * 2.0;
@@ -221,10 +222,13 @@ fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
     let dzdy = -((h_lu + 2.0 * h_u + h_ru) - (h_ld + 2.0 * h_d + h_rd)) / 8.0;
 
     let slope_scale = 3.0;
-    let slope_x = dzdx * slope_scale;
-    let slope_y = dzdy * slope_scale;
+    return vec2<f32>(dzdx * slope_scale, dzdy * slope_scale);
+}
 
-    let normal = normalize(vec3<f32>(-slope_x, -slope_y, 1.0));
+/// Compute hillshade from Sobel gradients and light direction.
+fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
+    let slopes = compute_sobel_gradients(uv, world_pos);
+    let normal = normalize(vec3<f32>(-slopes.x, -slopes.y, 1.0));
 
     let az = heightmap_params.y;
     let alt = heightmap_params.z;
@@ -235,6 +239,40 @@ fn compute_hillshade(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
     ));
 
     return clamp(dot(normal, light_dir), 0.0, 1.0);
+}
+
+/// Compute slope magnitude from Sobel gradients. Returns 0.0 (flat) to ~1.0+ (cliff).
+fn compute_slope_magnitude(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
+    let slopes = compute_sobel_gradients(uv, world_pos);
+    return sqrt(slopes.x * slopes.x + slopes.y * slopes.y);
+}
+
+// ============================================================================
+// ROCK RENDERING — painterly rock texture for steep slopes
+// ============================================================================
+
+fn painterly_rock(world_pos: vec2<f32>) -> vec3<f32> {
+    // Layer 1: large rock zones (slightly higher freq than vegetation)
+    let large = fbm_rotated(world_pos * 0.008, 4);
+    // Layer 2: medium variation
+    let medium = fbm_rotated(world_pos * 0.025 + vec2<f32>(43.7, 91.2), 4);
+    // Layer 3: micro-detail (higher freq than vegetation)
+    let detail = fbm(world_pos * 0.08 + vec2<f32>(17.3, 53.1), 3);
+
+    // Base rock color from existing palette constants
+    var color = mix(ROCK_LIGHT, ROCK_DARK, smoothstep(0.35, 0.65, large));
+
+    // Medium variation — darker crevices
+    color = mix(color, ROCK_DARK * 0.8, smoothstep(0.55, 0.75, medium) * 0.5);
+
+    // Warm tint in recesses (oxidation / lichen)
+    let warm = vec3<f32>(0.06, 0.02, -0.02);
+    color += warm * smoothstep(0.6, 0.3, large) * 0.4;
+
+    // Micro-detail
+    color *= 0.85 + detail * 0.3;
+
+    return color;
 }
 
 /// Modulate vegetation color based on heightmap:
@@ -694,6 +732,143 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let world_total = vec2<f32>(biome_params.z, biome_params.w);
     let global_uv = world_pos / world_total;
 
+    // === Debug visualisation (driven by DebugOverlayState via debug_params) ===
+    // debug_params.x = base mode  (0=off, 1=slope, 2=altitude, 3=heightmap, 4=biomes, 5=sdf, 6=shoreline)
+    // debug_params.y = overlay flags  (bit 0 = level lines)
+    let debug_base = u32(debug_params.x + 0.5);
+    if (debug_base > 0u && heightmap_params.x > 0.5) {
+        let height = sample_height(global_uv);
+        var debug_color = vec3<f32>(0.12, 0.15, 0.25); // ocean default
+
+        switch debug_base {
+            // --- 1: Slope classes ---
+            case 1u: {
+                if (height > 0.001) {
+                    let slope = compute_slope_magnitude(global_uv, world_pos);
+                    debug_color = vec3<f32>(0.31, 0.63, 0.31);
+                    debug_color = mix(debug_color, vec3<f32>(0.71, 0.71, 0.24), smoothstep(0.04, 0.06, slope));
+                    debug_color = mix(debug_color, vec3<f32>(0.86, 0.55, 0.16), smoothstep(0.13, 0.17, slope));
+                    debug_color = mix(debug_color, vec3<f32>(0.78, 0.20, 0.20), smoothstep(0.33, 0.37, slope));
+                    debug_color = mix(debug_color, vec3<f32>(0.55, 0.16, 0.55), smoothstep(0.58, 0.62, slope));
+                }
+            }
+            // --- 2: Altitude bands ---
+            case 2u: {
+                if (height > 0.001) {
+                    let h = height;
+                    debug_color = vec3<f32>(0.67, 0.82, 0.67); // coastal green
+                    debug_color = mix(debug_color, vec3<f32>(0.47, 0.71, 0.39), smoothstep(0.018, 0.022, h));
+                    debug_color = mix(debug_color, vec3<f32>(0.71, 0.67, 0.39), smoothstep(0.078, 0.082, h));
+                    debug_color = mix(debug_color, vec3<f32>(0.63, 0.47, 0.31), smoothstep(0.238, 0.242, h));
+                    debug_color = mix(debug_color, vec3<f32>(0.55, 0.55, 0.59), smoothstep(0.478, 0.482, h));
+                    debug_color = mix(debug_color, vec3<f32>(0.90, 0.90, 0.94), smoothstep(0.798, 0.802, h));
+                }
+            }
+            // --- 3: Raw heightmap (greyscale, gamma-boosted for visibility) ---
+            case 3u: {
+                // sqrt gamma: 0.02 (50m) → 0.14, 0.08 (200m) → 0.28, 0.5 → 0.71
+                let vis = sqrt(height);
+                debug_color = vec3<f32>(vis, vis, vis);
+            }
+            // --- 4: Biome IDs (distinct colors) ---
+            case 4u: {
+                if (height > 0.001) {
+                    let data = textureSample(biome_texture, biome_sampler, global_uv);
+                    let id = u32(data.r * 15.0 + 0.5);
+                    switch id {
+                        case 1u:  { debug_color = vec3<f32>(0.10, 0.20, 0.50); } // Ocean
+                        case 2u:  { debug_color = vec3<f32>(0.05, 0.10, 0.35); } // DeepOcean
+                        case 3u:  { debug_color = vec3<f32>(0.95, 0.85, 0.45); } // Desert
+                        case 4u:  { debug_color = vec3<f32>(0.75, 0.75, 0.35); } // Savanna
+                        case 5u:  { debug_color = vec3<f32>(0.50, 0.70, 0.35); } // Grassland
+                        case 6u:  { debug_color = vec3<f32>(0.40, 0.75, 0.25); } // TropicalSeasonal
+                        case 7u:  { debug_color = vec3<f32>(0.20, 0.70, 0.15); } // TropicalRain
+                        case 8u:  { debug_color = vec3<f32>(0.15, 0.65, 0.30); } // TropicalDeciduous
+                        case 9u:  { debug_color = vec3<f32>(0.20, 0.55, 0.25); } // TemperateRain
+                        case 10u: { debug_color = vec3<f32>(0.10, 0.50, 0.20); } // Wetland
+                        case 11u: { debug_color = vec3<f32>(0.30, 0.40, 0.20); } // Taiga
+                        case 12u: { debug_color = vec3<f32>(0.55, 0.45, 0.30); } // Tundra
+                        case 13u: { debug_color = vec3<f32>(0.20, 0.45, 0.50); } // Lake
+                        case 14u: { debug_color = vec3<f32>(0.65, 0.65, 0.45); } // ColdDesert
+                        case 15u: { debug_color = vec3<f32>(0.85, 0.90, 0.95); } // Ice
+                        default:  { debug_color = vec3<f32>(0.50, 0.50, 0.50); } // Undefined
+                    }
+                }
+            }
+            // --- 5: SDF coastal ---
+            case 5u: {
+                if (has_coast > 0.5) {
+                    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+                    let sdf = (sdf_raw - 0.5) * 2.0;
+                    if (sdf < 0.0) {
+                        debug_color = mix(vec3<f32>(0.10, 0.20, 0.50), vec3<f32>(0.80, 0.90, 1.00), sdf + 1.0);
+                    } else {
+                        debug_color = mix(vec3<f32>(0.80, 0.90, 1.00), vec3<f32>(0.20, 0.60, 0.20), min(sdf * 3.0, 1.0));
+                    }
+                } else if (height > 0.001) {
+                    debug_color = vec3<f32>(0.25, 0.55, 0.25); // inland = green
+                }
+            }
+            // --- 6: Shoreline debug — coast/height mismatch ---
+            case 6u: {
+                // Grey base for land
+                if (height > 0.001) {
+                    debug_color = vec3<f32>(0.25, 0.25, 0.25);
+                }
+
+                // Blue: beach transition zone (per-chunk SDF between beach_start and beach_end)
+                if (has_coast > 0.5) {
+                    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+                    let sdf_s = (sdf_raw - 0.5) * 2.0;
+                    let in_beach = smoothstep(beach_start - 0.05, beach_start, sdf_s)
+                                 * (1.0 - smoothstep(beach_end, beach_end + 0.05, sdf_s));
+                    debug_color = mix(debug_color, vec3<f32>(0.3, 0.6, 0.9), in_beach * 0.7);
+                }
+
+                // Red: coastal plain — land with very low height (< 0.02 ~ 50m)
+                if (height > 0.001 && height < 0.02) {
+                    debug_color = mix(debug_color, vec3<f32>(0.85, 0.2, 0.2), 0.7);
+                }
+
+                // Yellow: SDF says inland but height ~ 0 — the gap zone
+                if (has_coast > 0.5) {
+                    let sdf_raw2 = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+                    let sdf_s2 = (sdf_raw2 - 0.5) * 2.0;
+                    if (sdf_s2 > beach_end && height < 0.005) {
+                        debug_color = vec3<f32>(0.9, 0.85, 0.15);
+                    }
+                }
+
+                // Contour lines at height intervals
+                if (height > 0.001) {
+                    let h_scaled = height * 25.0;
+                    let contour = abs(fract(h_scaled) - 0.5);
+                    if (contour < 0.05) {
+                        debug_color *= 0.6;
+                    }
+                }
+            }
+            default: {}
+        }
+
+        // --- Overlay: level lines ---
+        let overlay_flags = u32(debug_params.y + 0.5);
+        if ((overlay_flags & 1u) != 0u && height > 0.001) {
+            let line = fract(height * 25.0);
+            let line_mask = 1.0 - smoothstep(0.02, 0.05, min(line, 1.0 - line));
+            debug_color = mix(debug_color, vec3<f32>(0.0, 0.0, 0.0), line_mask * 0.7);
+        }
+
+        return vec4<f32>(debug_color, 1.0);
+    }
+
+    // === Pre-compute slope magnitude for rock rendering (once per fragment) ===
+    var slope_magnitude = 0.0;
+    if (heightmap_params.x > 0.5) {
+        slope_magnitude = compute_slope_magnitude(global_uv, world_pos);
+    }
+    let rock_factor = smoothstep(0.25, 0.50, slope_magnitude);
+
     // === Lake: discard water, render bank ===
     var lake_bank_factor = 0.0;
     if lake_terrain_params.x > 0.5 {
@@ -721,8 +896,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     
     // ---- Chunk sans côte : 100% végétation ----
     if has_coast < 0.5 {
-        var color = vegetation;
-        
+        // Blend rock on steep slopes
+        let rock_color = painterly_rock(world_pos);
+        var color = mix(vegetation, rock_color, rock_factor);
+
         // Appliquer les routes même sur les chunks sans côte
         let has_roads = road_params.x;
         if (has_roads > 0.5) {
@@ -735,21 +912,27 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         color = apply_heightmap_effects(color, global_uv, world_pos);
-        
+
         return vec4<f32>(color, vertex_alpha);
     }
     
     // ---- Chunk côtier : SDF + transition multi-zones ----
     let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
-    
+
+    // Attenuate rock in beach zone so gentle coasts keep their sand transition
+    let beach_mask = smoothstep(beach_end, beach_start, sdf_signed);
+    let effective_rock = rock_factor * (1.0 - beach_mask);
+    let rock_color = painterly_rock(world_pos);
+    let veg_or_rock = mix(vegetation, rock_color, effective_rock);
+
     // Transition plage painterly (sable mouillé → sec → touffes → végétation)
     var final_color = painterly_beach_transition(
         sdf_signed,
         world_pos,
         beach_start,
         beach_end,
-        vegetation,
+        veg_or_rock,
         sand_color.rgb * 0.92,
     );
     
