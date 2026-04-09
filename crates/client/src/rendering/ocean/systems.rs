@@ -75,6 +75,12 @@ pub fn spawn_ocean(
         return;
     };
 
+    // Wait for the terrain global heightmap handle (created by create_terrain_global_textures)
+    let Some(terrain_hm_handle) = cache.get_terrain_global_heightmap_handle() else {
+        return;
+    };
+    let terrain_heightmap = terrain_hm_handle.clone();
+
     // Calculate world dimensions
     let world_width = ocean_data.world_width;
     let world_height = ocean_data.world_height;
@@ -130,14 +136,13 @@ pub fn spawn_ocean(
         MeshMaterial2d(ocean_materials.add(OceanMaterial {
             heightmap,
             sdf_texture,
+            terrain_heightmap,
             params: OceanParams {
                 world_width,
                 world_height,
                 max_depth: ocean_data.max_distance,
                 ..default()
             },
-            // shallow_color: LinearRgba::new(0.352, 0.415, 0.459, 1.0),
-            // deep_color: LinearRgba::new(0.227, 0.29, 0.352, 1.0),
             ..default()
         })),
         Transform::from_translation(Vec3::new(0.0, 0.0, -500.0)),
