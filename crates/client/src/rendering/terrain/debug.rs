@@ -3,8 +3,9 @@ use bevy::sprite_render::MeshMaterial2d;
 use shared::{TerrainChunkId, constants};
 
 use super::components::Terrain;
-use super::materials::{DebugParams, TerrainMaterial};
+use super::materials::TerrainMaterial;
 use crate::state::resources::WorldCache;
+use crate::ui::debug::DebugOverlayState;
 
 /// Debug mode for chunk visualization (F8)
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
@@ -194,96 +195,31 @@ pub fn draw_outline_points(
     }
 }
 
-// ─── F4 — Terrain Debug Modes ───────────────────────────────────────
+// ─── Terrain Debug Uniforms ─────────────────────────────────────────
 //
-// Cycle: Normal → Slope → LevelLines → Slope+ShoreType → LevelLines+ShoreType → Normal
+// Reads from DebugOverlayState (UI panel) and syncs debug_params on
+// all terrain materials each frame.
 //
-// shader_mode  controls debug_params.x  (0=normal, 1=slope, 2=levellines)
-// show_shore_types  toggles gizmos hex overlay (additive, drawn on top of shader mode)
+// debug_params.x = shader base mode (0..5)
+// debug_params.y = overlay bit-flags  (bit 0 = level_lines)
 
-/// Shader-side debug visualisation (uniform debug_params.x)
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
-pub enum ShaderDebugMode {
-    #[default]
-    Normal,
-    Slope,
-    LevelLines,
-}
-
-impl ShaderDebugMode {
-    pub fn shader_value(&self) -> f32 {
-        match self {
-            Self::Normal => 0.0,
-            Self::Slope => 1.0,
-            Self::LevelLines => 2.0,
-        }
-    }
-}
-
-/// Combined terrain debug state, cycled with F4.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TerrainDebugState {
-    pub shader_mode: ShaderDebugMode,
-    pub show_shore_types: bool,
-}
-
-impl Default for TerrainDebugState {
-    fn default() -> Self {
-        Self {
-            shader_mode: ShaderDebugMode::Normal,
-            show_shore_types: false,
-        }
-    }
-}
-
-impl TerrainDebugState {
-    /// Advance to next state in the cycle.
-    pub fn next(&self) -> Self {
-        use ShaderDebugMode::*;
-        match (self.shader_mode, self.show_shore_types) {
-            (Normal, false) => Self { shader_mode: Slope, show_shore_types: false },
-            (Slope, false) => Self { shader_mode: LevelLines, show_shore_types: false },
-            (LevelLines, false) => Self { shader_mode: Slope, show_shore_types: true },
-            (Slope, true) => Self { shader_mode: LevelLines, show_shore_types: true },
-            (LevelLines, true) => Self { shader_mode: Normal, show_shore_types: false },
-            _ => Self::default(),
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        use ShaderDebugMode::*;
-        match (self.shader_mode, self.show_shore_types) {
-            (Normal, false) => "OFF",
-            (Slope, false) => "Slope",
-            (LevelLines, false) => "Level Lines",
-            (Slope, true) => "Slope + Shore Types",
-            (LevelLines, true) => "Level Lines + Shore Types",
-            _ => "OFF",
-        }
-    }
-}
-
-/// Resource for the current terrain debug state (F4)
-#[derive(Resource, Default)]
-pub struct SlopeDebugEnabled(pub TerrainDebugState);
-
-/// System to cycle terrain debug mode with F4 key.
-/// Updates debug_params.x on all terrain materials.
-pub fn toggle_slope_debug(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut debug_state: ResMut<SlopeDebugEnabled>,
+/// Sync DebugOverlayState → terrain material debug_params uniform.
+pub fn sync_debug_uniforms(
+    debug: Res<DebugOverlayState>,
     terrains: Query<&MeshMaterial2d<TerrainMaterial>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
-    if keyboard.just_pressed(KeyCode::F4) {
-        debug_state.0 = debug_state.0.next();
-        info!("Terrain debug mode: {}", debug_state.0.label());
+    let base = debug.shader_base.shader_value();
+    let mut overlay_flags: u32 = 0;
+    if debug.level_lines {
+        overlay_flags |= 1;
     }
+    let overlay_f = overlay_flags as f32;
 
-    let val = debug_state.0.shader_mode.shader_value();
     for mat_handle in terrains.iter() {
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
-            mat.debug_params.slope_debug = val;
+            mat.debug_params.slope_debug = base;
+            mat.debug_params._padding1 = overlay_f;
         }
     }
 }
@@ -291,14 +227,13 @@ pub fn toggle_slope_debug(
 // ─── Shore Type Gizmos Overlay ──────────────────────────────────────
 
 /// Draw hex outlines for cells tagged Shoreline or Lakebank.
-/// Active when show_shore_types is true in TerrainDebugState.
 pub fn draw_shore_type_gizmos(
     mut gizmos: Gizmos,
-    debug_state: Res<SlopeDebugEnabled>,
+    debug: Res<DebugOverlayState>,
     world_cache: Option<Res<WorldCache>>,
     grid_config: Res<shared::grid::GridConfig>,
 ) {
-    if !debug_state.0.show_shore_types {
+    if !debug.hex_shore_types {
         return;
     }
 
@@ -325,5 +260,65 @@ fn draw_hex_outline(gizmos: &mut Gizmos, center: Vec2, layout: &hexx::HexLayout,
         let start = center + corners[i];
         let end = center + corners[(i + 1) % 6];
         gizmos.line_2d(start, end, color);
+    }
+}
+
+// ─── Chunk Boundary Gizmos + Labels (from DebugOverlayState) ────────
+
+/// Marker for chunk label text entities managed by the overlay panel.
+#[derive(Component)]
+pub struct OverlayChunkLabel {
+    pub chunk_id: shared::TerrainChunkId,
+}
+
+/// Draw chunk boundary rectangles and manage chunk label text entities.
+pub fn draw_chunk_boundary_gizmos(
+    mut commands: Commands,
+    mut gizmos: Gizmos,
+    debug: Res<DebugOverlayState>,
+    terrains: Query<&Terrain>,
+    labels: Query<(Entity, &OverlayChunkLabel)>,
+) {
+    if !debug.chunk_boundaries {
+        // Despawn labels when disabled
+        for (entity, _) in labels.iter() {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
+    let existing: std::collections::HashSet<_> = labels
+        .iter()
+        .map(|(_, l)| l.chunk_id)
+        .collect();
+
+    for terrain in terrains.iter() {
+        let pos = Vec2::new(
+            terrain.id.x as f32 * constants::CHUNK_SIZE.x,
+            terrain.id.y as f32 * constants::CHUNK_SIZE.y,
+        );
+        let center = pos + Vec2::new(constants::CHUNK_SIZE.x, constants::CHUNK_SIZE.y) * 0.5;
+        gizmos.rect_2d(
+            center,
+            Vec2::new(constants::CHUNK_SIZE.x, constants::CHUNK_SIZE.y),
+            Color::srgba(1.0, 1.0, 1.0, 0.3),
+        );
+
+        // Spawn label if not yet existing
+        if !existing.contains(&terrain.id) {
+            let text_pos = pos + Vec2::new(40.0, constants::CHUNK_SIZE.y - 15.0);
+            commands.spawn((
+                Text2d::new(format!("({}, {})", terrain.id.x, terrain.id.y)),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.5)),
+                Transform::from_translation(text_pos.extend(0.0)),
+                OverlayChunkLabel {
+                    chunk_id: terrain.id,
+                },
+            ));
+        }
     }
 }
