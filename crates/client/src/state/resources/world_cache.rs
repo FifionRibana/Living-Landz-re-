@@ -167,6 +167,10 @@ impl CellCache {
     pub fn get_cell(&self, cell: &GridCell) -> Option<&CellData> {
         self.loaded.get(cell)
     }
+
+    pub fn iter_cells(&self) -> impl Iterator<Item = &CellData> {
+        self.loaded.values()
+    }
 }
 
 #[derive(Default, Clone)]
@@ -642,6 +646,10 @@ impl WorldCache {
 
     pub fn get_cell(&self, cell: &GridCell) -> Option<&CellData> {
         self.cells.get_cell(cell)
+    }
+
+    pub fn iter_cells(&self) -> impl Iterator<Item = &CellData> {
+        self.cells.iter_cells()
     }
 
     // BUILDINGS
