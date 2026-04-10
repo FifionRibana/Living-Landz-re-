@@ -51,9 +51,9 @@ pub struct TerrainMaterial {
     #[uniform(14)]
     pub biome_params: BiomeParams,
 
-    // Heightmap texture (R8: elevation 0-255)
+    // Heightmap texture (R16Unorm: elevation 0-65535)
     #[texture(15)]
-    #[sampler(16)]
+    #[sampler(16, sampler_type = "filtering")]
     pub heightmap_texture: Handle<Image>,
 
     #[uniform(17)]

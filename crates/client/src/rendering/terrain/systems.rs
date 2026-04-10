@@ -48,9 +48,31 @@ pub fn create_terrain_global_textures(
 
     let data = cache.get_terrain_global().unwrap();
 
+    let expected_biome_bytes = (data.biome_width * data.biome_height * 4) as usize;
     info!(
-        "Creating global biome texture {}x{} and heightmap {}x{}",
-        data.biome_width, data.biome_height, data.heightmap_width, data.heightmap_height
+        "Creating global biome texture {}x{} ({} bytes, expected {}) and heightmap {}x{} ({} bytes)",
+        data.biome_width, data.biome_height,
+        data.biome_values.len(), expected_biome_bytes,
+        data.heightmap_width, data.heightmap_height,
+        data.heightmap_values.len(),
+    );
+    if data.biome_values.len() != expected_biome_bytes {
+        error!(
+            "BIOME DATA SIZE MISMATCH: got {} bytes, expected {} for {}x{} RGBA8",
+            data.biome_values.len(), expected_biome_bytes,
+            data.biome_width, data.biome_height
+        );
+    }
+    // Log first few pixels to verify diversity
+    let mid = data.biome_values.len() / 2;
+    info!(
+        "[DIAG] Biome first 5 pixels: [{},{},{},{}] [{},{},{},{}] [{},{},{},{}] [{},{},{},{}] [{},{},{},{}] | mid: [{},{},{},{}]",
+        data.biome_values[0], data.biome_values[1], data.biome_values[2], data.biome_values[3],
+        data.biome_values[4], data.biome_values[5], data.biome_values[6], data.biome_values[7],
+        data.biome_values[8], data.biome_values[9], data.biome_values[10], data.biome_values[11],
+        data.biome_values[12], data.biome_values[13], data.biome_values[14], data.biome_values[15],
+        data.biome_values[16], data.biome_values[17], data.biome_values[18], data.biome_values[19],
+        data.biome_values[mid], data.biome_values[mid+1], data.biome_values[mid+2], data.biome_values[mid+3],
     );
 
     let mut biome_image = Image::new(
@@ -215,6 +237,12 @@ pub fn spawn_terrain(
                 },
             )
         } else {
+            warn!(
+                "[DIAG] Chunk ({},{}) spawned WITHOUT biome texture. global_loaded={}, has_handles={}",
+                terrain.id.x, terrain.id.y,
+                world_cache.is_terrain_global_loaded(),
+                world_cache.has_terrain_global_handles(),
+            );
             let dummy = images.add(Image::new(
                 Extent3d {
                     width: 1,
@@ -277,6 +305,16 @@ pub fn spawn_terrain(
         };
 
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
+            // Log SDF stats for diagnosis
+            if terrain.id.x % 20 == 0 && terrain.id.y % 20 == 0 {
+                let min_v = sdf.values.iter().copied().min().unwrap_or(0);
+                let max_v = sdf.values.iter().copied().max().unwrap_or(0);
+                let avg_v = sdf.values.iter().map(|&v| v as f32).sum::<f32>() / sdf.values.len() as f32;
+                info!(
+                    "[SDF DIAG] chunk ({},{}) sdf: min={} max={} avg={:.0} len={}",
+                    terrain.id.x, terrain.id.y, min_v, max_v, avg_v, sdf.values.len()
+                );
+            }
             let sdf_texture = create_sdf_texture_from_data(sdf, &mut images);
 
             let (road_texture, road_params) = if let Some(ref road_sdf) = terrain.road_sdf_data {

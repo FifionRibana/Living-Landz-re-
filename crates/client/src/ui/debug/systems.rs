@@ -10,7 +10,7 @@ use bevy::diagnostic::{
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use shared::{BiomeTypeEnum, ShoreType};
+use shared::{BiomeTypeEnum, ShoreType, constants};
 
 use super::components::*;
 
@@ -312,16 +312,12 @@ pub fn update_debug_ui(
             if let Some(world_cache) = &world_cache {
                 let (biome, shore_type) = match world_cache.get_cell(grid_cell) {
                     Some(cell_data) => (cell_data.biome, cell_data.shore_type),
-                    _ => (BiomeTypeEnum::Undefined, ShoreType::None)
+                    _ => (BiomeTypeEnum::Undefined, ShoreType::None),
                 };
 
                 // Sample altitude from the heightmap texture
-                let alt_str = sample_altitude_at(
-                    world_cache.as_ref(),
-                    &images,
-                    position.x,
-                    position.y,
-                );
+                let alt_str =
+                    sample_altitude_at(world_cache.as_ref(), &images, position.x, position.y);
 
                 **text = format!(
                     "Cell: (q: {}, r: {})\nBiome: {:?}\nShore: {:?}\n{}",
@@ -391,11 +387,10 @@ fn sample_altitude_at(
         (data[idx] as f32 / 255.0, data[idx] as u32)
     };
 
-    let altitude_m = (height_norm * 2500.0).round() as i32;
-
-    if altitude_m == 0 {
+    if height_norm <= constants::WATER_HEIGHT_THRESHOLD {
         "Alt: sea level".to_string()
     } else {
+        let altitude_m = (height_norm * 2500.0).round() as i32;
         format!("Alt: {}m", altitude_m)
     }
 }
