@@ -344,6 +344,7 @@ impl BiomeMeshData {
         scale: &Vec2,
         hex_layout: &HexLayout,
         chunk_id: &TerrainChunkId,
+        enriched_heightmap: Option<(&[u8], u32, u32)>, // (data, width, height) — u16 LE, flipped
     ) -> Vec<CellData> {
         let img_w = source_biome_flipped.width();
         let img_h = source_biome_flipped.height();
@@ -482,13 +483,66 @@ impl BiomeMeshData {
                     BiomeTypeEnum::DeepOcean
                 };
 
-                // Determine shore type (independent of biome)
-                let shore_type = if ocean_ratio > 0.25 && biome != BiomeTypeEnum::DeepOcean {
-                    shared::ShoreType::Shoreline
-                } else if lake_ratio > 0.25 && biome != BiomeTypeEnum::Lake {
-                    shared::ShoreType::Lakebank
+                // Determine shore type using enriched heightmap when available.
+                // A cell is coastal if it has land height AND at least one
+                // neighbor is at water level. This aligns with the visual
+                // coastline from the enriched heightmap rather than the
+                // binary source map.
+                let shore_type = if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
+                    let world_w = img_w as f32 * scale.x;
+                    let world_h = img_h as f32 * scale.y;
+                    let center_pos = hex_layout.hex_to_world_pos(hex_cell);
+                    let center_h = Self::sample_enriched_height(
+                        hm_data, hm_w, hm_h, center_pos, world_w, world_h,
+                    );
+
+                    const WATER_THRESHOLD: f32 = 0.003; // same as ocean shader
+
+                    if center_h <= WATER_THRESHOLD {
+                        // This hex is water — not a shore cell
+                        shared::ShoreType::None
+                    } else {
+                        // Check 6 neighbors for water adjacency
+                        let neighbors = hex_cell.all_neighbors();
+                        let mut has_water_neighbor = false;
+                        let mut water_is_lake = false;
+
+                        for neighbor in &neighbors {
+                            let npos = hex_layout.hex_to_world_pos(*neighbor);
+                            let nh = Self::sample_enriched_height(
+                                hm_data, hm_w, hm_h, npos, world_w, world_h,
+                            );
+                            if nh <= WATER_THRESHOLD {
+                                has_water_neighbor = true;
+                                // Check lake map to distinguish ocean vs lake
+                                let lx = (npos.x / scale.x) as u32;
+                                let ly = (npos.y / scale.y) as u32;
+                                if lx < source_lake.width() && ly < source_lake.height() {
+                                    if source_lake.get_pixel(lx, ly)[0] > 128 {
+                                        water_is_lake = true;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        if has_water_neighbor && water_is_lake {
+                            shared::ShoreType::Lakebank
+                        } else if has_water_neighbor {
+                            shared::ShoreType::Shoreline
+                        } else {
+                            shared::ShoreType::None
+                        }
+                    }
                 } else {
-                    shared::ShoreType::None
+                    // Fallback: original binary map logic
+                    if ocean_ratio > 0.25 && biome != BiomeTypeEnum::DeepOcean {
+                        shared::ShoreType::Shoreline
+                    } else if lake_ratio > 0.25 && biome != BiomeTypeEnum::Lake {
+                        shared::ShoreType::Lakebank
+                    } else {
+                        shared::ShoreType::None
+                    }
                 };
 
                 CellData {
@@ -499,6 +553,42 @@ impl BiomeMeshData {
                 }
             })
             .collect()
+    }
+
+    /// Sample the enriched heightmap at a world position.
+    /// Returns normalised height (0.0 = sea level, 1.0 = peak).
+    /// The heightmap is u16 LE bytes, Y-flipped to match Bevy coordinates.
+    #[inline]
+    fn sample_enriched_height(
+        data: &[u8],
+        hm_w: u32,
+        hm_h: u32,
+        world_pos: Vec2,
+        world_width: f32,
+        world_height: f32,
+    ) -> f32 {
+        let u = world_pos.x / world_width;
+        let v = world_pos.y / world_height;
+        let px = (u * hm_w as f32) as i32;
+        let py = (v * hm_h as f32) as i32;
+        if px < 0 || py < 0 || px >= hm_w as i32 || py >= hm_h as i32 {
+            return 0.0;
+        }
+        let expected_u16_len = (hm_w * hm_h * 2) as usize;
+        if data.len() >= expected_u16_len {
+            let idx = (py as usize * hm_w as usize + px as usize) * 2;
+            if idx + 1 < data.len() {
+                let val = u16::from_le_bytes([data[idx], data[idx + 1]]);
+                return val as f32 / 65535.0;
+            }
+        } else {
+            // Legacy u8 format
+            let idx = py as usize * hm_w as usize + px as usize;
+            if idx < data.len() {
+                return data[idx] as f32 / 255.0;
+            }
+        }
+        0.0
     }
 
     #[inline]

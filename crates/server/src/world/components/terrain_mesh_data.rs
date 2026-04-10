@@ -181,6 +181,9 @@ impl TerrainMeshData {
             max_distance: 150.0,
             grid_config: None,
             source_biome_flipped_rgba: None,
+            enriched_heightmap: terrain_global_data.as_ref().map(|d| d.heightmap_values.clone()),
+            enriched_heightmap_width: terrain_global_data.as_ref().map(|d| d.heightmap_width).unwrap_or(0),
+            enriched_heightmap_height: terrain_global_data.as_ref().map(|d| d.heightmap_height).unwrap_or(0),
         };
 
         (global_state, terrain_global_data)
