@@ -1,6 +1,7 @@
 use crate::database::client::DatabaseTables;
 use crate::database::tables;
 use crate::world;
+use image::{ImageBuffer, Luma};
 use crate::world::components::BiomeMeshData;
 use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
@@ -70,6 +71,7 @@ pub async fn generate_world_globals(
     global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
     global_state.maps = Some(maps);
     global_state.grid_config = Some(grid_config);
+    global_state.build_effective_binary();
 
     // Save terrain global data (biome + heightmap textures for client)
     if let Some(ref global_data) = terrain_global_data {
@@ -108,17 +110,41 @@ pub async fn generate_world_globals(
         global_state.scale.x
     );
 
-    let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map);
-    let mut ocean_binary = image::imageops::resize(
-        &ocean_binary_flipped,
-        (src_w as f32 * ocean_scale) as u32,
-        (src_h as f32 * ocean_scale) as u32,
-        image::imageops::FilterType::Lanczos3,
-    );
-    // Threshold like resize_image does
-    ocean_binary.iter_mut().for_each(|p| {
-        *p = if *p > 178 { 255 } else { 0 };
-    });
+    let ocean_binary = if let Some(ref eff) = global_state.effective_binary {
+        // Effective binary is already clean 0/255 and Y-flipped.
+        // Resize to target ocean resolution.
+        let target_w = eff.width().min(ocean_max_dim);
+        let ratio = eff.height() as f32 / eff.width() as f32;
+        let target_h = (target_w as f32 * ratio).round() as u32;
+        let mut resized = image::imageops::resize(
+            eff,
+            target_w,
+            target_h,
+            image::imageops::FilterType::Lanczos3,
+        );
+        // Re-threshold after resize (Lanczos creates intermediate values)
+        resized.iter_mut().for_each(|p| {
+            *p = if *p > 128 { 255 } else { 0 };
+        });
+        tracing::info!(
+            "Ocean binary from effective_binary: {}x{} → {}x{}",
+            eff.width(), eff.height(), target_w, target_h
+        );
+        resized
+    } else {
+        // Fallback: original binary map pipeline
+        let ocean_binary_flipped = image::imageops::flip_vertical(&global_maps.binary_map);
+        let mut resized = image::imageops::resize(
+            &ocean_binary_flipped,
+            (src_w as f32 * ocean_scale) as u32,
+            (src_h as f32 * ocean_scale) as u32,
+            image::imageops::FilterType::Lanczos3,
+        );
+        resized.iter_mut().for_each(|p| {
+            *p = if *p > 178 { 255 } else { 0 };
+        });
+        resized
+    };
 
     let ocean_heightmap = image::imageops::resize(
         &global_maps.heightmap,
@@ -179,45 +205,92 @@ pub async fn generate_world_globals(
         (lake_w, lake_h)
     };
 
-    // Resize and flip mask
-    // Upscale lake source for smoother SDF (same approach as ocean)
-    let lake_upscale_dim = 4096u32;
-    let lake_ratio = lake_h as f32 / lake_w as f32;
-    let (lake_upscale_w, lake_upscale_h) = if lake_w >= lake_h {
-        (
-            lake_upscale_dim,
-            (lake_upscale_dim as f32 * lake_ratio).round() as u32,
-        )
+    // Build effective lake mask: water pixels (from enriched heightmap) that are
+    // also in the lake source map. This aligns the lake boundary with the
+    // enriched heightmap's coastal slope.
+    let (lake_inverted, lake_mask_flipped) = if let Some(ref eff) = global_state.effective_binary {
+        let eff_w = eff.width();
+        let eff_h = eff.height();
+        let world_w = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+        let world_h = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+        // Build effective lake at enriched heightmap resolution
+        let mut eff_lake = ImageBuffer::<Luma<u8>, Vec<u8>>::new(eff_w, eff_h);
+        for y in 0..eff_h {
+            for x in 0..eff_w {
+                let is_water = eff.get_pixel(x, y)[0] == 0; // effective binary: 0=water
+                // Map to source lake pixel (lake_src is NOT flipped, eff IS flipped)
+                let wx = x as f32 / eff_w as f32; // normalized
+                let wy = y as f32 / eff_h as f32;
+                let lx = (wx * lake_w as f32) as u32;
+                let ly = ((1.0 - wy) * lake_h as f32) as u32; // flip Y
+                let lx = lx.min(lake_w - 1);
+                let ly = ly.min(lake_h - 1);
+                let is_lake_src = lake_src.get_pixel(lx, ly)[0] > 128;
+
+                let is_lake = is_water && is_lake_src;
+                eff_lake.put_pixel(x, y, Luma([if is_lake { 255 } else { 0 }]));
+            }
+        }
+
+        // For SDF: invert (land=white, lake=black → SDF convention: white=land)
+        let mut lake_for_sdf = eff_lake.clone();
+        lake_for_sdf.iter_mut().for_each(|p| {
+            *p = if *p > 128 { 0 } else { 255 };
+        });
+
+        // Resize for SDF computation (cap at 4096)
+        let lake_upscale_dim = 4096u32;
+        let ratio = eff_h as f32 / eff_w as f32;
+        let (tw, th) = if eff_w >= eff_h {
+            (lake_upscale_dim.min(eff_w), (lake_upscale_dim.min(eff_w) as f32 * ratio).round() as u32)
+        } else {
+            ((lake_upscale_dim.min(eff_h) as f32 / ratio).round() as u32, lake_upscale_dim.min(eff_h))
+        };
+        let mut sdf_input = image::imageops::resize(
+            &lake_for_sdf, tw, th, image::imageops::FilterType::Lanczos3,
+        );
+        sdf_input.iter_mut().for_each(|p| { *p = if *p > 128 { 255 } else { 0 }; });
+
+        // Mask for client at target resolution
+        let mut mask = image::imageops::resize(
+            &eff_lake, lake_target_w, lake_target_h, image::imageops::FilterType::Lanczos3,
+        );
+        mask.iter_mut().for_each(|p| { *p = if *p > 128 { 255 } else { 0 }; });
+
+        tracing::info!(
+            "Lake from effective_binary + lake_src: SDF input {}x{}, mask {}x{}",
+            sdf_input.width(), sdf_input.height(), mask.width(), mask.height()
+        );
+
+        (sdf_input, mask)
     } else {
-        (
-            (lake_upscale_dim as f32 / lake_ratio).round() as u32,
-            lake_upscale_dim,
-        )
+        // Fallback: original lake pipeline
+        let lake_upscale_dim = 4096u32;
+        let lake_ratio = lake_h as f32 / lake_w as f32;
+        let (lake_upscale_w, lake_upscale_h) = if lake_w >= lake_h {
+            (lake_upscale_dim, (lake_upscale_dim as f32 * lake_ratio).round() as u32)
+        } else {
+            ((lake_upscale_dim as f32 / lake_ratio).round() as u32, lake_upscale_dim)
+        };
+
+        let lake_upscaled = image::imageops::resize(
+            lake_src, lake_upscale_w, lake_upscale_h,
+            image::imageops::FilterType::Lanczos3,
+        );
+        let lake_flipped = image::imageops::flip_vertical(&lake_upscaled);
+
+        let mut lake_inv = lake_flipped.clone();
+        lake_inv.iter_mut().for_each(|p| { *p = if *p > 178 { 0 } else { 255 }; });
+
+        let lake_mask_resized = image::imageops::resize(
+            lake_src, lake_target_w, lake_target_h,
+            image::imageops::FilterType::Lanczos3,
+        );
+        let mask = image::imageops::flip_vertical(&lake_mask_resized);
+
+        (lake_inv, mask)
     };
-
-    let lake_upscaled = image::imageops::resize(
-        lake_src,
-        lake_upscale_w,
-        lake_upscale_h,
-        image::imageops::FilterType::Lanczos3,
-    );
-    let lake_flipped = image::imageops::flip_vertical(&lake_upscaled);
-
-    // Generate lake SDF: invert the mask (land=white, lake=black) to match
-    // generate_global_sdf convention (white=land, black=water)
-    let mut lake_inverted = lake_flipped.clone();
-    lake_inverted.iter_mut().for_each(|p| {
-        *p = if *p > 178 { 0 } else { 255 };
-    });
-
-    // Mask at original target resolution for client
-    let lake_mask_resized = image::imageops::resize(
-        lake_src,
-        lake_target_w,
-        lake_target_h,
-        image::imageops::FilterType::Lanczos3,
-    );
-    let lake_mask_flipped = image::imageops::flip_vertical(&lake_mask_resized);
 
     // SDF at same resolution as mask
     let lake_sdf_w = lake_target_w as usize;
@@ -324,7 +397,7 @@ pub async fn load_or_generate_world_globals(
             (None, 0, 0)
         };
 
-        let global_state = WorldGlobalState {
+        let mut global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
             source_binary_flipped,
@@ -339,7 +412,10 @@ pub async fn load_or_generate_world_globals(
             enriched_heightmap: enriched_hm,
             enriched_heightmap_width: ehm_w,
             enriched_heightmap_height: ehm_h,
+            effective_binary: None,
         };
+
+        global_state.build_effective_binary();
 
         tracing::info!(
             "✓ World globals loaded in {:?} ({}x{} chunks)",

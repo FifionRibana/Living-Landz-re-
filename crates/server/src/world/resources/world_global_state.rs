@@ -46,11 +46,49 @@ pub struct WorldGlobalState {
     pub enriched_heightmap: Option<Vec<u8>>,
     pub enriched_heightmap_width: u32,
     pub enriched_heightmap_height: u32,
+
+    /// Effective binary map derived from enriched heightmap (0=water, 255=land).
+    /// Same orientation as source_binary_flipped (Bevy Y-up).
+    /// Used for SDF generation and chunk_has_land checks.
+    pub effective_binary: Option<ImageBuffer<Luma<u8>, Vec<u8>>>,
 }
 
 impl WorldGlobalState {
+    /// Generate the effective binary map from the enriched heightmap.
+    /// Must be called after enriched_heightmap is populated.
+    pub fn build_effective_binary(&mut self) {
+        let Some(ref hm_data) = self.enriched_heightmap else {
+            return;
+        };
+        let w = self.enriched_heightmap_width as usize;
+        let h = self.enriched_heightmap_height as usize;
+        let expected_u16_len = w * h * 2;
+        let is_u16 = hm_data.len() >= expected_u16_len;
+
+        let mut effective = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
+        for y in 0..h {
+            for x in 0..w {
+                let height_norm = if is_u16 {
+                    let idx = (y * w + x) * 2;
+                    let val = u16::from_le_bytes([hm_data[idx], hm_data[idx + 1]]);
+                    val as f32 / 65535.0
+                } else {
+                    hm_data[y * w + x] as f32 / 255.0
+                };
+                let is_land = height_norm > constants::WATER_HEIGHT_THRESHOLD;
+                effective.put_pixel(x as u32, y as u32, Luma([if is_land { 255u8 } else { 0u8 }]));
+            }
+        }
+        tracing::info!(
+            "✓ Effective binary map generated from enriched heightmap ({}x{})",
+            w, h
+        );
+        self.effective_binary = Some(effective);
+    }
+
     /// Generate SDF data and binary mask for a single chunk.
-    /// Crops source image with overlap, upscales locally, computes SDF.
+    /// Uses effective_binary (from enriched heightmap) when available,
+    /// falls back to source_binary_flipped with upscale.
     /// Returns (SDF data, binary mask for contour detection).
     pub fn generate_chunk_sdf_and_mask(
         &self,
@@ -72,46 +110,57 @@ impl WorldGlobalState {
         let ext_x_max = (chunk_x + chunk_w + self.max_distance).min(world_w);
         let ext_y_max = (chunk_y + chunk_h + self.max_distance).min(world_h);
 
-        // Map to source image coordinates (divide by scale)
-        let src_w = self.source_binary_flipped.width();
-        let src_h = self.source_binary_flipped.height();
+        // Choose binary source: effective_binary (enriched) or source_binary_flipped (legacy)
+        let (binary_img, pix_scale_x, pix_scale_y) = if let Some(ref eff) = self.effective_binary {
+            let sx = world_w / eff.width() as f32;
+            let sy = world_h / eff.height() as f32;
+            (eff as &ImageBuffer<Luma<u8>, Vec<u8>>, sx, sy)
+        } else {
+            (&self.source_binary_flipped, self.scale.x, self.scale.y)
+        };
 
-        let src_x_min = ((ext_x_min / self.scale.x).floor() as u32).min(src_w);
-        let src_y_min = ((ext_y_min / self.scale.y).floor() as u32).min(src_h);
-        let src_x_max = ((ext_x_max / self.scale.x).ceil() as u32).min(src_w);
-        let src_y_max = ((ext_y_max / self.scale.y).ceil() as u32).min(src_h);
+        let img_w = binary_img.width();
+        let img_h = binary_img.height();
+
+        let src_x_min = ((ext_x_min / pix_scale_x).floor() as u32).min(img_w);
+        let src_y_min = ((ext_y_min / pix_scale_y).floor() as u32).min(img_h);
+        let src_x_max = ((ext_x_max / pix_scale_x).ceil() as u32).min(img_w);
+        let src_y_max = ((ext_y_max / pix_scale_y).ceil() as u32).min(img_h);
 
         let crop_w = src_x_max - src_x_min;
         let crop_h = src_y_max - src_y_min;
 
         if crop_w == 0 || crop_h == 0 {
-            // Chunk is entirely outside the map
             let mut data = TerrainChunkSdfData::new(res as u8);
-            data.values = vec![0u8; res * res]; // all water
+            data.values = vec![0u8; res * res];
             let mask = ImageBuffer::new(chunk_w as u32, chunk_h as u32);
             return (vec![data], mask);
         }
 
-        // Crop source image
+        // Crop binary image
         let crop: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::from_fn(crop_w, crop_h, |x, y| {
-            *self
-                .source_binary_flipped
-                .get_pixel(src_x_min + x, src_y_min + y)
+            *binary_img.get_pixel(src_x_min + x, src_y_min + y)
         });
 
-        // Upscale + threshold (same as global pipeline)
-        let upscaled = TerrainMeshData::resize_image(&crop, &self.scale, 178);
+        // For effective_binary (already high-res and clean 0/255), use directly as
+        // "upscaled" at 1 pixel = 1 world unit. For legacy source, upscale + threshold.
+        let (upscaled, up_origin_x, up_origin_y) = if self.effective_binary.is_some() {
+            // Effective binary: 1 pixel ≈ pix_scale world units.
+            // The crop is already at the right resolution.
+            let origin_x = src_x_min as f32 * pix_scale_x;
+            let origin_y = src_y_min as f32 * pix_scale_y;
+            (crop, origin_x, origin_y)
+        } else {
+            let upscaled = TerrainMeshData::resize_image(&crop, &self.scale, 178);
+            let origin_x = src_x_min as f32 * self.scale.x;
+            let origin_y = src_y_min as f32 * self.scale.y;
+            (upscaled, origin_x, origin_y)
+        };
 
-        // The upscaled crop covers ext_x_min..ext_x_max in world space
-        // (approximately — rounding may shift by ±1 pixel)
-        let up_origin_x = src_x_min as f32 * self.scale.x;
-        let up_origin_y = src_y_min as f32 * self.scale.y;
-
-        // Compute SDF on the full upscaled crop
+        // Compute SDF on the binary crop
         let crop_world_w = upscaled.width() as f32;
         let crop_world_h = upscaled.height() as f32;
 
-        // SDF resolution proportional to crop size
         let sdf_per_world_x = res as f32 / chunk_w;
         let sdf_per_world_y = res as f32 / chunk_h;
         let local_sdf_w = (crop_world_w * sdf_per_world_x).ceil() as usize;
@@ -126,7 +175,7 @@ impl WorldGlobalState {
             self.max_distance,
         );
 
-        // Extract chunk's 64×64 SDF from the center of the local SDF
+        // Extract chunk's 64×64 SDF from the local SDF
         let chunk_offset_x = chunk_x - up_origin_x;
         let chunk_offset_y = chunk_y - up_origin_y;
         let sdf_start_x = (chunk_offset_x * sdf_per_world_x).round() as usize;
@@ -140,7 +189,7 @@ impl WorldGlobalState {
                 if gx < local_sdf_w && gy < local_sdf_h {
                     chunk_sdf_values.push(local_sdf[gy * local_sdf_w + gx]);
                 } else {
-                    chunk_sdf_values.push(0); // water outside bounds
+                    chunk_sdf_values.push(0);
                 }
             }
         }
@@ -148,7 +197,7 @@ impl WorldGlobalState {
         let mut sdf_data = TerrainChunkSdfData::new(res as u8);
         sdf_data.values = chunk_sdf_values;
 
-        // Extract chunk binary mask from upscaled crop (for contour detection)
+        // Extract chunk binary mask from crop (for contour detection)
         let mask_offset_x = chunk_offset_x.round() as u32;
         let mask_offset_y = chunk_offset_y.round() as u32;
 
@@ -165,19 +214,13 @@ impl WorldGlobalState {
         (vec![sdf_data], mask)
     }
 
-    /// Check if a chunk has any land (quick check from source image, no SDF needed)
+    /// Check if a chunk has any land (quick sample from effective binary or source image)
     pub fn chunk_has_land(&self, chunk_id: &TerrainChunkId) -> bool {
         let chunk_x = chunk_id.x as f32 * constants::CHUNK_SIZE.x;
         let chunk_y = chunk_id.y as f32 * constants::CHUNK_SIZE.y;
+        let world_w = self.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+        let world_h = self.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
 
-        // Sample a few points in the source image
-        let src_cx = ((chunk_x + constants::CHUNK_SIZE.x * 0.5) / self.scale.x) as u32;
-        let src_cy = ((chunk_y + constants::CHUNK_SIZE.y * 0.5) / self.scale.y) as u32;
-
-        let src_w = self.source_binary_flipped.width();
-        let src_h = self.source_binary_flipped.height();
-
-        // Check center and corners — if any pixel has land, the chunk might have land
         let offsets = [
             (0.5, 0.5),
             (0.1, 0.1),
@@ -190,15 +233,32 @@ impl WorldGlobalState {
             (0.7, 0.3),
         ];
 
-        for (fx, fy) in offsets {
-            let px = ((chunk_x + constants::CHUNK_SIZE.x * fx) / self.scale.x) as u32;
-            let py = ((chunk_y + constants::CHUNK_SIZE.y * fy) / self.scale.y) as u32;
-            if px < src_w && py < src_h && self.source_binary_flipped.get_pixel(px, py)[0] > 30 {
-                return true;
+        if let Some(ref eff) = self.effective_binary {
+            let eff_w = eff.width();
+            let eff_h = eff.height();
+            for (fx, fy) in offsets {
+                let wx = chunk_x + constants::CHUNK_SIZE.x * fx;
+                let wy = chunk_y + constants::CHUNK_SIZE.y * fy;
+                let px = (wx / world_w * eff_w as f32) as u32;
+                let py = (wy / world_h * eff_h as f32) as u32;
+                if px < eff_w && py < eff_h && eff.get_pixel(px, py)[0] > 128 {
+                    return true;
+                }
             }
+            false
+        } else {
+            // Fallback: source binary map
+            let src_w = self.source_binary_flipped.width();
+            let src_h = self.source_binary_flipped.height();
+            for (fx, fy) in offsets {
+                let px = ((chunk_x + constants::CHUNK_SIZE.x * fx) / self.scale.x) as u32;
+                let py = ((chunk_y + constants::CHUNK_SIZE.y * fy) / self.scale.y) as u32;
+                if px < src_w && py < src_h && self.source_binary_flipped.get_pixel(px, py)[0] > 30 {
+                    return true;
+                }
+            }
+            false
         }
-
-        false
     }
 }
 

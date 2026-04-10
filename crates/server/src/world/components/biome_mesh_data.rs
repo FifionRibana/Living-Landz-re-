@@ -483,6 +483,56 @@ impl BiomeMeshData {
                     BiomeTypeEnum::DeepOcean
                 };
 
+                // Override biome using enriched heightmap as source of truth
+                let biome = if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
+                    let world_w = img_w as f32 * scale.x;
+                    let world_h = img_h as f32 * scale.y;
+                    let center_pos = hex_layout.hex_to_world_pos(hex_cell);
+                    let center_h = Self::sample_enriched_height(
+                        hm_data, hm_w, hm_h, center_pos, world_w, world_h,
+                    );
+
+                    let water_threshold = constants::WATER_HEIGHT_THRESHOLD;
+
+                    if center_h <= water_threshold {
+                        // Heightmap says water — override any land biome
+                        let px = (center_pos.x / scale.x) as u32;
+                        let py = (center_pos.y / scale.y) as u32;
+                        let is_lake = px < source_lake.width()
+                            && py < source_lake.height()
+                            && source_lake.get_pixel(px, py)[0] > 128;
+                        if is_lake {
+                            BiomeTypeEnum::Lake
+                        } else {
+                            BiomeTypeEnum::Ocean
+                        }
+                    } else {
+                        // Heightmap says land — keep biome unless source said water
+                        match biome {
+                            BiomeTypeEnum::Ocean
+                            | BiomeTypeEnum::DeepOcean
+                            | BiomeTypeEnum::Lake => {
+                                // Coastal slope extension: land beyond original binary edge
+                                if land_total > 0 {
+                                    let id_map = hex_land.get(&hex_cell).unwrap();
+                                    let best_id = id_map
+                                        .iter()
+                                        .max_by_key(|(_, count)| *count)
+                                        .map(|(id, _)| *id)
+                                        .unwrap_or(5);
+                                    BiomeTypeEnum::from_id(best_id as i16)
+                                        .unwrap_or(BiomeTypeEnum::Grassland)
+                                } else {
+                                    BiomeTypeEnum::Grassland
+                                }
+                            }
+                            _ => biome,
+                        }
+                    }
+                } else {
+                    biome
+                };
+
                 // Determine shore type using enriched heightmap when available.
                 // A cell is coastal if it has land height AND at least one
                 // neighbor is at water level. This aligns with the visual
@@ -496,9 +546,9 @@ impl BiomeMeshData {
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
                     );
 
-                    const WATER_THRESHOLD: f32 = 0.003; // same as ocean shader
+                    let water_threshold = constants::WATER_HEIGHT_THRESHOLD; // same as ocean shader
 
-                    if center_h <= WATER_THRESHOLD {
+                    if center_h <= water_threshold {
                         // This hex is water — not a shore cell
                         shared::ShoreType::None
                     } else {
@@ -512,7 +562,7 @@ impl BiomeMeshData {
                             let nh = Self::sample_enriched_height(
                                 hm_data, hm_w, hm_h, npos, world_w, world_h,
                             );
-                            if nh <= WATER_THRESHOLD {
+                            if nh <= water_threshold {
                                 has_water_neighbor = true;
                                 // Check lake map to distinguish ocean vs lake
                                 let lx = (npos.x / scale.x) as u32;

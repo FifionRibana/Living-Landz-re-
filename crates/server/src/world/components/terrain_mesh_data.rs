@@ -184,6 +184,7 @@ impl TerrainMeshData {
             enriched_heightmap: terrain_global_data.as_ref().map(|d| d.heightmap_values.clone()),
             enriched_heightmap_width: terrain_global_data.as_ref().map(|d| d.heightmap_width).unwrap_or(0),
             enriched_heightmap_height: terrain_global_data.as_ref().map(|d| d.heightmap_height).unwrap_or(0),
+            effective_binary: None, // populated after construction
         };
 
         (global_state, terrain_global_data)
