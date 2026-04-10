@@ -72,7 +72,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // Raw heightmap: gamma-boosted greyscale (black = sea level, white = peak)
         // Discard on land — terrain renders there. Land = any height > 0.
         let h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
-        if (h > 0.0) {
+        if (h > 0.001) {
             discard;
         }
         let vis = sqrt(h);
@@ -91,19 +91,47 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(c, 1.0);
     }
 
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv).r;
+    // 1. --- ANTI-PIXELLISATION (Le même flou 9-tap que le terrain) ---
+    let tex_size = vec2<f32>(textureDimensions(sdf_texture));
+    let texel_size = 1.0 / tex_size;
+    let offset = texel_size * 1.2; // Ajuster le rayon du flou
+
+    var sdf_raw = 0.0;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x, -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( 0.0,      -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x, -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x,  0.0)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv).r; // Centre
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x,  0.0)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x,  offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( 0.0,       offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x,  offset.y)).r;
+    sdf_raw = sdf_raw / 9.0;
+
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
+
+    // --- Discard lointain pour optimisation ---
+    if sdf_signed > 0.15 {
+        discard;
+    }
 
     // Terrain enriched heightmap: the source of truth for coastline.
     // Discard where terrain is land (height > 0). Ocean is exactly 0.
     let terrain_h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
-    if terrain_h > 0.0 {
+    //if terrain_h > 0.1 {
+    //    discard;
+    //}
+
+    // Smooth transition: fade ocean out as terrain approaches shore
+    // terrain_h 0.0→0.003 maps to full ocean → discard
+    let shore_fade = 1.0 - smoothstep(0.0, 0.01, terrain_h);
+
+    // Also keep the SDF discard for deep inland (where terrain heightmap might
+    // have tiny floating values due to noise)
+    if sdf_signed > 0.15 {
         discard;
     }
 
-    // No shore_fade needed — the boundary is binary (0 = water, >0 = land).
-    // The coastal slope in the enriched heightmap already handles the transition.
-    let shore_fade = 1.0;
     let sdf_depth_raw = saturate(-sdf_signed);
 
     // === Heightmap ===
@@ -205,7 +233,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let haze_amount = smoothstep(0.02, 0.65, haze_depth) * 0.20;
     ocean_color = mix(ocean_color, haze_color, haze_amount);
 
-// =====================================================================
+    // =====================================================================
     // ÉCUME — vagues suivant les iso-contours SDF vers la côte
     // =====================================================================
 
@@ -327,10 +355,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         (1.0 - (op_cycle - 0.6) * 2.5) * 0.02,  // reflux: recule vite
         op_cycle > 0.6
     );
-    let opacity = smoothstep(0.02 + wave_advance, -0.08, sdf_signed);
+    // Perturb SDF for organic coastline edge (breaks remaining pixel staircases)
+    let edge_noise = fbm(ref_pos * 0.02, 3);
+    let sdf_perturbed = sdf_signed + (edge_noise - 0.5) * 0.05;
+    // Extend ocean slightly into land and soften the alpha transition
+    let opacity = smoothstep(0.01 + wave_advance, -0.12, sdf_perturbed);
 
     // Apply terrain heightmap shore fade — smoothly hides ocean as terrain rises
-    let final_opacity = opacity * shore_fade;
+    let final_opacity = opacity;
 
     return vec4<f32>(ocean_color, final_opacity);
 }

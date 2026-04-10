@@ -534,19 +534,24 @@ fn painterly_beach_transition(
     base_sand: vec3<f32>,
 ) -> vec3<f32> {
     
-    // Bruit pour casser les transitions en lignes irrégulières
-    let edge_noise = fbm_rotated(world_pos * 0.025, 4);
-    let edge_offset = (edge_noise - 0.5) * 0.18; // ±0.09 de décalage SDF
-    
+    // Large undulations (break straight segments over ~200-400 world units)
+    let coast_warp = fbm_rotated(world_pos * 0.04 + vec2<f32>(123.4, 567.8), 3);
+    let large_offset = (coast_warp - 0.5) * 0.25;
+
+    // Detail noise (break at ~50-100 world units)
+    let edge_noise = fbm_rotated(world_pos * 0.075, 4);
+    let edge_offset = (edge_noise - 0.5) * 0.35;
+
     // Bruit secondaire pour les taches de végétation dans le sable
     let patch_noise = fbm(world_pos * 0.04 + vec2<f32>(200.0, 100.0), 3);
-    
-    // SDF perturbée par le bruit (bords organiques)
-    let sdf_noisy = sdf_signed + edge_offset;
+
+    // SDF perturbée par le bruit (bords organiques à deux échelles)
+    let sdf_noisy = sdf_signed + large_offset + edge_offset;
     
     // ---- Zone 1 : Sable mouillé (très proche de l'eau) ----
-    // De beach_start jusqu'à ~40% du chemin
-    let wet_end = beach_start + (beach_end - beach_start) * 0.3;
+    // De beach_start jusqu'à ~45% du chemin, with noise for irregular wet line
+    let wet_noise = fbm(world_pos * 0.05 + vec2<f32>(88.8, 44.4), 2);
+    let wet_end = beach_start + (beach_end - beach_start) * 0.45 + (wet_noise - 0.5) * 0.08;
     let wet_t = smoothstep(beach_start - 0.02, wet_end, sdf_noisy);
     
     // ---- Zone 2 : Sable sec ----
@@ -917,8 +922,42 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     // ---- Chunk côtier : SDF + transition multi-zones ----
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+
+    // 1. Calculer la taille d'un texel en coordonnées UV
+    let tex_size = vec2<f32>(textureDimensions(sdf_texture));
+    let texel_size = 1.0 / tex_size;
+
+    // 2. Définir le rayon du flou en "texels"
+    // Joue avec cette valeur (1.0, 1.5, 2.0...). Plus c'est grand, plus c'est flou.
+    let blur_radius = 1.2; 
+    let offset = texel_size * blur_radius;
+
+    // 3. Échantillonnage multiple (Grille 3x3)
+    var sdf_raw = 0.0;
+    
+    // Ligne du haut
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x, -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( 0.0,      -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x, -offset.y)).r;
+    
+    // Ligne du milieu
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x,  0.0)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected).r; // Centre
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x,  0.0)).r;
+    
+    // Ligne du bas
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x,  offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( 0.0,       offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x,  offset.y)).r;
+
+    // 4. Moyenne des 9 échantillons pour obtenir la valeur floutée
+    sdf_raw = sdf_raw / 9.0;
+
+    // 5. On repasse au SDF signé (la suite de ton code)
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
+    
+    //let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
+    //let sdf_signed = (sdf_raw - 0.5) * 2.0;
 
     // Attenuate rock in beach zone so gentle coasts keep their sand transition
     let beach_mask = smoothstep(beach_end, beach_start, sdf_signed);

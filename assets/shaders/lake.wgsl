@@ -60,10 +60,26 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // === SDF — primary depth source ===
-    let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv).r;
-    let sdf_signed = (sdf_raw - 0.5) * 2.0; // -1=deep lake, 0=shore, +1=land
+    // 1. --- ANTI-PIXELLISATION (Le même flou 9-tap que le terrain) ---
+    let tex_size = vec2<f32>(textureDimensions(sdf_texture));
+    let texel_size = 1.0 / tex_size;
+    let offset = texel_size * 1.5; // Ajuster le rayon du flou
 
+    var sdf_raw = 0.0;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x, -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( 0.0,      -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x, -offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x,  0.0)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv).r; // Centre
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x,  0.0)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x,  offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( 0.0,       offset.y)).r;
+    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>( offset.x,  offset.y)).r;
+    sdf_raw = sdf_raw / 9.0;
+
+    let sdf_signed = (sdf_raw - 0.5) * 2.0;
+
+    // --- Discard lointain pour optimisation ---
     // Discard land pixels
     if sdf_signed > 0.1 {
         discard;
