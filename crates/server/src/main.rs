@@ -151,6 +151,9 @@ fn main() {
         // ── Voronoi zones (regenerate if missing) ──
         world::systems::ensure_voronoi_zones(&db_tables, &world_global_state).await;
 
+        // ── Territory contours (regenerate if missing after --clear) ──
+        world::systems::ensure_territory_contours(&db_tables).await;
+
         let world_global_state_arc = Arc::new(world_global_state);
 
         // ── Shared state ──

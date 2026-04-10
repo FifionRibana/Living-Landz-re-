@@ -310,6 +310,20 @@ pub async fn load_or_generate_world_globals(
         let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
         let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
 
+        // Load enriched heightmap from cached terrain global data
+        let terrain_global = db_tables
+            .terrain_global_data
+            .load_terrain_global_data(map_name)
+            .await
+            .ok()
+            .flatten();
+
+        let (enriched_hm, ehm_w, ehm_h) = if let Some(ref tg) = terrain_global {
+            (Some(tg.heightmap_values.clone()), tg.heightmap_width, tg.heightmap_height)
+        } else {
+            (None, 0, 0)
+        };
+
         let global_state = WorldGlobalState {
             map_name: map_name.to_string(),
             maps: Some(maps),
@@ -322,6 +336,9 @@ pub async fn load_or_generate_world_globals(
             max_distance: 150.0,
             grid_config: Some(grid_config),
             source_biome_flipped_rgba: Some(source_biome_flipped),
+            enriched_heightmap: enriched_hm,
+            enriched_heightmap_width: ehm_w,
+            enriched_heightmap_height: ehm_h,
         };
 
         tracing::info!(
@@ -486,6 +503,9 @@ pub async fn generate_chunk_data(
             &global.scale,
             &grid_config.layout,
             chunk_id,
+            global.enriched_heightmap.as_ref().map(|data| {
+                (data.as_slice(), global.enriched_heightmap_width, global.enriched_heightmap_height)
+            }),
         )
     } else {
         vec![]
@@ -907,6 +927,42 @@ pub async fn save_world_to_png(map_name: &str) {
     tracing::info!("✓ Saving {} map in {:?}", map_name, start.elapsed());
 }
 
+/// Check if territory cells exist but contours are missing, and regenerate if needed.
+/// Called at startup after loading world globals to recover from --clear.
+pub async fn ensure_territory_contours(db_tables: &DatabaseTables) {
+    let contour_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations.territory_contours")
+            .fetch_one(&db_tables.pool)
+            .await
+            .unwrap_or(0);
+
+    let territory_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(DISTINCT organization_id) FROM organizations.territory_cells")
+            .fetch_one(&db_tables.pool)
+            .await
+            .unwrap_or(0);
+
+    if territory_count == 0 {
+        tracing::info!("✓ No territories — skipping contour check");
+        return;
+    }
+
+    if contour_count > 0 {
+        tracing::info!(
+            "✓ Territory contours OK: {} chunks for {} organizations",
+            contour_count,
+            territory_count
+        );
+        return;
+    }
+
+    tracing::warn!(
+        "⚠️ {} organizations have territory but 0 contour chunks — regenerating...",
+        territory_count
+    );
+    regenerate_territory_contours(db_tables).await;
+}
+
 /// Regenerate territory contours for all existing organizations
 pub async fn regenerate_territory_contours(db_tables: &DatabaseTables) {
     tracing::info!("=== Starting Territory Contours Regeneration ===");
@@ -960,11 +1016,27 @@ pub async fn regenerate_territory_contours(db_tables: &DatabaseTables) {
                     12345, //org_id as u64, // jitter seed (ensures consistency)
                 );
 
-                tracing::info!("  Generated {} contour chunks", contour_chunks.len());
+                // Log cell world positions and expected chunks for debug
+                for cell in cells.iter().take(5) {
+                    let hex = cell.to_hex();
+                    let world_pos = grid_config.layout.hex_to_world_pos(hex);
+                    let expected_chunk = shared::TerrainChunkId::from_world_pos(world_pos);
+                    tracing::info!(
+                        "  [DIAG] cell q={} r={} → world=({:.0},{:.0}) → chunk ({},{})",
+                        cell.q, cell.r, world_pos.x, world_pos.y,
+                        expected_chunk.x, expected_chunk.y
+                    );
+                }
+
+                tracing::info!("  Generated {} contour chunks:", contour_chunks.len());
 
                 // Store contours in database
                 let mut stored_count = 0;
                 for (chunk_id, contour_segments) in contour_chunks {
+                    tracing::info!(
+                        "    chunk ({},{}) → {} segments",
+                        chunk_id.x, chunk_id.y, contour_segments.len()
+                    );
                     match db_tables
                         .territory_contours
                         .store_contour(org_id as u64, chunk_id.x, chunk_id.y, &contour_segments)
