@@ -1,7 +1,7 @@
 mod world_generation;
 
 pub use world_generation::{
-    clear_world, ensure_voronoi_zones, generate_chunk_data, generate_world,
-    generate_world_globals, load_or_generate_world_globals,
+    clear_world, ensure_territory_contours, ensure_voronoi_zones, generate_chunk_data,
+    generate_world, generate_world_globals, load_or_generate_world_globals,
     regenerate_territory_contours, save_world_to_png, setup_grid_config,
 };
