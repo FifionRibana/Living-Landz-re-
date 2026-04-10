@@ -40,6 +40,12 @@ pub struct WorldGlobalState {
     /// Source biome map, flipped vertically (NOT upscaled, ~7MB RGBA)
     /// Used by sample_biome_for_chunk to sample at source resolution
     pub source_biome_flipped_rgba: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+
+    /// Enriched heightmap (u16 LE bytes, flipped to match Bevy Y-up).
+    /// Used for ShoreType classification based on actual terrain height.
+    pub enriched_heightmap: Option<Vec<u8>>,
+    pub enriched_heightmap_width: u32,
+    pub enriched_heightmap_height: u32,
 }
 
 impl WorldGlobalState {
