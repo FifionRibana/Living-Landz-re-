@@ -68,20 +68,21 @@ impl WorldGlobalState {
         let mut effective = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
         for y in 0..h {
             for x in 0..w {
-                let height_norm = if is_u16 {
+                // Land = any heightmap value > 0. Ocean is exactly 0u16.
+                let is_land = if is_u16 {
                     let idx = (y * w + x) * 2;
-                    let val = u16::from_le_bytes([hm_data[idx], hm_data[idx + 1]]);
-                    val as f32 / 65535.0
+                    u16::from_le_bytes([hm_data[idx], hm_data[idx + 1]]) > 0
                 } else {
-                    hm_data[y * w + x] as f32 / 255.0
+                    hm_data[y * w + x] > 0
                 };
-                let is_land = height_norm > constants::WATER_HEIGHT_THRESHOLD;
                 effective.put_pixel(x as u32, y as u32, Luma([if is_land { 255u8 } else { 0u8 }]));
             }
         }
+        let land_count = effective.pixels().filter(|p| p[0] > 128).count();
+        let total = w * h;
         tracing::info!(
-            "✓ Effective binary map generated from enriched heightmap ({}x{})",
-            w, h
+            "✓ Effective binary map generated from enriched heightmap ({}x{}): {} land pixels ({:.1}%)",
+            w, h, land_count, land_count as f64 / total as f64 * 100.0
         );
         self.effective_binary = Some(effective);
     }
@@ -157,9 +158,20 @@ impl WorldGlobalState {
             (upscaled, origin_x, origin_y)
         };
 
-        // Compute SDF on the binary crop
-        let crop_world_w = upscaled.width() as f32;
-        let crop_world_h = upscaled.height() as f32;
+        // Compute SDF on the binary crop.
+        // crop_world_w/h must be in WORLD units, not pixels.
+        // For effective_binary: pixels * pix_scale = world units.
+        // For legacy upscaled: 1 pixel = 1 world unit (resize_image applies scale).
+        let crop_world_w = if self.effective_binary.is_some() {
+            upscaled.width() as f32 * pix_scale_x
+        } else {
+            upscaled.width() as f32
+        };
+        let crop_world_h = if self.effective_binary.is_some() {
+            upscaled.height() as f32 * pix_scale_y
+        } else {
+            upscaled.height() as f32
+        };
 
         let sdf_per_world_x = res as f32 / chunk_w;
         let sdf_per_world_y = res as f32 / chunk_h;
@@ -197,19 +209,37 @@ impl WorldGlobalState {
         let mut sdf_data = TerrainChunkSdfData::new(res as u8);
         sdf_data.values = chunk_sdf_values;
 
-        // Extract chunk binary mask from crop (for contour detection)
-        let mask_offset_x = chunk_offset_x.round() as u32;
-        let mask_offset_y = chunk_offset_y.round() as u32;
-
-        let mask = ImageBuffer::from_fn(chunk_w as u32, chunk_h as u32, |x, y| {
-            let gx = mask_offset_x + x;
-            let gy = mask_offset_y + y;
-            if gx < upscaled.width() && gy < upscaled.height() {
-                *upscaled.get_pixel(gx, gy)
-            } else {
-                Luma([0u8])
-            }
-        });
+        // Extract chunk binary mask from crop (for contour detection).
+        // For effective_binary: convert world offset to pixel offset.
+        // For legacy upscaled: 1 pixel = 1 world unit.
+        let mask = if self.effective_binary.is_some() {
+            let pix_off_x = (chunk_offset_x / pix_scale_x).round() as u32;
+            let pix_off_y = (chunk_offset_y / pix_scale_y).round() as u32;
+            let pix_per_chunk_w = (chunk_w / pix_scale_x).ceil() as u32;
+            let pix_per_chunk_h = (chunk_h / pix_scale_y).ceil() as u32;
+            // Sample from crop at effective binary resolution, produce chunk-sized mask
+            ImageBuffer::from_fn(chunk_w as u32, chunk_h as u32, |x, y| {
+                let sx = pix_off_x + (x * pix_per_chunk_w / chunk_w as u32);
+                let sy = pix_off_y + (y * pix_per_chunk_h / chunk_h as u32);
+                if sx < upscaled.width() && sy < upscaled.height() {
+                    *upscaled.get_pixel(sx, sy)
+                } else {
+                    Luma([0u8])
+                }
+            })
+        } else {
+            let mask_offset_x = chunk_offset_x.round() as u32;
+            let mask_offset_y = chunk_offset_y.round() as u32;
+            ImageBuffer::from_fn(chunk_w as u32, chunk_h as u32, |x, y| {
+                let gx = mask_offset_x + x;
+                let gy = mask_offset_y + y;
+                if gx < upscaled.width() && gy < upscaled.height() {
+                    *upscaled.get_pixel(gx, gy)
+                } else {
+                    Luma([0u8])
+                }
+            })
+        };
 
         (vec![sdf_data], mask)
     }

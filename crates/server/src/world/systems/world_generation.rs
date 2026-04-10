@@ -368,6 +368,14 @@ pub async fn load_or_generate_world_globals(
 
     if has_globals {
         tracing::info!("Found cached terrain globals, loading maps only...");
+        // Log cached global data dimensions for diagnostic
+        if let Ok(Some(ref tg)) = db_tables.terrain_global_data.load_terrain_global_data(map_name).await {
+            tracing::info!(
+                "  [DIAG] Cached TerrainGlobalData: biome {}x{} ({} bytes), heightmap {}x{} ({} bytes)",
+                tg.biome_width, tg.biome_height, tg.biome_values.len(),
+                tg.heightmap_width, tg.heightmap_height, tg.heightmap_values.len(),
+            );
+        }
         let t = std::time::Instant::now();
 
         let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
@@ -425,7 +433,7 @@ pub async fn load_or_generate_world_globals(
         );
         global_state
     } else {
-        tracing::info!("No cached globals found, generating...");
+        tracing::info!("No cached globals found, generating from scratch...");
         generate_world_globals(map_name, db_tables).await
     }
 }

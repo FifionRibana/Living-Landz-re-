@@ -70,9 +70,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let debug_base = u32(debug_params.x + 0.5);
     if (debug_base == 3u) {
         // Raw heightmap: gamma-boosted greyscale (black = sea level, white = peak)
-        // Discard on land (same threshold as normal mode) — terrain renders there
+        // Discard on land — terrain renders there. Land = any height > 0.
         let h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
-        if (h > 0.003) {
+        if (h > 0.0) {
             discard;
         }
         let vis = sqrt(h);
@@ -95,21 +95,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let sdf_signed = (sdf_raw - 0.5) * 2.0;
 
     // Terrain enriched heightmap: the source of truth for coastline.
-    // Discard where the terrain has non-trivial height (land).
+    // Discard where terrain is land (height > 0). Ocean is exactly 0.
     let terrain_h = textureSample(terrain_heightmap, terrain_heightmap_sampler, uv).r;
-    if terrain_h > 0.003 { // ~7.5m — anything above this is definitely land
+    if terrain_h > 0.0 {
         discard;
     }
 
-    // Smooth transition: fade ocean out as terrain approaches shore
-    // terrain_h 0.0→0.003 maps to full ocean → discard
-    let shore_fade = 1.0 - smoothstep(0.0005, 0.003, terrain_h);
-
-    // Also keep the SDF discard for deep inland (where terrain heightmap might
-    // have tiny floating values due to noise)
-    if sdf_signed > 0.15 {
-        discard;
-    }
+    // No shore_fade needed — the boundary is binary (0 = water, >0 = land).
+    // The coastal slope in the enriched heightmap already handles the transition.
+    let shore_fade = 1.0;
     let sdf_depth_raw = saturate(-sdf_signed);
 
     // === Heightmap ===

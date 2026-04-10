@@ -492,9 +492,7 @@ impl BiomeMeshData {
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
                     );
 
-                    let water_threshold = constants::WATER_HEIGHT_THRESHOLD;
-
-                    if center_h <= water_threshold {
+                    if center_h <= 0.0 {
                         // Heightmap says water — override any land biome
                         let px = (center_pos.x / scale.x) as u32;
                         let py = (center_pos.y / scale.y) as u32;
@@ -546,9 +544,7 @@ impl BiomeMeshData {
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
                     );
 
-                    let water_threshold = constants::WATER_HEIGHT_THRESHOLD; // same as ocean shader
-
-                    if center_h <= water_threshold {
+                    if center_h <= 0.0 {
                         // This hex is water — not a shore cell
                         shared::ShoreType::None
                     } else {
@@ -562,7 +558,7 @@ impl BiomeMeshData {
                             let nh = Self::sample_enriched_height(
                                 hm_data, hm_w, hm_h, npos, world_w, world_h,
                             );
-                            if nh <= water_threshold {
+                            if nh <= 0.0 {
                                 has_water_neighbor = true;
                                 // Check lake map to distinguish ocean vs lake
                                 let lx = (npos.x / scale.x) as u32;

@@ -743,7 +743,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         switch debug_base {
             // --- 1: Slope classes ---
             case 1u: {
-                if (height > 0.001) {
+                if (height > 0.0) {
                     let slope = compute_slope_magnitude(global_uv, world_pos);
                     debug_color = vec3<f32>(0.31, 0.63, 0.31);
                     debug_color = mix(debug_color, vec3<f32>(0.71, 0.71, 0.24), smoothstep(0.04, 0.06, slope));
@@ -754,7 +754,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             // --- 2: Altitude bands ---
             case 2u: {
-                if (height > 0.001) {
+                if (height > 0.0) {
                     let h = height;
                     debug_color = vec3<f32>(0.67, 0.82, 0.67); // coastal green
                     debug_color = mix(debug_color, vec3<f32>(0.47, 0.71, 0.39), smoothstep(0.018, 0.022, h));
@@ -772,7 +772,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             // --- 4: Biome IDs (distinct colors) ---
             case 4u: {
-                if (height > 0.001) {
+                if (height > 0.0) {
                     let data = textureSample(biome_texture, biome_sampler, global_uv);
                     let id = u32(data.r * 15.0 + 0.5);
                     switch id {
@@ -805,14 +805,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     } else {
                         debug_color = mix(vec3<f32>(0.80, 0.90, 1.00), vec3<f32>(0.20, 0.60, 0.20), min(sdf * 3.0, 1.0));
                     }
-                } else if (height > 0.001) {
+                } else if (height > 0.0) {
                     debug_color = vec3<f32>(0.25, 0.55, 0.25); // inland = green
                 }
             }
             // --- 6: Shoreline debug — coast/height mismatch ---
             case 6u: {
                 // Grey base for land
-                if (height > 0.001) {
+                if (height > 0.0) {
                     debug_color = vec3<f32>(0.25, 0.25, 0.25);
                 }
 
@@ -826,7 +826,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
 
                 // Red: coastal plain — land with very low height (< 0.02 ~ 50m)
-                if (height > 0.001 && height < 0.02) {
+                if (height > 0.0 && height < 0.02) {
                     debug_color = mix(debug_color, vec3<f32>(0.85, 0.2, 0.2), 0.7);
                 }
 
@@ -840,7 +840,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
 
                 // Contour lines at height intervals
-                if (height > 0.001) {
+                if (height > 0.0) {
                     let h_scaled = height * 25.0;
                     let contour = abs(fract(h_scaled) - 0.5);
                     if (contour < 0.05) {
@@ -853,7 +853,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // --- Overlay: level lines ---
         let overlay_flags = u32(debug_params.y + 0.5);
-        if ((overlay_flags & 1u) != 0u && height > 0.001) {
+        if ((overlay_flags & 1u) != 0u && height > 0.0) {
             let line = fract(height * 25.0);
             let line_mask = 1.0 - smoothstep(0.02, 0.05, min(line, 1.0 - line));
             debug_color = mix(debug_color, vec3<f32>(0.0, 0.0, 0.0), line_mask * 0.7);

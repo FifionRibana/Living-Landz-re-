@@ -632,12 +632,13 @@ pub fn generate_enriched_heightmap(
         .zip(land_mask_up.par_iter())
         .enumerate()
         .for_each(|(idx, (&val, &is_land))| {
-            let clamped = if is_land {
-                val.clamp(0.001, 1.0)
+            let u16_val = if is_land {
+                // Land must be > 0u16. Clamp to [1, 65535].
+                let v = (val.clamp(0.0, 1.0) * 65535.0).round() as u16;
+                v.max(1) // ensure land is never 0
             } else {
-                0.0
+                0u16 // ocean is exactly 0
             };
-            let u16_val = (clamped * 65535.0).round() as u16;
             let bytes = u16_val.to_le_bytes();
             let offset = idx * 2;
             // Safety: each index writes to its own 2-byte slot
