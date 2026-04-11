@@ -387,10 +387,43 @@ fn sample_altitude_at(
         (data[idx] as f32 / 255.0, data[idx] as u32)
     };
 
-    if height_norm <= constants::WATER_HEIGHT_THRESHOLD {
-        "Alt: sea level".to_string()
+    let altitude_m = (height_norm * 2500.0).round() as i32;
+
+    // Compute local slope from 4 neighbors
+    let sample = |sx: usize, sy: usize| -> f32 {
+        if is_u16 {
+            let idx = (sy * hm_w + sx) * 2;
+            if idx + 1 < data.len() {
+                u16::from_le_bytes([data[idx], data[idx + 1]]) as f32 / 65535.0
+            } else { 0.0 }
+        } else {
+            let idx = sy * hm_w + sx;
+            if idx < data.len() { data[idx] as f32 / 255.0 } else { 0.0 }
+        }
+    };
+
+    let x0 = if px > 1 { px - 2 } else { 0 };
+    let x1 = (px + 2).min(hm_w - 1);
+    let y0 = if py > 1 { py - 2 } else { 0 };
+    let y1 = (py + 2).min(hm_h - 1);
+
+    let h_l = sample(x0, py);
+    let h_r = sample(x1, py);
+    let h_d = sample(px, y0);
+    let h_u = sample(px, y1);
+
+    let texel_world = global.world_width / hm_w as f32;
+    let rise = (h_r - h_l).abs() * 2500.0;
+    let run = (x1 - x0) as f32 * texel_world;
+    let slope_deg = if run > 0.0 {
+        (rise / run).atan().to_degrees()
     } else {
-        let altitude_m = (height_norm * 2500.0).round() as i32;
-        format!("Alt: {}m", altitude_m)
+        0.0
+    };
+
+    if height_norm <= constants::WATER_HEIGHT_THRESHOLD {
+        return format!("Alt: sea level | Slope: {:.0}°", slope_deg);
     }
+
+    format!("Alt: {}m | Slope: {:.0}°", altitude_m, slope_deg)
 }
