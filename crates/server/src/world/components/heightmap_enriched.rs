@@ -165,6 +165,54 @@ fn gaussian_blur(data: &[f32], w: usize, h: usize) -> Vec<f32> {
     out
 }
 
+/// Separable Gaussian blur with configurable sigma on a bool mask (as f32 0/1).
+/// Returns blurred f32 values in [0, 1]. Used to smooth coastline staircases.
+fn gaussian_blur_mask(mask: &[bool], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+    let radius = (sigma * 2.5).ceil() as i32;
+    // Build 1D kernel
+    let kernel_size = (2 * radius + 1) as usize;
+    let mut kernel = vec![0.0f32; kernel_size];
+    let mut sum = 0.0f32;
+    for i in 0..kernel_size {
+        let x = (i as i32 - radius) as f32;
+        let v = (-x * x / (2.0 * sigma * sigma)).exp();
+        kernel[i] = v;
+        sum += v;
+    }
+    for v in kernel.iter_mut() {
+        *v /= sum;
+    }
+
+    // Convert mask to f32
+    let src: Vec<f32> = mask.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect();
+
+    // Horizontal pass
+    let mut tmp = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut s = 0.0f32;
+            for k in -radius..=radius {
+                let sx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
+                s += src[y * w + sx] * kernel[(k + radius) as usize];
+            }
+            tmp[y * w + x] = s;
+        }
+    }
+    // Vertical pass
+    let mut out = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut s = 0.0f32;
+            for k in -radius..=radius {
+                let sy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
+                s += tmp[sy * w + x] * kernel[(k + radius) as usize];
+            }
+            out[y * w + x] = s;
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Euclidean Distance Transform (Felzenszwalb & Huttenlocher, 1D separable)
 // ---------------------------------------------------------------------------
@@ -495,10 +543,14 @@ pub fn generate_enriched_heightmap(
 
     // -----------------------------------------------------------------------
     // Step 4: Coastal transition via SDF
+    // Smooth the land mask before EDT to round pixel staircases into curves.
+    // The sharp mask is kept for the final zero-forcing (step 5b/7).
     // -----------------------------------------------------------------------
     let t_sdf = std::time::Instant::now();
-    let sdf = edt_land_to_water(&land_mask, sw, sh);
-    tracing::info!("  Step 4a: EDT computed in {:?}", t_sdf.elapsed());
+    let smoothed_blur = gaussian_blur_mask(&land_mask, sw, sh, 5.0);
+    let land_mask_smoothed: Vec<bool> = smoothed_blur.iter().map(|&v| v > 0.5).collect();
+    let sdf = edt_land_to_water(&land_mask_smoothed, sw, sh);
+    tracing::info!("  Step 4a: EDT computed (smoothed mask, sigma=5) in {:?}", t_sdf.elapsed());
 
     // Apply coastal transition with cliff/plain variation
     let so = config.seed_offset;

@@ -49,8 +49,13 @@ pub struct WorldGlobalState {
 
     /// Effective binary map derived from enriched heightmap (0=water, 255=land).
     /// Same orientation as source_binary_flipped (Bevy Y-up).
-    /// Used for SDF generation and chunk_has_land checks.
+    /// Sharp edges — used for gameplay (biome, ShoreType, chunk_has_land).
     pub effective_binary: Option<ImageBuffer<Luma<u8>, Vec<u8>>>,
+
+    /// Smoothed effective binary for rendering SDFs (chunk, ocean, lake).
+    /// Gaussian blur on the global image rounds pixel staircases into curves.
+    /// No chunk-junction issues since the blur is applied globally before cropping.
+    pub effective_binary_smoothed: Option<ImageBuffer<Luma<u8>, Vec<u8>>>,
 }
 
 impl WorldGlobalState {
@@ -84,6 +89,47 @@ impl WorldGlobalState {
             "✓ Effective binary map generated from enriched heightmap ({}x{}): {} land pixels ({:.1}%)",
             w, h, land_count, land_count as f64 / total as f64 * 100.0
         );
+        // Build smoothed version for rendering SDFs (organic coastlines).
+        // Applied globally — no chunk-junction issues since both chunks crop
+        // from the same blurred image.
+        let sigma = 5.0f32;
+        let radius = (sigma * 2.5).ceil() as i32;
+        let ksize = (2 * radius + 1) as usize;
+        let mut kernel = vec![0.0f32; ksize];
+        let mut ksum = 0.0f32;
+        for i in 0..ksize {
+            let xf = (i as i32 - radius) as f32;
+            kernel[i] = (-xf * xf / (2.0 * sigma * sigma)).exp();
+            ksum += kernel[i];
+        }
+        for v in kernel.iter_mut() { *v /= ksum; }
+
+        let mut tmp = vec![0.0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let mut s = 0.0f32;
+                for k in -radius..=radius {
+                    let sx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
+                    s += (effective.get_pixel(sx as u32, y as u32)[0] as f32 / 255.0)
+                        * kernel[(k + radius) as usize];
+                }
+                tmp[y * w + x] = s;
+            }
+        }
+        let mut smoothed = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
+        for y in 0..h {
+            for x in 0..w {
+                let mut s = 0.0f32;
+                for k in -radius..=radius {
+                    let sy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
+                    s += tmp[sy * w + x] * kernel[(k + radius) as usize];
+                }
+                smoothed.put_pixel(x as u32, y as u32, Luma([if s > 0.5 { 255u8 } else { 0u8 }]));
+            }
+        }
+        tracing::info!("✓ Smoothed effective binary for render (sigma={}, {}x{})", sigma, w, h);
+        self.effective_binary_smoothed = Some(smoothed);
+
         self.effective_binary = Some(effective);
     }
 
@@ -105,14 +151,27 @@ impl WorldGlobalState {
         let chunk_x = chunk_id.x as f32 * chunk_w;
         let chunk_y = chunk_id.y as f32 * chunk_h;
 
-        // Extended bounds with overlap = max_distance
-        let ext_x_min = (chunk_x - self.max_distance).max(0.0);
-        let ext_y_min = (chunk_y - self.max_distance).max(0.0);
-        let ext_x_max = (chunk_x + chunk_w + self.max_distance).min(world_w);
-        let ext_y_max = (chunk_y + chunk_h + self.max_distance).min(world_h);
+        // Extended bounds with overlap = max_distance.
+        // Snap to chunk grid so that two adjacent chunks share identical SDF
+        // values at their boundary (prevents seam/flicker artifacts).
+        let overlap_chunks_x = (self.max_distance / chunk_w).ceil();
+        let overlap_chunks_y = (self.max_distance / chunk_h).ceil();
+        let ext_chunk_x_min = (chunk_id.x as f32 - overlap_chunks_x).max(0.0) as i32;
+        let ext_chunk_y_min = (chunk_id.y as f32 - overlap_chunks_y).max(0.0) as i32;
+        let ext_chunk_x_max = ((chunk_id.x + 1) as f32 + overlap_chunks_x).min(self.n_chunk_x as f32) as i32;
+        let ext_chunk_y_max = ((chunk_id.y + 1) as f32 + overlap_chunks_y).min(self.n_chunk_y as f32) as i32;
 
-        // Choose binary source: effective_binary (enriched) or source_binary_flipped (legacy)
-        let (binary_img, pix_scale_x, pix_scale_y) = if let Some(ref eff) = self.effective_binary {
+        let ext_x_min = ext_chunk_x_min as f32 * chunk_w;
+        let ext_y_min = ext_chunk_y_min as f32 * chunk_h;
+        let ext_x_max = ext_chunk_x_max as f32 * chunk_w;
+        let ext_y_max = ext_chunk_y_max as f32 * chunk_h;
+
+        // Choose binary source: smoothed for rendering, sharp fallback, legacy last
+        let (binary_img, pix_scale_x, pix_scale_y) = if let Some(ref eff) = self.effective_binary_smoothed {
+            let sx = world_w / eff.width() as f32;
+            let sy = world_h / eff.height() as f32;
+            (eff as &ImageBuffer<Luma<u8>, Vec<u8>>, sx, sy)
+        } else if let Some(ref eff) = self.effective_binary {
             let sx = world_w / eff.width() as f32;
             let sy = world_h / eff.height() as f32;
             (eff as &ImageBuffer<Luma<u8>, Vec<u8>>, sx, sy)
@@ -173,10 +232,11 @@ impl WorldGlobalState {
             upscaled.height() as f32
         };
 
-        let sdf_per_world_x = res as f32 / chunk_w;
-        let sdf_per_world_y = res as f32 / chunk_h;
-        let local_sdf_w = (crop_world_w * sdf_per_world_x).ceil() as usize;
-        let local_sdf_h = (crop_world_h * sdf_per_world_y).ceil() as usize;
+        // Local SDF is exactly (ext_chunks_w * res) × (ext_chunks_h * res)
+        let ext_chunks_w = (ext_chunk_x_max - ext_chunk_x_min) as usize;
+        let ext_chunks_h = (ext_chunk_y_max - ext_chunk_y_min) as usize;
+        let local_sdf_w = ext_chunks_w * res;
+        let local_sdf_h = ext_chunks_h * res;
 
         let local_sdf = generate_local_sdf(
             &upscaled,
@@ -187,11 +247,10 @@ impl WorldGlobalState {
             self.max_distance,
         );
 
-        // Extract chunk's 64×64 SDF from the local SDF
-        let chunk_offset_x = chunk_x - up_origin_x;
-        let chunk_offset_y = chunk_y - up_origin_y;
-        let sdf_start_x = (chunk_offset_x * sdf_per_world_x).round() as usize;
-        let sdf_start_y = (chunk_offset_y * sdf_per_world_y).round() as usize;
+        // Extract chunk's 64×64 SDF from the local SDF.
+        // Because we snapped to chunk grid, the offset is exactly N chunks * res pixels.
+        let sdf_start_x = (chunk_id.x - ext_chunk_x_min) as usize * res;
+        let sdf_start_y = (chunk_id.y - ext_chunk_y_min) as usize * res;
 
         let mut chunk_sdf_values = Vec::with_capacity(res * res);
         for sy in 0..res {
@@ -210,14 +269,14 @@ impl WorldGlobalState {
         sdf_data.values = chunk_sdf_values;
 
         // Extract chunk binary mask from crop (for contour detection).
-        // For effective_binary: convert world offset to pixel offset.
-        // For legacy upscaled: 1 pixel = 1 world unit.
-        let mask = if self.effective_binary.is_some() {
+        let chunk_offset_x = chunk_x - (ext_chunk_x_min as f32 * chunk_w);
+        let chunk_offset_y = chunk_y - (ext_chunk_y_min as f32 * chunk_h);
+
+        let mask = if self.effective_binary_smoothed.is_some() || self.effective_binary.is_some() {
             let pix_off_x = (chunk_offset_x / pix_scale_x).round() as u32;
             let pix_off_y = (chunk_offset_y / pix_scale_y).round() as u32;
             let pix_per_chunk_w = (chunk_w / pix_scale_x).ceil() as u32;
             let pix_per_chunk_h = (chunk_h / pix_scale_y).ceil() as u32;
-            // Sample from crop at effective binary resolution, produce chunk-sized mask
             ImageBuffer::from_fn(chunk_w as u32, chunk_h as u32, |x, y| {
                 let sx = pix_off_x + (x * pix_per_chunk_w / chunk_w as u32);
                 let sy = pix_off_y + (y * pix_per_chunk_h / chunk_h as u32);

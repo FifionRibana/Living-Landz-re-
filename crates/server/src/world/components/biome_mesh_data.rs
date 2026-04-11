@@ -345,6 +345,7 @@ impl BiomeMeshData {
         hex_layout: &HexLayout,
         chunk_id: &TerrainChunkId,
         enriched_heightmap: Option<(&[u8], u32, u32)>, // (data, width, height) — u16 LE, flipped
+        world_dims: (f32, f32), // (world_width, world_height) from n_chunk * CHUNK_SIZE
     ) -> Vec<CellData> {
         let img_w = source_biome_flipped.width();
         let img_h = source_biome_flipped.height();
@@ -485,8 +486,7 @@ impl BiomeMeshData {
 
                 // Override biome using enriched heightmap as source of truth
                 let biome = if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
-                    let world_w = img_w as f32 * scale.x;
-                    let world_h = img_h as f32 * scale.y;
+                    let (world_w, world_h) = world_dims;
                     let center_pos = hex_layout.hex_to_world_pos(hex_cell);
                     let center_h = Self::sample_enriched_height(
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
@@ -537,8 +537,7 @@ impl BiomeMeshData {
                 // coastline from the enriched heightmap rather than the
                 // binary source map.
                 let shore_type = if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
-                    let world_w = img_w as f32 * scale.x;
-                    let world_h = img_h as f32 * scale.y;
+                    let (world_w, world_h) = world_dims;
                     let center_pos = hex_layout.hex_to_world_pos(hex_cell);
                     let center_h = Self::sample_enriched_height(
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
@@ -564,7 +563,7 @@ impl BiomeMeshData {
                                 let lx = (npos.x / scale.x) as u32;
                                 let ly = (npos.y / scale.y) as u32;
                                 if lx < source_lake.width() && ly < source_lake.height() {
-                                    if source_lake.get_pixel(lx, ly)[0] > 128 {
+                                    if source_lake.get_pixel(lx, ly)[0] > 30 {
                                         water_is_lake = true;
                                     }
                                 }

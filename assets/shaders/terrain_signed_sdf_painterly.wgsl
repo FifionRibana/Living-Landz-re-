@@ -22,6 +22,8 @@
 @group(2) @binding(19) var lake_sdf_sampler: sampler;
 @group(2) @binding(20) var<uniform> lake_terrain_params: vec4<f32>; // x = has_lake
 @group(2) @binding(21) var<uniform> debug_params: vec4<f32>; // x = slope_debug_enabled
+@group(2) @binding(22) var ocean_sdf_texture: texture_2d<f32>;
+@group(2) @binding(23) var ocean_sdf_sampler: sampler;
 
 // ============================================================================
 // CONSTANTES PALETTE PAINTERLY
@@ -532,37 +534,39 @@ fn painterly_beach_transition(
     beach_end: f32,
     vegetation_color: vec3<f32>,
     base_sand: vec3<f32>,
+    shrink_factor: f32,
 ) -> vec3<f32> {
     
+    // Noise amplitudes scaled for global ocean SDF (max_distance=50 world units,
+    // sdf range ±1.0 = ±50 world units). Previously calibrated for per-chunk SDF
+    // with max_distance=150 — multiply by 3.
+
     // Large undulations (break straight segments over ~200-400 world units)
     let coast_warp = fbm_rotated(world_pos * 0.04 + vec2<f32>(123.4, 567.8), 3);
-    let large_offset = (coast_warp - 0.5) * 0.25;
+    let large_offset = (coast_warp - 0.5) * 0.25 / shrink_factor;
 
     // Detail noise (break at ~50-100 world units)
     let edge_noise = fbm_rotated(world_pos * 0.075, 4);
-    let edge_offset = (edge_noise - 0.5) * 0.35;
+    let edge_offset = (edge_noise - 0.5) * 0.35 / shrink_factor;
 
     // Bruit secondaire pour les taches de végétation dans le sable
     let patch_noise = fbm(world_pos * 0.04 + vec2<f32>(200.0, 100.0), 3);
 
     // SDF perturbée par le bruit (bords organiques à deux échelles)
     let sdf_noisy = sdf_signed + large_offset + edge_offset;
-    
+
     // ---- Zone 1 : Sable mouillé (très proche de l'eau) ----
-    // De beach_start jusqu'à ~45% du chemin, with noise for irregular wet line
     let wet_noise = fbm(world_pos * 0.05 + vec2<f32>(88.8, 44.4), 2);
-    let wet_end = beach_start + (beach_end - beach_start) * 0.45 + (wet_noise - 0.5) * 0.08;
-    let wet_t = smoothstep(beach_start - 0.02, wet_end, sdf_noisy);
-    
+    let wet_end = beach_start + (beach_end - beach_start) * 0.45 + (wet_noise - 0.5) * 0.08 / shrink_factor;
+    let wet_t = smoothstep(beach_start - 0.02 / shrink_factor, wet_end, sdf_noisy);
+
     // ---- Zone 2 : Sable sec ----
-    // De 40% à 70%
     let dry_end = beach_start + (beach_end - beach_start) * 0.7;
     let dry_t = smoothstep(wet_end, dry_end, sdf_noisy);
-    
+
     // ---- Zone 3 : Transition sable-herbe (moucheté) ----
-    // De 70% à 100% + un peu au-delà
     let grass_start = dry_end;
-    let grass_end = beach_end + 0.08;
+    let grass_end = beach_end + 0.08 / shrink_factor;
     let grass_t = smoothstep(grass_start, grass_end, sdf_noisy);
     
     // Couleur sable mouillé = sable de base assombri
@@ -597,13 +601,13 @@ fn painterly_beach_transition(
 // Les zones proches des côtes/bordures sont légèrement assombries
 // ============================================================================
 
-fn sdf_ambient_occlusion(sdf_signed: f32) -> f32 {
+fn sdf_ambient_occlusion(sdf_signed: f32, shrink_factor: f32) -> f32 {
     // AO douce : les zones très proches de la frontière terre/eau sont plus sombres
     // Simule l'ombre dans le "creux" côtier
     let dist_to_edge = abs(sdf_signed);
-    let ao = smoothstep(0.0, 0.12, dist_to_edge);
-    // Retourne un facteur multiplicatif (0.82 au bord → 1.0 loin)
-    return 0.82 + ao * 0.18;
+    // Scaled for global ocean SDF (max_distance=50, x3 vs per-chunk)
+    let ao = smoothstep(0.0, 0.12 / shrink_factor, dist_to_edge);
+    return 0.90 + ao * 0.10;
 }
 
 // ============================================================================
@@ -714,8 +718,9 @@ fn is_on_road(
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let beach_start = params.x;
-    let beach_end = params.y;
+    let shrink_factor = 10.0;
+    let beach_start = params.x / (3.0 * shrink_factor);
+    let beach_end = params.y * (0.4) / shrink_factor;
     let has_coast = params.z;
     let has_biome = biome_params.x;
     
@@ -921,43 +926,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(color, vertex_alpha);
     }
     
-    // ---- Chunk côtier : SDF + transition multi-zones ----
-
-    // 1. Calculer la taille d'un texel en coordonnées UV
-    let tex_size = vec2<f32>(textureDimensions(sdf_texture));
-    let texel_size = 1.0 / tex_size;
-
-    // 2. Définir le rayon du flou en "texels"
-    // Joue avec cette valeur (1.0, 1.5, 2.0...). Plus c'est grand, plus c'est flou.
-    let blur_radius = 1.2; 
-    let offset = texel_size * blur_radius;
-
-    // 3. Échantillonnage multiple (Grille 3x3)
-    var sdf_raw = 0.0;
-    
-    // Ligne du haut
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x, -offset.y)).r;
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( 0.0,      -offset.y)).r;
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x, -offset.y)).r;
-    
-    // Ligne du milieu
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x,  0.0)).r;
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected).r; // Centre
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x,  0.0)).r;
-    
-    // Ligne du bas
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>(-offset.x,  offset.y)).r;
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( 0.0,       offset.y)).r;
-    sdf_raw += textureSample(sdf_texture, sdf_sampler, uv_corrected + vec2<f32>( offset.x,  offset.y)).r;
-
-    // 4. Moyenne des 9 échantillons pour obtenir la valeur floutée
-    sdf_raw = sdf_raw / 9.0;
-
-    // 5. On repasse au SDF signé (la suite de ton code)
-    let sdf_signed = (sdf_raw - 0.5) * 2.0;
-    
-    //let sdf_raw = textureSample(sdf_texture, sdf_sampler, uv_corrected).r;
-    //let sdf_signed = (sdf_raw - 0.5) * 2.0;
+    // ---- Chunk côtier : use GLOBAL ocean SDF for seamless beach transition ----
+    // The per-chunk SDF (sdf_texture) has seam artifacts at chunk boundaries.
+    // The global ocean SDF is continuous across the whole world.
+    let ocean_sdf_raw = textureSample(ocean_sdf_texture, ocean_sdf_sampler, global_uv).r;
+    let sdf_signed = (ocean_sdf_raw - 0.5) * 2.0;
 
     // Attenuate rock in beach zone so gentle coasts keep their sand transition
     let beach_mask = smoothstep(beach_end, beach_start, sdf_signed);
@@ -973,10 +946,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         beach_end,
         veg_or_rock,
         sand_color.rgb * 0.92,
+        shrink_factor,
     );
     
     // Ambient occlusion côtière
-    let ao = sdf_ambient_occlusion(sdf_signed);
+    let ao = sdf_ambient_occlusion(sdf_signed, shrink_factor);
     final_color *= ao;
 
     // ---- Routes ----

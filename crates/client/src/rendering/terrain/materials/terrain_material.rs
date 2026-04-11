@@ -69,6 +69,12 @@ pub struct TerrainMaterial {
 
     #[uniform(21)]
     pub debug_params: DebugParams,
+
+    /// Global ocean SDF texture — continuous across chunks, no seam artifacts.
+    /// Used for beach transition instead of per-chunk SDF.
+    #[texture(22)]
+    #[sampler(23, sampler_type = "filtering")]
+    pub ocean_sdf_texture: Handle<Image>,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -204,6 +210,7 @@ impl Default for TerrainMaterial {
             lake_sdf_texture: Handle::default(),
             lake_params: LakeParams::default(),
             debug_params: DebugParams::default(),
+            ocean_sdf_texture: Handle::default(),
         }
     }
 }

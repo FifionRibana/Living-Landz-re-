@@ -63,7 +63,7 @@ pub fn spawn_ocean(
     mut ocean_materials: ResMut<Assets<OceanMaterial>>,
     mut _materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    cache: Res<WorldCache>,
+    mut cache: ResMut<WorldCache>,
     ocean_query: Query<Entity, With<OceanEntity>>,
 ) {
     // Only spawn if ocean data is loaded and ocean doesn't exist yet
@@ -71,15 +71,14 @@ pub fn spawn_ocean(
         return;
     }
 
-    let Some(ocean_data) = cache.get_ocean() else {
+    let Some(ocean_data) = cache.get_ocean().cloned() else {
         return;
     };
 
     // Wait for the terrain global heightmap handle (created by create_terrain_global_textures)
-    let Some(terrain_hm_handle) = cache.get_terrain_global_heightmap_handle() else {
+    let Some(terrain_heightmap) = cache.get_terrain_global_heightmap_handle().cloned() else {
         return;
     };
-    let terrain_heightmap = terrain_hm_handle.clone();
 
     // Calculate world dimensions
     let world_width = ocean_data.world_width;
@@ -128,6 +127,9 @@ pub fn spawn_ocean(
 
     let sdf_texture = images.add(sdf_image);
     let heightmap = images.add(heightmap_image);
+
+    // Store ocean SDF handle for terrain shader (seamless beach transition)
+    cache.set_ocean_sdf_handle(sdf_texture.clone());
 
     commands.spawn((
         OceanEntity,
