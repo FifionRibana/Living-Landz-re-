@@ -253,26 +253,20 @@ fn compute_slope_magnitude(uv: vec2<f32>, world_pos: vec2<f32>) -> f32 {
 // ROCK RENDERING — painterly rock texture for steep slopes
 // ============================================================================
 
-fn painterly_rock(world_pos: vec2<f32>) -> vec3<f32> {
-    // Layer 1: large rock zones (slightly higher freq than vegetation)
-    let large = fbm_rotated(world_pos * 0.008, 4);
-    // Layer 2: medium variation
-    let medium = fbm_rotated(world_pos * 0.025 + vec2<f32>(43.7, 91.2), 4);
-    // Layer 3: micro-detail (higher freq than vegetation)
-    let detail = fbm(world_pos * 0.08 + vec2<f32>(17.3, 53.1), 3);
+fn painterly_rock(world_pos: vec2<f32>, slope_dir: vec2<f32>) -> vec3<f32> {
+    // Frequencies close to vegetation for visual blending
+    let large = fbm_rotated(world_pos * 0.006, 4);
+    let medium = fbm_rotated(world_pos * 0.02 + vec2<f32>(43.7, 91.2), 4);
+    let detail = fbm(world_pos * 0.06 + vec2<f32>(17.3, 53.1), 3);
 
-    // Base rock color from existing palette constants
+    // Base: full range between light and dark
     var color = mix(ROCK_LIGHT, ROCK_DARK, smoothstep(0.35, 0.65, large));
 
-    // Medium variation — darker crevices
-    color = mix(color, ROCK_DARK * 0.8, smoothstep(0.55, 0.75, medium) * 0.5);
-
-    // Warm tint in recesses (oxidation / lichen)
-    let warm = vec3<f32>(0.06, 0.02, -0.02);
-    color += warm * smoothstep(0.6, 0.3, large) * 0.4;
+    // Medium variation — darker crevices (darker than original)
+    color = mix(color, ROCK_DARK * 0.7, smoothstep(0.50, 0.72, medium) * 0.45);
 
     // Micro-detail
-    color *= 0.85 + detail * 0.3;
+    color *= 0.88 + detail * 0.24;
 
     return color;
 }
@@ -305,34 +299,13 @@ fn apply_heightmap_effects(
 
     // --- 1. Hillshading ---
     let hillshade = compute_hillshade(uv, world_pos);
-    let shade_factor_raw = mix(1.0 - strength, 1.0 + strength * 0.3, hillshade);
-
-    // Fade hillshade to neutral near chunk edges to avoid discontinuities
-    let shade_factor = shade_factor_raw;
-
+    let shade_factor = mix(1.0 - strength * 0.35, 1.0 + strength * 0.15, hillshade);
     var result = color * shade_factor;
 
-    // --- 2. Altitude-based color modulation ---
-    // High altitude: shift toward lighter, cooler tones (rocky/alpine)
-    let altitude_factor = smoothstep(0.4, 0.85, height);
-    let highland_tint = vec3<f32>(0.05, 0.03, 0.0); // slight warm desaturation
-    result = mix(result, result + highland_tint, altitude_factor * 0.3);
-    // Slightly desaturate at high altitude (less vegetation = less color)
+    // --- 2. Subtle altitude tint (high = slightly lighter/cooler) ---
+    let altitude_factor = smoothstep(0.3, 0.8, height);
     let luminance = dot(result, vec3<f32>(0.299, 0.587, 0.114));
-    let altitude_saturation_factor = 0.15;
-    result = mix(result, vec3<f32>(luminance), altitude_factor * altitude_saturation_factor);
-
-    // Low altitude: slightly more saturated, darker (dense vegetation in valleys)
-    let valley_factor = smoothstep(0.4, 0.15, height);
-    let valley_shade = 0.85;
-    result *= mix(1.0, valley_shade, valley_factor); // darken valleys slightly
-
-    // --- 3. Altitude-based detail variation ---
-    // Add subtle high-frequency noise at mid-altitudes (most vegetation variation)
-    // Reduce at extremes (barren peaks, flat valley floors)
-    let mid_altitude = 1.0 - abs(height - 0.5) * 2.0; // peaks at h=0.5
-    let alt_noise = fbm(world_pos * 0.04 + vec2<f32>(314.1, 271.8), 2);
-    result *= 1.0 + (alt_noise - 0.5) * 0.06 * mid_altitude;
+    result = mix(result, vec3<f32>(luminance), altitude_factor * 0.1);
 
     return result;
 }
@@ -874,10 +847,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // === Pre-compute slope magnitude for rock rendering (once per fragment) ===
     var slope_magnitude = 0.0;
+    var slope_dir = vec2<f32>(0.0, 1.0);
     if (heightmap_params.x > 0.5) {
         slope_magnitude = compute_slope_magnitude(global_uv, world_pos);
     }
-    let rock_factor = smoothstep(0.25, 0.50, slope_magnitude);
+    // Rock appears on steep slopes (~45°+). Calibrated for enriched heightmap
+    // where slope_magnitude ~0.04 = moderate hill, ~0.10 = cliff.
+    let rock_factor = smoothstep(0.04, 0.10, slope_magnitude);
 
     // === Lake: discard water, render bank ===
     var lake_bank_factor = 0.0;
@@ -907,7 +883,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // ---- Chunk sans côte : 100% végétation ----
     if has_coast < 0.5 {
         // Blend rock on steep slopes
-        let rock_color = painterly_rock(world_pos);
+        let rock_color = painterly_rock(world_pos, slope_dir);
         var color = mix(vegetation, rock_color, rock_factor);
 
         // Appliquer les routes même sur les chunks sans côte
@@ -935,7 +911,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Attenuate rock in beach zone so gentle coasts keep their sand transition
     let beach_mask = smoothstep(beach_end, beach_start, sdf_signed);
     let effective_rock = rock_factor * (1.0 - beach_mask);
-    let rock_color = painterly_rock(world_pos);
+    let rock_color = painterly_rock(world_pos, slope_dir);
     let veg_or_rock = mix(vegetation, rock_color, effective_rock);
 
     // Transition plage painterly (sable mouillé → sec → touffes → végétation)
@@ -983,8 +959,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let dry_color = mix(sand_bank, mud_bank, bank_detail);
         let bank_color = mix(dry_color, wet_bank, wetness);
 
-        // Blend: strong near water, fading into vegetation
-        let bank_strength = lake_bank_factor * (0.7 + bank_noise * 0.3);
+        // Blend: strong near water, fading into vegetation.
+        // Attenuate on steep slopes — cliffs show rock, not sand/mud.
+        let bank_strength = lake_bank_factor * (0.7 + bank_noise * 0.3) * (1.0 - rock_factor);
         final_color = mix(final_color, bank_color, bank_strength);
     }
 
