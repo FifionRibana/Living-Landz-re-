@@ -54,11 +54,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let time = globals.time;
 
-    // === Lake mask — for discard only ===
-    let mask = textureSample(mask_texture, mask_sampler, uv).r;
-    if mask < 0.5 {
-        discard;
-    }
+    // Discard is handled by SDF below (same as ocean — no separate mask needed)
 
     // 1. --- ANTI-PIXELLISATION (Le même flou 9-tap que le terrain) ---
     let tex_size = vec2<f32>(textureDimensions(sdf_texture));
