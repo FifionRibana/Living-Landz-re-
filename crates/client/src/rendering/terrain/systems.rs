@@ -304,6 +304,18 @@ pub fn spawn_terrain(
             (dummy, LakeParams::default())
         };
 
+        let ocean_sdf_texture = if let Some(oh) = world_cache.get_ocean_sdf_handle() {
+            oh.clone()
+        } else {
+            images.add(Image::new(
+                Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                TextureDimension::D2,
+                vec![128u8], // neutral SDF = on coast
+                TextureFormat::R8Unorm,
+                default(),
+            ))
+        };
+
         let material_handle = if let Some(sdf) = terrain.sdf_data.first() {
             // Log SDF stats for diagnosis
             if terrain.id.x % 20 == 0 && terrain.id.y % 20 == 0 {
@@ -344,8 +356,10 @@ pub fn spawn_terrain(
             MeshMaterial2d(terrain_materials.add(TerrainMaterial {
                 sdf_texture,
                 sdf_params: SdfParams {
-                    beach_start: -0.1,
-                    beach_end: 0.4,
+                    // Calibrated for global ocean SDF (max_distance=50 world units).
+                    // sdf_signed ±1.0 = ±50 world units from coastline.
+                    beach_start: -0.3,  // 15 units into water
+                    beach_end: 1.0,     // 50 units into land (full SDF range)
                     has_coast: 1.0,
                     _padding: 0.0,
                 },
@@ -366,6 +380,7 @@ pub fn spawn_terrain(
                 heightmap_params,
                 lake_sdf_texture: lake_sdf_texture.clone(),
                 lake_params,
+                ocean_sdf_texture: ocean_sdf_texture.clone(),
                 ..default()
             }))
         } else {
@@ -407,6 +422,7 @@ pub fn spawn_terrain(
                 heightmap_params,
                 lake_sdf_texture: lake_sdf_texture.clone(),
                 lake_params,
+                ocean_sdf_texture: ocean_sdf_texture.clone(),
                 ..default()
             }))
         };
@@ -415,7 +431,7 @@ pub fn spawn_terrain(
             Name::new(format!("Terrain_{}_{}", terrain.id.x, terrain.id.y)),
             Mesh2d(mesh_handle),
             material_handle,
-            Transform::from_translation(world_position.extend(-1000.)),
+            Transform::from_translation(world_position.extend(-1000.0)),
             Terrain {
                 name: terrain_name.clone(),
                 id: terrain.id,

@@ -94,7 +94,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1. --- ANTI-PIXELLISATION (Le même flou 9-tap que le terrain) ---
     let tex_size = vec2<f32>(textureDimensions(sdf_texture));
     let texel_size = 1.0 / tex_size;
-    let offset = texel_size * 1.2; // Ajuster le rayon du flou
+    let offset = texel_size * 2.0; // Ajuster le rayon du flou
 
     var sdf_raw = 0.0;
     sdf_raw += textureSample(sdf_texture, sdf_sampler, uv + vec2<f32>(-offset.x, -offset.y)).r;
@@ -124,7 +124,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Smooth transition: fade ocean out as terrain approaches shore
     // terrain_h 0.0→0.003 maps to full ocean → discard
-    let shore_fade = 1.0 - smoothstep(0.0, 0.01, terrain_h);
+    let shore_fade = 1.0 - smoothstep(0.0, 0.003, terrain_h);
 
     // Also keep the SDF discard for deep inland (where terrain heightmap might
     // have tiny floating values due to noise)
@@ -246,7 +246,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Zone d'écume
     let foam_outer = -0.45;
     let foam_zone = smoothstep(foam_outer, -0.05, sdf_signed)
-                   * (1.0 - smoothstep(-0.05, 0.05, sdf_signed));
+                   * (1.0 - smoothstep(-0.05, 0.01, sdf_signed));
 
     if foam_zone > 0.01 {
         let phase_1 = fbm(ref_pos * 0.006, 3) * TAU;
@@ -359,7 +359,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge_noise = fbm(ref_pos * 0.02, 3);
     let sdf_perturbed = sdf_signed + (edge_noise - 0.5) * 0.05;
     // Extend ocean slightly into land and soften the alpha transition
-    let opacity = smoothstep(0.01 + wave_advance, -0.12, sdf_perturbed);
+    let opacity = smoothstep(0.02 + wave_advance, -0.08, sdf_perturbed);
 
     // Apply terrain heightmap shore fade — smoothly hides ocean as terrain rises
     let final_opacity = opacity;

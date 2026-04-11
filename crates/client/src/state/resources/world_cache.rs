@@ -308,6 +308,8 @@ impl BiomeCache {
 pub struct OceanCache {
     loaded: Option<OceanData>,
     requested: bool,
+    /// Handle to the ocean SDF texture (shared with terrain for seamless beach transition)
+    pub sdf_handle: Option<Handle<Image>>,
 }
 
 impl OceanCache {
@@ -716,6 +718,14 @@ impl WorldCache {
 
     pub fn is_ocean_loaded(&self) -> bool {
         self.ocean.is_loaded()
+    }
+
+    pub fn set_ocean_sdf_handle(&mut self, handle: Handle<Image>) {
+        self.ocean.sdf_handle = Some(handle);
+    }
+
+    pub fn get_ocean_sdf_handle(&self) -> Option<&Handle<Image>> {
+        self.ocean.sdf_handle.as_ref()
     }
 
     pub fn is_ocean_requested(&self) -> bool {

@@ -110,7 +110,9 @@ pub async fn generate_world_globals(
         global_state.scale.x
     );
 
-    let ocean_binary = if let Some(ref eff) = global_state.effective_binary {
+    let ocean_src = global_state.effective_binary_smoothed.as_ref()
+        .or(global_state.effective_binary.as_ref());
+    let ocean_binary = if let Some(eff) = ocean_src {
         // Effective binary is already clean 0/255 and Y-flipped.
         // Resize to target ocean resolution.
         let target_w = eff.width().min(ocean_max_dim);
@@ -208,7 +210,9 @@ pub async fn generate_world_globals(
     // Build effective lake mask: water pixels (from enriched heightmap) that are
     // also in the lake source map. This aligns the lake boundary with the
     // enriched heightmap's coastal slope.
-    let (lake_inverted, lake_mask_flipped) = if let Some(ref eff) = global_state.effective_binary {
+    let lake_eff = global_state.effective_binary_smoothed.as_ref()
+        .or(global_state.effective_binary.as_ref());
+    let (lake_inverted, lake_mask_flipped) = if let Some(eff) = lake_eff {
         let eff_w = eff.width();
         let eff_h = eff.height();
         let world_w = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
@@ -421,6 +425,7 @@ pub async fn load_or_generate_world_globals(
             enriched_heightmap_width: ehm_w,
             enriched_heightmap_height: ehm_h,
             effective_binary: None,
+            effective_binary_smoothed: None,
         };
 
         global_state.build_effective_binary();
@@ -590,6 +595,10 @@ pub async fn generate_chunk_data(
             global.enriched_heightmap.as_ref().map(|data| {
                 (data.as_slice(), global.enriched_heightmap_width, global.enriched_heightmap_height)
             }),
+            (
+                global.n_chunk_x as f32 * constants::CHUNK_SIZE.x,
+                global.n_chunk_y as f32 * constants::CHUNK_SIZE.y,
+            ),
         )
     } else {
         vec![]
