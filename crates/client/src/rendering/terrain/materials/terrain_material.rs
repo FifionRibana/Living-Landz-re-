@@ -142,7 +142,7 @@ impl Default for HeightmapParams {
             has_heightmap: 0.0,
             light_azimuth: 5.5,   // ~315° = northwest (classic cartography)
             light_altitude: 0.75, // ~43° above horizon
-            hillshade_strength: 0.6,
+            hillshade_strength: 0.8,
         }
     }
 }
