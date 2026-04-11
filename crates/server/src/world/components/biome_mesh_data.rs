@@ -455,7 +455,7 @@ impl BiomeMeshData {
         all_hexes.extend(hex_ocean.keys());
         all_hexes.extend(hex_lake.keys());
 
-        all_hexes
+        let mut cells: Vec<CellData> = all_hexes
             .into_iter()
             .map(|hex_cell| {
                 let land_total: usize = hex_land.get(&hex_cell)
@@ -493,13 +493,19 @@ impl BiomeMeshData {
                     );
 
                     if center_h <= 0.0 {
-                        // Heightmap says water — override any land biome
-                        let px = (center_pos.x / scale.x) as u32;
-                        let py = (center_pos.y / scale.y) as u32;
-                        let is_lake = px < source_lake.width()
-                            && py < source_lake.height()
-                            && source_lake.get_pixel(px, py)[0] > 128;
-                        if is_lake {
+                        // Heightmap says water — check if lake or ocean.
+                        // Use world_dims for coordinate conversion (not scale)
+                        let lx = (center_pos.x / world_w * source_lake.width() as f32) as u32;
+                        let ly = (center_pos.y / world_h * source_lake.height() as f32) as u32;
+                        let lake_at_pos = lx < source_lake.width()
+                            && ly < source_lake.height()
+                            && source_lake.get_pixel(lx, ly)[0] > 30;
+
+                        // Fallback: if original pixel voting detected any lake pixels
+                        // near this hex, it's a lake even if exact position misses
+                        let has_lake_votes = lake_total > 0;
+
+                        if lake_at_pos || has_lake_votes {
                             BiomeTypeEnum::Lake
                         } else {
                             BiomeTypeEnum::Ocean
@@ -531,73 +537,113 @@ impl BiomeMeshData {
                     biome
                 };
 
-                // Determine shore type using enriched heightmap when available.
-                // A cell is coastal if it has land height AND at least one
-                // neighbor is at water level. This aligns with the visual
-                // coastline from the enriched heightmap rather than the
-                // binary source map.
-                let shore_type = if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
-                    let (world_w, world_h) = world_dims;
-                    let center_pos = hex_layout.hex_to_world_pos(hex_cell);
-                    let center_h = Self::sample_enriched_height(
-                        hm_data, hm_w, hm_h, center_pos, world_w, world_h,
-                    );
-
-                    if center_h <= 0.0 {
-                        // This hex is water — not a shore cell
-                        shared::ShoreType::None
-                    } else {
-                        // Check 6 neighbors for water adjacency
-                        let neighbors = hex_cell.all_neighbors();
-                        let mut has_water_neighbor = false;
-                        let mut water_is_lake = false;
-
-                        for neighbor in &neighbors {
-                            let npos = hex_layout.hex_to_world_pos(*neighbor);
-                            let nh = Self::sample_enriched_height(
-                                hm_data, hm_w, hm_h, npos, world_w, world_h,
-                            );
-                            if nh <= 0.0 {
-                                has_water_neighbor = true;
-                                // Check lake map to distinguish ocean vs lake
-                                let lx = (npos.x / scale.x) as u32;
-                                let ly = (npos.y / scale.y) as u32;
-                                if lx < source_lake.width() && ly < source_lake.height() {
-                                    if source_lake.get_pixel(lx, ly)[0] > 30 {
-                                        water_is_lake = true;
-                                    }
-                                }
-                                break;
-                            }
-                        }
-
-                        if has_water_neighbor && water_is_lake {
-                            shared::ShoreType::Lakebank
-                        } else if has_water_neighbor {
-                            shared::ShoreType::Shoreline
-                        } else {
-                            shared::ShoreType::None
-                        }
-                    }
-                } else {
-                    // Fallback: original binary map logic
-                    if ocean_ratio > 0.25 && biome != BiomeTypeEnum::DeepOcean {
-                        shared::ShoreType::Shoreline
-                    } else if lake_ratio > 0.25 && biome != BiomeTypeEnum::Lake {
-                        shared::ShoreType::Lakebank
-                    } else {
-                        shared::ShoreType::None
-                    }
-                };
-
+                // ShoreType placeholder — computed after lake flood fill
                 CellData {
                     cell: GridCell { q: hex_cell.x, r: hex_cell.y },
                     chunk: *chunk_id,
                     biome,
-                    shore_type,
+                    shore_type: shared::ShoreType::None,
                 }
             })
-            .collect()
+            .collect();
+
+        // ── Post-process 1: Lake flood fill ──
+        // An Ocean cell adjacent to a Lake cell becomes Lake.
+        // A lake is a contiguous water body; isolated Ocean pixels are artifacts.
+        let cell_map: HashMap<GridCell, usize> = cells
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.cell, i))
+            .collect();
+
+        for _pass in 0..3 {
+            let mut changed = false;
+            let snapshot: Vec<BiomeTypeEnum> = cells.iter().map(|c| c.biome).collect();
+            for i in 0..cells.len() {
+                if snapshot[i] != BiomeTypeEnum::Ocean {
+                    continue;
+                }
+                let has_lake_neighbor = cells[i].cell.to_hex().all_neighbors().iter().any(|n| {
+                    cell_map
+                        .get(&GridCell::from_hex(n))
+                        .map(|&j| snapshot[j] == BiomeTypeEnum::Lake)
+                        .unwrap_or(false)
+                });
+                if has_lake_neighbor {
+                    cells[i].biome = BiomeTypeEnum::Lake;
+                    changed = true;
+                }
+            }
+            if !changed { break; }
+        }
+
+        // ── Post-process 2: ShoreType from final biomes ──
+        // Based on corrected biomes only (not heightmap) — guarantees consistency.
+        // A land cell is Shoreline if a neighbor is Ocean/DeepOcean,
+        // Lakebank if a neighbor is Lake. Water cells have ShoreType::None.
+        let biome_snapshot: Vec<BiomeTypeEnum> = cells.iter().map(|c| c.biome).collect();
+
+        let shore_types: Vec<ShoreType> = cells
+            .par_iter()
+            .enumerate()
+            .map(|(i, cell)| {
+                let my_biome = biome_snapshot[i];
+                // Water cells are not shore cells
+                if matches!(my_biome, BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean | BiomeTypeEnum::Lake) {
+                    return ShoreType::None;
+                }
+                // Check 6 neighbors for water biomes
+                let neighbors = cell.cell.to_hex().all_neighbors();
+                let mut has_ocean_neighbor = false;
+                let mut has_lake_neighbor = false;
+                for neighbor in &neighbors {
+                    let gc = GridCell::from_hex(neighbor);
+                    if let Some(&j) = cell_map.get(&gc) {
+                        // In-chunk neighbor: use final biome
+                        match biome_snapshot[j] {
+                            BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean => {
+                                has_ocean_neighbor = true;
+                            }
+                            BiomeTypeEnum::Lake => {
+                                has_lake_neighbor = true;
+                            }
+                            _ => {}
+                        }
+                    } else if let Some((hm_data, hm_w, hm_h)) = enriched_heightmap {
+                        // Out-of-chunk neighbor: fallback to heightmap + lake map
+                        let (world_w, world_h) = world_dims;
+                        let npos = hex_layout.hex_to_world_pos(*neighbor);
+                        let nh = Self::sample_enriched_height(
+                            hm_data, hm_w, hm_h, npos, world_w, world_h,
+                        );
+                        if nh <= 0.0 {
+                            let lx = (npos.x / world_w * source_lake.width() as f32) as u32;
+                            let ly = (npos.y / world_h * source_lake.height() as f32) as u32;
+                            let is_lake = lx < source_lake.width()
+                                && ly < source_lake.height()
+                                && source_lake.get_pixel(lx, ly)[0] > 30;
+                            if is_lake {
+                                has_lake_neighbor = true;
+                            } else {
+                                has_ocean_neighbor = true;
+                            }
+                        }
+                    }
+                }
+                if has_lake_neighbor {
+                    ShoreType::Lakebank
+                } else if has_ocean_neighbor {
+                    ShoreType::Shoreline
+                } else {
+                    ShoreType::None
+                }
+            })
+            .collect();
+        for (i, st) in shore_types.into_iter().enumerate() {
+            cells[i].shore_type = st;
+        }
+
+        cells
     }
 
     /// Sample the enriched heightmap at a world position.
