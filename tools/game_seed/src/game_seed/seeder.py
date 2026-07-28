@@ -72,6 +72,55 @@ class Seeder:
                 )
                 report["units.skills"] = self._seed_skills(cur, data.skills)
 
+                # Enum-mirror reference tables (mirror Rust enums; no slug).
+                # languages must precede game.translations (FK).
+                report["game.languages"] = self._seed_languages(
+                    cur, data.languages
+                )
+                report["terrain.biome_types"] = self._seed_id_name(
+                    cur, "terrain.biome_types", data.biome_types
+                )
+                report["buildings.tree_types"] = self._seed_id_name(
+                    cur, "buildings.tree_types", data.tree_types
+                )
+                report["actions.action_specific_types"] = self._seed_id_name(
+                    cur, "actions.action_specific_types", data.action_specific_types
+                )
+                report["actions.action_types"] = self._seed_id_name(
+                    cur, "actions.action_types", data.action_types
+                )
+                report["actions.action_statuses"] = self._seed_id_name(
+                    cur, "actions.action_statuses", data.action_statuses
+                )
+                report["organizations.organization_types"] = (
+                    self._seed_organization_types(cur, data.organization_types)
+                )
+                report["organizations.role_types"] = self._seed_role_types(
+                    cur, data.role_types
+                )
+                report["buildings.manufacturing_workshop_types"] = (
+                    self._seed_id_name(
+                        cur,
+                        "buildings.manufacturing_workshop_types",
+                        data.manufacturing_workshop_types,
+                    )
+                )
+                report["buildings.agriculture_types"] = self._seed_id_name(
+                    cur, "buildings.agriculture_types", data.agriculture_types
+                )
+                report["buildings.animal_breeding_types"] = self._seed_id_name(
+                    cur, "buildings.animal_breeding_types", data.animal_breeding_types
+                )
+                report["buildings.entertainment_types"] = self._seed_id_name(
+                    cur, "buildings.entertainment_types", data.entertainment_types
+                )
+                report["buildings.cult_types"] = self._seed_id_name(
+                    cur, "buildings.cult_types", data.cult_types
+                )
+                report["buildings.commerce_types"] = self._seed_id_name(
+                    cur, "buildings.commerce_types", data.commerce_types
+                )
+
                 # Core
                 report["resources.items"] = self._seed_items(cur, data.items)
                 report["buildings.building_types"] = self._seed_building_types(
@@ -126,6 +175,89 @@ class Seeder:
         if has_archived:
             archived = self._archive_missing(cur, table, "id", seed_ids)
         return {"upserted": len(entries), "archived": archived}
+
+    # ── Enum-mirror reference tables (id, name — no slug) ────
+
+    def _seed_id_name(
+        self,
+        cur: psycopg.Cursor[Any],
+        table: str,
+        entries: list[LookupEntry],
+    ) -> TableStats:
+        """Seed a plain (id, name) reference table that mirrors a Rust enum.
+
+        Archives missing rows only if the table has an ``archived`` column.
+        """
+        if not entries:
+            return {}
+        has_archived = self._column_exists(cur, table, "archived")
+        seed_ids = {e.id for e in entries}
+
+        for e in entries:
+            archived_clause = ", archived = FALSE" if has_archived else ""
+            cur.execute(
+                f"INSERT INTO {table} (id, name) VALUES (%s, %s) "
+                f"ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name"
+                f"{archived_clause}",
+                (e.id, e.name),
+            )
+
+        archived = 0
+        if has_archived:
+            archived = self._archive_missing(cur, table, "id", seed_ids)
+        return {"upserted": len(entries), "archived": archived}
+
+    def _seed_languages(
+        self, cur: psycopg.Cursor[Any], entries: list[LookupEntry]
+    ) -> TableStats:
+        if not entries:
+            return {}
+        for e in entries:
+            cur.execute(
+                "INSERT INTO game.languages (id, name, code) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "name = EXCLUDED.name, code = EXCLUDED.code",
+                (e.id, e.name, e.extra.get("code")),
+            )
+        return {"upserted": len(entries)}
+
+    def _seed_organization_types(
+        self, cur: psycopg.Cursor[Any], entries: list[LookupEntry]
+    ) -> TableStats:
+        """Seed organization_types (FK target only — server uses the Rust enum).
+
+        Only (id, name, category) are provided; the remaining columns keep
+        their DB defaults (requires_territory, can_have_vassals, …).
+        """
+        if not entries:
+            return {}
+        for e in entries:
+            cur.execute(
+                "INSERT INTO organizations.organization_types "
+                "(id, name, category) VALUES (%s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "name = EXCLUDED.name, category = EXCLUDED.category",
+                (e.id, e.name, e.extra.get("category")),
+            )
+        return {"upserted": len(entries)}
+
+    def _seed_role_types(
+        self, cur: psycopg.Cursor[Any], entries: list[LookupEntry]
+    ) -> TableStats:
+        """Seed role_types (FK target only — server uses the RoleType enum)."""
+        if not entries:
+            return {}
+        for e in entries:
+            cur.execute(
+                "INSERT INTO organizations.role_types "
+                "(id, name, category, authority_level) VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "name = EXCLUDED.name, category = EXCLUDED.category, "
+                "authority_level = EXCLUDED.authority_level",
+                (e.id, e.name, e.extra.get("category"), e.extra.get("authority_level")),
+            )
+        return {"upserted": len(entries)}
 
     def _seed_resource_specific_types(
         self,
