@@ -115,6 +115,15 @@ fn main() {
         }
         tracing::info!("Using map: {}", map_name);
 
+        // ── World source selection (--world-source flag > WORLD_SOURCE env > azgaar) ──
+        let world_source_flag = args
+            .iter()
+            .find(|arg| arg.starts_with("--world-source="))
+            .map(|arg| arg.trim_start_matches("--world-source=").to_string());
+        let source_kind =
+            world::resources::WorldSourceKind::resolve(world_source_flag.as_deref());
+        tracing::info!("World source: {}", source_kind.as_str());
+
         // ── CLI commands (exit after) ──
         if args.contains(&"--clear".to_string()) {
             tracing::info!("=== Starting World Cleaning ===");
@@ -128,12 +137,12 @@ fn main() {
             std::process::exit(0);
         } else if args.contains(&"--generate-world".to_string()) {
             tracing::info!("=== Starting World Generation ===");
-            world::systems::generate_world(&map_name, &db_tables, &game_state).await;
+            world::systems::generate_world(&map_name, &db_tables, &game_state, source_kind).await;
             tracing::info!("=== Generation Complete - Exiting ===");
             std::process::exit(0);
         } else if args.contains(&"--generate-globals".to_string()) {
             tracing::info!("=== Loading World Globals ===");
-            world::systems::generate_world_globals(&map_name, &db_tables).await;
+            world::systems::generate_world_globals(&map_name, &db_tables, source_kind).await;
             std::process::exit(0);
         } else if args.contains(&"--regen-territory".to_string()) {
             tracing::info!("=== Starting Territory Contours Regeneration ===");
@@ -145,7 +154,7 @@ fn main() {
         // ── World globals ──
         tracing::info!("=== Loading World Globals ===");
         let world_global_state =
-            world::systems::load_or_generate_world_globals(&map_name, &db_tables).await;
+            world::systems::load_or_generate_world_globals(&map_name, &db_tables, source_kind).await;
         tracing::info!("✓ World globals loaded");
 
         // ── Voronoi zones (regenerate if missing) ──
