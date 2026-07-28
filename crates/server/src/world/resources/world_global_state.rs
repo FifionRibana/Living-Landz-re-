@@ -56,6 +56,11 @@ pub struct WorldGlobalState {
     /// Gaussian blur on the global image rounds pixel staircases into curves.
     /// No chunk-junction issues since the blur is applied globally before cropping.
     pub effective_binary_smoothed: Option<ImageBuffer<Luma<u8>, Vec<u8>>>,
+
+    /// Normalized sea level in the enriched heightmap (0.0..1.0) — the land/sea
+    /// threshold. `0.0` = legacy Azgaar convention (ocean is exactly `0u16`);
+    /// `0.5` = Ymir full-range encoding (sea level at u16 ≈ 32768).
+    pub water_threshold_norm: f32,
 }
 
 impl WorldGlobalState {
@@ -70,16 +75,20 @@ impl WorldGlobalState {
         let expected_u16_len = w * h * 2;
         let is_u16 = hm_data.len() >= expected_u16_len;
 
+        // Land = normalized height strictly above sea level. For the legacy
+        // Azgaar convention `water_threshold_norm == 0.0`, so this reduces to the
+        // original "> 0" test; for Ymir full-range it is sea_level_norm (~0.5).
+        let threshold = self.water_threshold_norm;
         let mut effective = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
         for y in 0..h {
             for x in 0..w {
-                // Land = any heightmap value > 0. Ocean is exactly 0u16.
-                let is_land = if is_u16 {
+                let norm = if is_u16 {
                     let idx = (y * w + x) * 2;
-                    u16::from_le_bytes([hm_data[idx], hm_data[idx + 1]]) > 0
+                    u16::from_le_bytes([hm_data[idx], hm_data[idx + 1]]) as f32 / 65535.0
                 } else {
-                    hm_data[y * w + x] > 0
+                    hm_data[y * w + x] as f32 / 255.0
                 };
+                let is_land = norm > threshold;
                 effective.put_pixel(x as u32, y as u32, Luma([if is_land { 255u8 } else { 0u8 }]));
             }
         }
