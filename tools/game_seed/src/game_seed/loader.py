@@ -188,6 +188,22 @@ class SeedData:
     professions: list[LookupEntry] = field(default_factory=list)
     skills: list[LookupEntry] = field(default_factory=list)
 
+    # Enum-mirror reference tables (no slug column in DB; mirror Rust enums)
+    languages: list[LookupEntry] = field(default_factory=list)
+    biome_types: list[LookupEntry] = field(default_factory=list)
+    tree_types: list[LookupEntry] = field(default_factory=list)
+    action_specific_types: list[LookupEntry] = field(default_factory=list)
+    action_types: list[LookupEntry] = field(default_factory=list)
+    action_statuses: list[LookupEntry] = field(default_factory=list)
+    organization_types: list[LookupEntry] = field(default_factory=list)
+    role_types: list[LookupEntry] = field(default_factory=list)
+    manufacturing_workshop_types: list[LookupEntry] = field(default_factory=list)
+    agriculture_types: list[LookupEntry] = field(default_factory=list)
+    animal_breeding_types: list[LookupEntry] = field(default_factory=list)
+    entertainment_types: list[LookupEntry] = field(default_factory=list)
+    cult_types: list[LookupEntry] = field(default_factory=list)
+    commerce_types: list[LookupEntry] = field(default_factory=list)
+
     items: list[ItemDef] = field(default_factory=list)
     recipes: list[RecipeDef] = field(default_factory=list)
     building_types: list[BuildingTypeDef] = field(default_factory=list)
@@ -231,6 +247,27 @@ def _parse_and_register_lookups(
         )
         resolver.register(namespace, slug, entry.id)
         entries.append(entry)
+    return entries
+
+
+def _parse_enum_lookups(raw: dict[str, Any], key: str) -> list[LookupEntry]:
+    """Parse enum-mirror reference tables (id, name, + extra columns).
+
+    Unlike _parse_and_register_lookups, these have no slug column and are
+    not registered in the resolver — nothing references them by slug.
+    """
+    entries = []
+    for item in raw.get(key, []):
+        entries.append(
+            LookupEntry(
+                id=item["id"],
+                slug=item.get("slug", ""),
+                name=item["name"],
+                extra={
+                    k: v for k, v in item.items() if k not in ("id", "slug", "name")
+                },
+            )
+        )
     return entries
 
 
@@ -498,6 +535,24 @@ def load_seed_data(data_dir: Path) -> SeedData:
         lookups_raw, "skills", "skill", resolver
     )
 
+    # Enum-mirror reference tables (no slug; mirror Rust enums)
+    languages = _parse_enum_lookups(lookups_raw, "languages")
+    biome_types = _parse_enum_lookups(lookups_raw, "biome_types")
+    tree_types = _parse_enum_lookups(lookups_raw, "tree_types")
+    action_specific_types = _parse_enum_lookups(lookups_raw, "action_specific_types")
+    action_types = _parse_enum_lookups(lookups_raw, "action_types")
+    action_statuses = _parse_enum_lookups(lookups_raw, "action_statuses")
+    organization_types = _parse_enum_lookups(lookups_raw, "organization_types")
+    role_types = _parse_enum_lookups(lookups_raw, "role_types")
+    manufacturing_workshop_types = _parse_enum_lookups(
+        lookups_raw, "manufacturing_workshop_types"
+    )
+    agriculture_types = _parse_enum_lookups(lookups_raw, "agriculture_types")
+    animal_breeding_types = _parse_enum_lookups(lookups_raw, "animal_breeding_types")
+    entertainment_types = _parse_enum_lookups(lookups_raw, "entertainment_types")
+    cult_types = _parse_enum_lookups(lookups_raw, "cult_types")
+    commerce_types = _parse_enum_lookups(lookups_raw, "commerce_types")
+
     # Resolve category slug in resource_specific_types
     for entry in resource_specific_types:
         cat_slug = entry.extra.pop("category", None)
@@ -535,6 +590,20 @@ def load_seed_data(data_dir: Path) -> SeedData:
         equipment_slots=equipment_slots,
         professions=professions,
         skills=skills,
+        languages=languages,
+        biome_types=biome_types,
+        tree_types=tree_types,
+        action_specific_types=action_specific_types,
+        action_types=action_types,
+        action_statuses=action_statuses,
+        organization_types=organization_types,
+        role_types=role_types,
+        manufacturing_workshop_types=manufacturing_workshop_types,
+        agriculture_types=agriculture_types,
+        animal_breeding_types=animal_breeding_types,
+        entertainment_types=entertainment_types,
+        cult_types=cult_types,
+        commerce_types=commerce_types,
         items=items,
         recipes=recipes,
         building_types=building_types,
