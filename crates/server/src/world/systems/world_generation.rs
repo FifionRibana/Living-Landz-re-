@@ -7,9 +7,13 @@ use crate::world::components::NaturalBuildingGenerator;
 use crate::world::components::TerrainMeshData;
 use crate::world::components::generate_global_sdf;
 use crate::world::components::generate_ocean_data;
-use crate::world::resources::{WorldGlobalState, WorldMaps};
+use crate::world::resources::{
+    WorldConfig, WorldGlobalState, WorldMaps, WorldSource, WorldSourceKind, YmirMap,
+};
 use bevy::prelude::*;
 use hexx::HexOrientation;
+use image::{DynamicImage, Rgba};
+use shared::BiomeTypeEnum;
 use shared::BuildingData;
 use shared::GameState;
 use shared::TerrainChunkId;
@@ -35,43 +39,56 @@ pub fn setup_grid_config() -> GridConfig {
 pub async fn generate_world_globals(
     map_name: &str,
     db_tables: &DatabaseTables,
+    source_kind: WorldSourceKind,
 ) -> WorldGlobalState {
-    tracing::info!("=== GENERATING WORLD GLOBALS : {} ===", map_name);
+    tracing::info!(
+        "=== GENERATING WORLD GLOBALS : {} (source: {}) ===",
+        map_name,
+        source_kind.as_str()
+    );
     let start = std::time::Instant::now();
 
-    let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
     let grid_config = setup_grid_config();
     let scale = Vec2::splat(100.);
 
-    let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
-        map_name,
-        &maps.binary_map,
-        &maps.lake_map,
-        Some(&maps.heightmap),
-        Some(&maps.biome_map),
-        &scale,
-    );
+    let source = WorldSource::load(source_kind, map_name, 12345)
+        .unwrap_or_else(|e| panic!("Failed to load world source ({}): {e}", source_kind.as_str()));
 
-    // Cache source biome RGBA for per-chunk cell sampling
-    let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
-    tracing::info!(
-        "✓ Source biome RGBA prepared ({}x{})",
-        source_biome_flipped.width(),
-        source_biome_flipped.height()
-    );
+    let (mut global_state, terrain_global_data) = match source {
+        WorldSource::AzgaarPng(maps) => {
+            let (mut global_state, terrain_global_data) = TerrainMeshData::generate_globals(
+                map_name,
+                &maps.binary_map,
+                &maps.lake_map,
+                Some(&maps.heightmap),
+                Some(&maps.biome_map),
+                &scale,
+            );
 
-    let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
-    tracing::info!(
-        "✓ Source lake map prepared ({}x{})",
-        source_lake_flipped.width(),
-        source_lake_flipped.height()
-    );
-    global_state.source_lake_flipped = source_lake_flipped;
+            // Cache source biome RGBA for per-chunk cell sampling
+            let source_biome_flipped = image::imageops::flip_vertical(&maps.biome_map.to_rgba8());
+            tracing::info!(
+                "✓ Source biome RGBA prepared ({}x{})",
+                source_biome_flipped.width(),
+                source_biome_flipped.height()
+            );
 
-    global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
-    global_state.maps = Some(maps);
-    global_state.grid_config = Some(grid_config);
-    global_state.build_effective_binary();
+            let source_lake_flipped = image::imageops::flip_vertical(&maps.lake_map);
+            tracing::info!(
+                "✓ Source lake map prepared ({}x{})",
+                source_lake_flipped.width(),
+                source_lake_flipped.height()
+            );
+            global_state.source_lake_flipped = source_lake_flipped;
+
+            global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
+            global_state.maps = Some(maps);
+            global_state.grid_config = Some(grid_config);
+            global_state.build_effective_binary();
+            (global_state, terrain_global_data)
+        }
+        WorldSource::Ymir(ymir) => build_ymir_globals(map_name, &ymir, grid_config, scale),
+    };
 
     // Save terrain global data (biome + heightmap textures for client)
     if let Some(ref global_data) = terrain_global_data {
@@ -345,11 +362,189 @@ pub async fn generate_world_globals(
     global_state
 }
 
+/// Build world globals from a Ymir metric height field (LL-A).
+///
+/// Consumes the metric u16 `height` layer directly. The enriched heightmap
+/// pipeline (`generate_enriched_heightmap`, steps 1–8 — in particular step 4
+/// coastal-SDF and step 6 FBM detail) is **not** run: `heightmap_values` is the
+/// Ymir u16 copied verbatim (Y-flipped to Bevy Y-up), preserving full range and
+/// bathymetry with no u8 requantise. Land/sea is derived from
+/// `metres > sea_level_m` (temporary; coastline is LL-B, real biomes are LL-C).
+fn build_ymir_globals(
+    map_name: &str,
+    ymir: &YmirMap,
+    grid_config: GridConfig,
+    scale: Vec2,
+) -> (WorldGlobalState, Option<shared::TerrainGlobalData>) {
+    let hf = &ymir.height;
+    let w = hf.width as usize;
+    let h = hf.height as usize;
+    let sea_level_norm = hf.sea_level_norm;
+    let sea_level_m = ymir.manifest.continent.sea_level_m;
+
+    // Placeholder biome palette (LL-C replaces this with the biome.u8 layer).
+    let grass_id = BiomeTypeEnum::Grassland.to_id();
+    let ocean_id = BiomeTypeEnum::Ocean.to_id();
+    let grass_rgba = Rgba([200u8, 214, 143, 255]); // Azgaar Grassland palette color
+    let ocean_rgba = Rgba([0u8, 15, 30, 255]); // Azgaar Ocean palette color
+
+    // Y-flipped R16 heightmap + biome texture + flipped source buffers used by
+    // the per-chunk sampler. Ymir authors y=0 = south; the enriched path flips
+    // vertically at its step 8, so we match that orientation.
+    let mut heightmap_values = vec![0u8; w * h * 2];
+    let mut biome_values = vec![0u8; w * h * 4];
+    let mut source_binary_flipped =
+        image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(hf.width, hf.height);
+    let mut source_biome_flipped_rgba =
+        image::ImageBuffer::<Rgba<u8>, Vec<u8>>::new(hf.width, hf.height);
+
+    for y in 0..h {
+        let src_row = (h - 1 - y) * w; // vertical flip
+        let dst_row = y * w;
+        for x in 0..w {
+            let v = hf.data[src_row + x];
+            let is_land = hf.metres_of_u16(v) > sea_level_m;
+
+            let hb = v.to_le_bytes();
+            let ho = (dst_row + x) * 2;
+            heightmap_values[ho] = hb[0];
+            heightmap_values[ho + 1] = hb[1];
+
+            let (bid, brgba) = if is_land {
+                (grass_id, grass_rgba)
+            } else {
+                (ocean_id, ocean_rgba)
+            };
+            let bo = (dst_row + x) * 4;
+            biome_values[bo] = (bid * 17) as u8; // R = primary biome id * 17
+            biome_values[bo + 1] = (bid * 17) as u8; // G = secondary biome id * 17
+            biome_values[bo + 2] = 0; // B = blend factor
+            biome_values[bo + 3] = 255; // A
+
+            source_binary_flipped
+                .put_pixel(x as u32, y as u32, Luma([if is_land { 255 } else { 0 }]));
+            source_biome_flipped_rgba.put_pixel(x as u32, y as u32, brgba);
+        }
+    }
+
+    // No lake layer in LL-A → empty lake mask.
+    let source_lake_flipped = image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(hf.width, hf.height);
+
+    // Chunk grid — same convention as Azgaar (source px × scale ÷ CHUNK_SIZE).
+    // NOTE: world units are not yet calibrated to metres; metres_per_cell is
+    // stored in TerrainGlobalData for later (LL-B/C) calibration.
+    let scaled_width = hf.width as f32 * scale.x;
+    let scaled_height = hf.height as f32 * scale.y;
+    let n_chunk_x = (scaled_width / constants::CHUNK_SIZE.x).ceil() as i32;
+    let n_chunk_y = (scaled_height / constants::CHUNK_SIZE.y).ceil() as i32;
+    let world_width = n_chunk_x as f32 * constants::CHUNK_SIZE.x;
+    let world_height = n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+    // Synthesize a minimal WorldMaps so the ocean/lake global builders and the
+    // `global.maps.unwrap()` in generate_chunk_data are satisfied. Its luma u8
+    // heightmap feeds ONLY the ocean depth texture — never heightmap_values.
+    let maps = build_ymir_worldmaps(ymir, n_chunk_x, n_chunk_y);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let terrain_global_data = shared::TerrainGlobalData {
+        name: map_name.to_string(),
+        biome_width: hf.width,
+        biome_height: hf.height,
+        biome_values,
+        heightmap_width: hf.width,
+        heightmap_height: hf.height,
+        heightmap_values: heightmap_values.clone(),
+        world_width,
+        world_height,
+        metres_per_cell: hf.metres_per_cell(),
+        metres_per_height_unit: hf.metres_per_height_unit(),
+        height_min_m: hf.min_m,
+        sea_level_norm,
+        generated_at: now,
+    };
+
+    let mut global_state = WorldGlobalState {
+        map_name: map_name.to_string(),
+        maps: Some(maps),
+        source_binary_flipped,
+        source_lake_flipped,
+        n_chunk_x,
+        n_chunk_y,
+        scale,
+        sdf_resolution: 64,
+        max_distance: 150.0,
+        grid_config: Some(grid_config),
+        source_biome_flipped_rgba: Some(source_biome_flipped_rgba),
+        enriched_heightmap: Some(heightmap_values),
+        enriched_heightmap_width: hf.width,
+        enriched_heightmap_height: hf.height,
+        effective_binary: None,
+        effective_binary_smoothed: None,
+        water_threshold_norm: sea_level_norm,
+    };
+    global_state.build_effective_binary();
+
+    tracing::info!(
+        "✓ Ymir globals built (enriched pipeline bypassed — coastal-SDF/FBM skipped): {}x{} height, {}x{} chunks, sea_level_norm {:.3}",
+        hf.width, hf.height, n_chunk_x, n_chunk_y, sea_level_norm
+    );
+
+    (global_state, Some(terrain_global_data))
+}
+
+/// Minimal `WorldMaps` synthesized from a Ymir height field for the ocean/lake
+/// global builders (and the `maps.unwrap()` in chunk generation). Unflipped
+/// (raw source orientation), matching the Azgaar `WorldMaps` convention.
+fn build_ymir_worldmaps(ymir: &YmirMap, n_chunk_x: i32, n_chunk_y: i32) -> WorldMaps {
+    let hf = &ymir.height;
+    let w = hf.width;
+    let h = hf.height;
+    let sea_level_m = ymir.manifest.continent.sea_level_m;
+
+    // u8 heightmap (high byte) — feeds the ocean depth texture only.
+    let heightmap = image::ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
+        Luma([(hf.data[(y * w + x) as usize] >> 8) as u8])
+    });
+    // Land/sea binary (used only by the ocean/lake fallback branch).
+    let binary_map = image::ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
+        Luma([if hf.metres_at(x, y) > sea_level_m { 255 } else { 0 }])
+    });
+    // Empty lake mask (Ymir lake layer not present in LL-A).
+    let lake_map = image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(w, h);
+    // Placeholder biome image (Grassland land / Ocean water) for the legacy batch path.
+    let biome_rgba = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
+        if hf.metres_at(x, y) > sea_level_m {
+            Rgba([200, 214, 143, 255])
+        } else {
+            Rgba([0, 15, 30, 255])
+        }
+    });
+
+    WorldMaps {
+        heightmap,
+        biome_map: DynamicImage::ImageRgba8(biome_rgba),
+        binary_map,
+        lake_map,
+        config: WorldConfig {
+            map_width: w,
+            map_height: h,
+            chunks_x: n_chunk_x.max(0) as u32,
+            chunks_y: n_chunk_y.max(0) as u32,
+            seed: ymir.manifest.continent.seed.unwrap_or(0) as u32,
+        },
+    }
+}
+
 /// Load cached world globals from DB, or generate them if not found.
 /// This is the normal server startup path.
 pub async fn load_or_generate_world_globals(
     map_name: &str,
     db_tables: &DatabaseTables,
+    source_kind: WorldSourceKind,
 ) -> WorldGlobalState {
     let has_globals = db_tables
         .terrain_global_data
@@ -370,6 +565,23 @@ pub async fn load_or_generate_world_globals(
             );
         }
         let t = std::time::Instant::now();
+
+        // Ymir: the .ymir source is authoritative and cheap to reload; rebuild
+        // the in-memory globals from it (the cached ocean/lake in DB are reused,
+        // and the heightmap is deterministic so it matches the cached copy).
+        if source_kind == WorldSourceKind::Ymir {
+            let ymir = YmirMap::load(map_name).expect("Failed to load Ymir map");
+            let grid_config = setup_grid_config();
+            let scale = Vec2::splat(100.);
+            let (global_state, _tgd) = build_ymir_globals(map_name, &ymir, grid_config, scale);
+            tracing::info!(
+                "✓ Ymir world globals rebuilt in {:?} ({}x{} chunks)",
+                t.elapsed(),
+                global_state.n_chunk_x,
+                global_state.n_chunk_y
+            );
+            return global_state;
+        }
 
         let maps = WorldMaps::load(map_name, 12345).expect("Failed to load world maps");
         let grid_config = setup_grid_config();
@@ -415,6 +627,8 @@ pub async fn load_or_generate_world_globals(
             enriched_heightmap_height: ehm_h,
             effective_binary: None,
             effective_binary_smoothed: None,
+            // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
+            water_threshold_norm: 0.0,
         };
 
         global_state.build_effective_binary();
@@ -428,7 +642,7 @@ pub async fn load_or_generate_world_globals(
         global_state
     } else {
         tracing::info!("No cached globals found, generating from scratch...");
-        generate_world_globals(map_name, db_tables).await
+        generate_world_globals(map_name, db_tables, source_kind).await
     }
 }
 
@@ -588,6 +802,7 @@ pub async fn generate_chunk_data(
                 global.n_chunk_x as f32 * constants::CHUNK_SIZE.x,
                 global.n_chunk_y as f32 * constants::CHUNK_SIZE.y,
             ),
+            global.water_threshold_norm,
         )
     } else {
         vec![]
@@ -685,11 +900,16 @@ pub async fn generate_chunk_data(
 
 /// Generate everything in batch (convenience for dev/testing).
 /// Uses generate_world_globals + generate_chunk_data for each chunk.
-pub async fn generate_world(map_name: &str, db_tables: &DatabaseTables, game_state: &GameState) {
+pub async fn generate_world(
+    map_name: &str,
+    db_tables: &DatabaseTables,
+    game_state: &GameState,
+    source_kind: WorldSourceKind,
+) {
     tracing::info!("Starting full world generation...");
     let start = std::time::Instant::now();
 
-    let global_state = generate_world_globals(map_name, db_tables).await;
+    let global_state = generate_world_globals(map_name, db_tables, source_kind).await;
     let global_maps = global_state.maps.as_ref().unwrap();
     let global_grid_config = global_state.grid_config.as_ref().unwrap();
 

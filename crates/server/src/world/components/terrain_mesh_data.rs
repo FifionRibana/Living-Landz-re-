@@ -158,6 +158,11 @@ impl TerrainMeshData {
                 heightmap_values: global_heightmap,
                 world_width,
                 world_height,
+                // Azgaar path has no metric scale; ocean is exactly 0u16.
+                metres_per_cell: 0.0,
+                metres_per_height_unit: 0.0,
+                height_min_m: 0.0,
+                sea_level_norm: 0.0,
                 generated_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -186,6 +191,8 @@ impl TerrainMeshData {
             enriched_heightmap_height: terrain_global_data.as_ref().map(|d| d.heightmap_height).unwrap_or(0),
             effective_binary: None,
             effective_binary_smoothed: None,
+            // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
+            water_threshold_norm: 0.0,
         };
 
         (global_state, terrain_global_data)

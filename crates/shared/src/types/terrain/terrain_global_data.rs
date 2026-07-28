@@ -28,6 +28,16 @@ pub struct TerrainGlobalData {
     pub world_width: f32,
     pub world_height: f32,
 
+    /// Ground-plane metres per source grid cell (0.0 = unknown / legacy Azgaar).
+    pub metres_per_cell: f32,
+    /// Metres represented by one R16 height step (0.0 = unknown / legacy Azgaar).
+    pub metres_per_height_unit: f32,
+    /// Absolute metres at R16 value 0 (offset for `metres = height_min_m + u16 * metres_per_height_unit`).
+    pub height_min_m: f32,
+    /// Normalized sea level in the R16 range, i.e. the land/sea threshold.
+    /// 0.0 = legacy convention (ocean is exactly 0); 0.5 = Ymir full-range (sea level mid-range).
+    pub sea_level_norm: f32,
+
     pub generated_at: u64,
 }
 
@@ -43,6 +53,10 @@ impl Default for TerrainGlobalData {
             heightmap_values: vec![0, 128], // single u16 LE pixel
             world_width: 1.0,
             world_height: 1.0,
+            metres_per_cell: 0.0,
+            metres_per_height_unit: 0.0,
+            height_min_m: 0.0,
+            sea_level_norm: 0.0,
             generated_at: 0,
         }
     }
