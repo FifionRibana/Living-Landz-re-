@@ -14,6 +14,9 @@ pub mod states;
 mod ui;
 
 fn main() {
+    // Load .env (walks up parent dirs) so AUTH_HTTP_URL / AUTH_HTTP_HOST are picked up
+    dotenv::dotenv().ok();
+
     // Truncate the log file on each launch
     let _ = std::fs::write("client.log", "");
 
