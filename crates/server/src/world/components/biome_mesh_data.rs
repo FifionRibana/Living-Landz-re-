@@ -346,6 +346,7 @@ impl BiomeMeshData {
         chunk_id: &TerrainChunkId,
         enriched_heightmap: Option<(&[u8], u32, u32)>, // (data, width, height) — u16 LE, flipped
         world_dims: (f32, f32), // (world_width, world_height) from n_chunk * CHUNK_SIZE
+        water_threshold_norm: f32, // normalized sea level; land = height > threshold (0.0 legacy, ~0.5 Ymir)
     ) -> Vec<CellData> {
         let img_w = source_biome_flipped.width();
         let img_h = source_biome_flipped.height();
@@ -492,7 +493,7 @@ impl BiomeMeshData {
                         hm_data, hm_w, hm_h, center_pos, world_w, world_h,
                     );
 
-                    if center_h <= 0.0 {
+                    if center_h <= water_threshold_norm {
                         // Heightmap says water — check if lake or ocean.
                         // Use world_dims for coordinate conversion (not scale)
                         let lx = (center_pos.x / world_w * source_lake.width() as f32) as u32;
@@ -616,7 +617,7 @@ impl BiomeMeshData {
                         let nh = Self::sample_enriched_height(
                             hm_data, hm_w, hm_h, npos, world_w, world_h,
                         );
-                        if nh <= 0.0 {
+                        if nh <= water_threshold_norm {
                             let lx = (npos.x / world_w * source_lake.width() as f32) as u32;
                             let ly = (npos.y / world_h * source_lake.height() as f32) as u32;
                             let is_lake = lx < source_lake.width()
