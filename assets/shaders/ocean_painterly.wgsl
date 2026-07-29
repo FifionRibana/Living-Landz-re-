@@ -10,7 +10,10 @@ struct OceanParams {
     wave_speed: f32,
     wave_amplitude: f32,
     foam_width: f32,
-    _padding1: f32,
+    // Normalized sea level in the terrain heightmap (Ymir ~0.574). > 0 selects the
+    // SDF-anchored shore + real metric-depth path; 0 (Azgaar) keeps the legacy
+    // inverted-heightmap bathymetry and early fade.
+    sea_level_norm: f32,
     _padding2: f32,
 }
 
@@ -134,9 +137,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let sdf_depth_raw = saturate(-sdf_signed);
 
-    // === Heightmap ===
-    let height = textureSample(heightmap, heightmap_sampler, uv).r;
-    let bathymetry = 1.0 - height;
+    // === Bathymetry (depth below sea level, 0 at coast → 1 at deepest) ===
+    // Ymir (sea_level_norm > 0): real metric depth straight from the terrain height
+    // field — no upscaled proxy. Azgaar: legacy inverted ocean heightmap.
+    var bathymetry: f32;
+    if (params.sea_level_norm > 0.001) {
+        bathymetry = saturate((params.sea_level_norm - terrain_h) / params.sea_level_norm);
+    } else {
+        let height = textureSample(heightmap, heightmap_sampler, uv).r;
+        bathymetry = 1.0 - height;
+    }
 
     // === Combine SDF + heightmap ===
     let world_pos = uv * vec2<f32>(params.world_width, params.world_height);
@@ -358,8 +368,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Perturb SDF for organic coastline edge (breaks remaining pixel staircases)
     let edge_noise = fbm(ref_pos * 0.02, 3);
     let sdf_perturbed = sdf_signed + (edge_noise - 0.5) * 0.05;
-    // Extend ocean slightly into land and soften the alpha transition
-    let opacity = smoothstep(0.02 + wave_advance, -0.08, sdf_perturbed);
+    // Anchor the ocean edge to the true coastline (sdf = 0). Ymir: opaque across
+    // all water right up to the coast, fading over a thin band that overlaps the
+    // terrain beach so the water meets the shore with no gap. Azgaar: legacy fade
+    // (opaque only past sdf -0.08).
+    let inner = select(-0.08, -0.01, params.sea_level_norm > 0.001);
+    let outer = select(0.02, 0.03, params.sea_level_norm > 0.001);
+    let opacity = smoothstep(outer + wave_advance, inner, sdf_perturbed);
 
     // Apply terrain heightmap shore fade — smoothly hides ocean as terrain rises
     let final_opacity = opacity;

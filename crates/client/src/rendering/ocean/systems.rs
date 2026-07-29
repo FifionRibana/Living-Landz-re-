@@ -84,6 +84,13 @@ pub fn spawn_ocean(
     let world_width = ocean_data.world_width;
     let world_height = ocean_data.world_height;
 
+    // Normalized sea level (Ymir: calibrated ~0.574; Azgaar: 0.0). Drives the
+    // SDF-anchored shore + metric-depth path in the ocean shader.
+    let sea_level_norm = cache
+        .get_terrain_global()
+        .map(|g| g.sea_level_norm)
+        .unwrap_or(0.0);
+
     // Dans spawn_ocean, après let world_width / world_height :
     info!(
         "🌊 Spawning ocean mesh: {}x{} (texture {}x{}, world_width={}, world_height={})",
@@ -143,6 +150,7 @@ pub fn spawn_ocean(
                 world_width,
                 world_height,
                 max_depth: ocean_data.max_distance,
+                sea_level_norm,
                 ..default()
             },
             ..default()
