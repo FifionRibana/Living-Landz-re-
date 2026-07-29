@@ -406,8 +406,13 @@ fn sample_vegetation_with_biome_blend(
     let data_center = textureSample(biome_texture, biome_sampler, uv);
     let blend_center = data_center.b;
 
-    // Fast path: far from any boundary
-    if (blend_center < 0.01) {
+    // Fast path: one palette, no blur. Azgaar takes this away from boundaries
+    // (server blend factor B < 0.01). The Ymir path writes B = 0 everywhere (no
+    // server blend), so it must NOT take the fast path — otherwise every cell is a
+    // flat hard square; it always falls through to the multi-sample blur, which
+    // averages FULL painterly samples so the texture stays crisp while only the
+    // base biome colour blends across boundaries.
+    if (blend_center < 0.01 && metric_params.x < 0.001) {
         let primary_id = u32(data_center.r * 15.0 + 0.5);
         let palette = get_biome_palette(primary_id);
         return painterly_vegetation_biome(world_pos, palette, base_green);
