@@ -146,6 +146,24 @@ pub struct YmirMap {
     /// [0,height], y=0 = south), from `coastline.geojson`. Empty if the layer is
     /// absent or `present: false` (callers then fall back to the height threshold).
     pub coastline: Vec<Vec<[f32; 2]>>,
+    /// `biome.u8` — one Whittaker id (`ymir.WhittakerBiome@v1`) per cell,
+    /// row-major, y=0 = south. Empty if the layer is absent (callers fall back to
+    /// a height-derived placeholder biome).
+    pub biome: Vec<u8>,
+    /// `temperature.i16` — °C × 100 per cell, row-major, y=0 = south. Empty if absent.
+    pub temperature: Vec<i16>,
+}
+
+impl YmirMap {
+    /// Temperature in °C at cell `(x, y)`, or `None` if the layer is absent.
+    #[inline]
+    pub fn temperature_c_at(&self, x: u32, y: u32) -> Option<f32> {
+        if self.temperature.is_empty() {
+            return None;
+        }
+        let idx = (y as usize) * (self.height.width as usize) + (x as usize);
+        self.temperature.get(idx).map(|&t| t as f32 / 100.0)
+    }
 }
 
 impl YmirMap {
@@ -275,25 +293,36 @@ impl YmirMap {
             coastline.iter().map(|l| l.len()).sum::<usize>()
         );
 
-        // TODO(LL-B): `cliffs.geojson` (slope_threshold_deg) not yet consumed.
-        // TODO(LL-C): decode the `biome.u8` layer (semantics ymir.WhittakerBiome@v1),
-        //             plus `temperature.i16` / `precipitation.u16`, into game biomes.
+        // ── biome.u8 + temperature.i16 (LL-C) ──
+        let biome = load_biome_u8(&dir, &manifest, width, height);
+        let temperature = load_temperature_i16(&dir, &manifest, width, height);
+        tracing::info!(
+            "✓ Ymir biome layer: {} cells, temperature layer: {} cells",
+            biome.len(),
+            temperature.len()
+        );
+
+        // Cliffs (cliffs.geojson) are consumed client-side by the debug overlay
+        // (LL-C), read directly from the .ymir asset via the shared GeoJSON reader.
+        // TODO(LL-C+): flow_accumulation / lake_mask (absent in current maps) for
+        //             Wetland / Lake biome rules.
 
         Ok(Self {
             manifest,
             height: field,
             coastline,
+            biome,
+            temperature,
         })
     }
 }
 
-/// Parse `coastline.geojson` (a FeatureCollection whose feature is a
-/// MultiLineString) into polylines in cell space. Hand-parsed with serde_json to
-/// avoid a `geojson` dependency. Returns empty if the layer is absent/not present,
-/// unreadable, or malformed (callers fall back to the metric-height threshold).
+/// Load `coastline.geojson` into polylines in cell space, via the shared GeoJSON
+/// reader (`shared::geojson::parse_multilinestring_geojson`, also used by the
+/// client cliff overlay). Returns empty if the layer is absent/not present or
+/// unreadable (callers fall back to the metric-height threshold).
 fn load_coastline(dir: &Path, manifest: &YmirManifest) -> Vec<Vec<[f32; 2]>> {
-    let layer = manifest.layers.iter().find(|l| l.id == "coastline");
-    let Some(layer) = layer else {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "coastline") else {
         return Vec::new();
     };
     if !layer.present {
@@ -301,75 +330,79 @@ fn load_coastline(dir: &Path, manifest: &YmirManifest) -> Vec<Vec<[f32; 2]>> {
     }
     let file = layer.file.clone().unwrap_or_else(|| "coastline.geojson".to_string());
     let path = dir.join(&file);
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => shared::geojson::parse_multilinestring_geojson(&raw),
         Err(e) => {
             tracing::warn!("Ymir: cannot read coastline {}: {e}", path.display());
-            return Vec::new();
+            Vec::new()
         }
-    };
-    let json: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!("Ymir: invalid coastline.geojson: {e}");
-            return Vec::new();
-        }
-    };
-
-    // Collect every MultiLineString / LineString geometry, whether the top level
-    // is a FeatureCollection, a single Feature, or a bare geometry.
-    let mut polylines: Vec<Vec<[f32; 2]>> = Vec::new();
-    let mut push_geometry = |geom: &serde_json::Value, out: &mut Vec<Vec<[f32; 2]>>| {
-        let Some(kind) = geom.get("type").and_then(|t| t.as_str()) else {
-            return;
-        };
-        let Some(coords) = geom.get("coordinates") else {
-            return;
-        };
-        let parse_line = |line: &serde_json::Value| -> Vec<[f32; 2]> {
-            line.as_array()
-                .map(|pts| {
-                    pts.iter()
-                        .filter_map(|p| {
-                            let a = p.as_array()?;
-                            Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32])
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
-        match kind {
-            "MultiLineString" => {
-                if let Some(lines) = coords.as_array() {
-                    for line in lines {
-                        let pl = parse_line(line);
-                        if pl.len() >= 2 {
-                            out.push(pl);
-                        }
-                    }
-                }
-            }
-            "LineString" => {
-                let pl = parse_line(coords);
-                if pl.len() >= 2 {
-                    out.push(pl);
-                }
-            }
-            _ => {}
-        }
-    };
-
-    if let Some(features) = json.get("features").and_then(|f| f.as_array()) {
-        for feat in features {
-            if let Some(geom) = feat.get("geometry") {
-                push_geometry(geom, &mut polylines);
-            }
-        }
-    } else if let Some(geom) = json.get("geometry") {
-        push_geometry(geom, &mut polylines);
-    } else {
-        push_geometry(&json, &mut polylines);
     }
+}
 
-    polylines
+/// Load the `biome.u8` layer (one Whittaker id per cell, row-major, y=0 south).
+/// Empty if absent/not present or size mismatch (caller falls back to a
+/// height-derived placeholder biome).
+fn load_biome_u8(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> Vec<u8> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "biome") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "biome.u8".to_string());
+    let path = dir.join(&file);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read biome {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let expected = (w as usize) * (h as usize);
+    if bytes.len() != expected {
+        tracing::warn!(
+            "Ymir: biome.u8 is {} bytes, expected {} ({}x{}) — ignoring",
+            bytes.len(),
+            expected,
+            w,
+            h
+        );
+        return Vec::new();
+    }
+    bytes
+}
+
+/// Load the `temperature.i16` layer (°C × 100, LE, row-major, y=0 south).
+/// Empty if absent/not present or size mismatch.
+fn load_temperature_i16(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> Vec<i16> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "temperature") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "temperature.i16".to_string());
+    let path = dir.join(&file);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read temperature {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let expected = (w as usize) * (h as usize) * 2;
+    if bytes.len() != expected {
+        tracing::warn!(
+            "Ymir: temperature.i16 is {} bytes, expected {} ({}x{}x2) — ignoring",
+            bytes.len(),
+            expected,
+            w,
+            h
+        );
+        return Vec::new();
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect()
 }

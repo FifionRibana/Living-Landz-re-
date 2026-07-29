@@ -194,6 +194,7 @@ impl TerrainMeshData {
             // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
             water_threshold_norm: 0.0,
             coastline_cells: Vec::new(),
+            ymir_biome_ids: None,
         };
 
         (global_state, terrain_global_data)
