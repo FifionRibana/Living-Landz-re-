@@ -13,6 +13,13 @@ use crate::networking::client::http_client::{
     HttpBulkClient, HttpGlobalReceiver, HttpGlobalResult, HttpGlobalSender, HttpTerrainReceiver,
     HttpTerrainSender,
 };
+
+/// The world/map name the client fetches globals + chunks for. Configurable via
+/// the `WORLD_NAME` env var (default `"Gaulyia"`) so the client can be pointed at
+/// a Ymir map (e.g. `seed42_2048`) to match the server's `--map=`.
+pub(crate) fn world_name() -> String {
+    std::env::var("WORLD_NAME").unwrap_or_else(|_| "Gaulyia".to_string())
+}
 use crate::state::resources::{
     ActionTracker, ConnectionStatus, CurrentOrganization, GameDataCache, InventoryCache,
     NotificationState, PlayerInfo, TrackedAction, UnitsCache, UnitsDataCache, WorldCache,
@@ -543,11 +550,12 @@ fn receive_action_completed(
             let client = http_client.client.clone();
             let base_url = http_client.base_url.clone();
             let chunk_id = msg.chunk_id;
+            let world = world_name();
 
             IoTaskPool::get()
                 .spawn(async_compat::Compat::new(async move {
                     let body = serde_json::json!({
-                        "terrain_name": "Gaulyia",
+                        "terrain_name": world,
                         "chunk_ids": [[chunk_id.x, chunk_id.y]],
                     });
                     match client.post(format!("{}/api/terrain/chunks", base_url))
@@ -636,13 +644,14 @@ fn receive_lord_data(
                 // Spawn HTTP fetches for global bulk data in parallel
                 let client = http_client.clone();
                 let sender = global_sender.clone();
+                let world = world_name();
                 IoTaskPool::get()
                     .spawn(async_compat::Compat::new(async move {
                         let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                            client.fetch_ocean("Gaulyia"),
-                            client.fetch_lake("Gaulyia"),
-                            client.fetch_terrain_global("Gaulyia"),
-                            client.fetch_exploration("Gaulyia"),
+                            client.fetch_ocean(&world),
+                            client.fetch_lake(&world),
+                            client.fetch_terrain_global(&world),
+                            client.fetch_exploration(&world),
                         )
                         .await;
 
@@ -1344,13 +1353,14 @@ fn receive_lord_created(
             // Spawn HTTP fetches for global bulk data
             let client = http_client.clone();
             let sender = global_sender.clone();
+            let world = world_name();
             IoTaskPool::get()
                 .spawn(async_compat::Compat::new(async move {
                     let (ocean, lake, terrain_global, exploration) = futures::future::join4(
-                        client.fetch_ocean("Gaulyia"),
-                        client.fetch_lake("Gaulyia"),
-                        client.fetch_terrain_global("Gaulyia"),
-                        client.fetch_exploration("Gaulyia"),
+                        client.fetch_ocean(&world),
+                        client.fetch_lake(&world),
+                        client.fetch_terrain_global(&world),
+                        client.fetch_exploration(&world),
                     )
                     .await;
                     if let Ok(data) = ocean {
@@ -1805,11 +1815,12 @@ fn receive_organization_liquidated(
                 let client = http_client.client.clone();
                 let base_url = http_client.base_url.clone();
                 let cid = *chunk_id;
+                let world = world_name();
 
                 IoTaskPool::get()
                     .spawn(async_compat::Compat::new(async move {
                         let body = serde_json::json!({
-                            "terrain_name": "Gaulyia",
+                            "terrain_name": world,
                             "chunk_ids": [[cid.x, cid.y]],
                         });
                         match client
