@@ -61,12 +61,22 @@ pub struct WorldGlobalState {
     /// threshold. `0.0` = legacy Azgaar convention (ocean is exactly `0u16`);
     /// `0.5` = Ymir full-range encoding (sea level at u16 ≈ 32768).
     pub water_threshold_norm: f32,
+
+    /// Ymir sea-level coastline polylines in **cell space** (y=0 = south), used to
+    /// build the coastal SDF from vectors instead of a smoothed pixel mask (LL-B).
+    /// Empty on the Azgaar path (and on Ymir maps without a coastline layer).
+    pub coastline_cells: Vec<Vec<[f32; 2]>>,
 }
 
 impl WorldGlobalState {
     /// Generate the effective binary map from the enriched heightmap.
     /// Must be called after enriched_heightmap is populated.
-    pub fn build_effective_binary(&mut self) {
+    ///
+    /// `smoothed` controls whether the Gaussian-blurred `effective_binary_smoothed`
+    /// is produced for render SDFs. The Azgaar path passes `true`; the Ymir path
+    /// passes `false` (its coast comes from the vector coastline SDF, so the σ=5
+    /// mask blur + re-threshold are skipped — LL-B).
+    pub fn build_effective_binary(&mut self, smoothed: bool) {
         let Some(ref hm_data) = self.enriched_heightmap else {
             return;
         };
@@ -100,44 +110,49 @@ impl WorldGlobalState {
         );
         // Build smoothed version for rendering SDFs (organic coastlines).
         // Applied globally — no chunk-junction issues since both chunks crop
-        // from the same blurred image.
-        let sigma = 5.0f32;
-        let radius = (sigma * 2.5).ceil() as i32;
-        let ksize = (2 * radius + 1) as usize;
-        let mut kernel = vec![0.0f32; ksize];
-        let mut ksum = 0.0f32;
-        for i in 0..ksize {
-            let xf = (i as i32 - radius) as f32;
-            kernel[i] = (-xf * xf / (2.0 * sigma * sigma)).exp();
-            ksum += kernel[i];
-        }
-        for v in kernel.iter_mut() { *v /= ksum; }
+        // from the same blurred image. Skipped on the Ymir path (LL-B): its
+        // coastline comes from the vector SDF, not a blurred pixel mask.
+        if smoothed {
+            let sigma = 5.0f32;
+            let radius = (sigma * 2.5).ceil() as i32;
+            let ksize = (2 * radius + 1) as usize;
+            let mut kernel = vec![0.0f32; ksize];
+            let mut ksum = 0.0f32;
+            for i in 0..ksize {
+                let xf = (i as i32 - radius) as f32;
+                kernel[i] = (-xf * xf / (2.0 * sigma * sigma)).exp();
+                ksum += kernel[i];
+            }
+            for v in kernel.iter_mut() { *v /= ksum; }
 
-        let mut tmp = vec![0.0f32; w * h];
-        for y in 0..h {
-            for x in 0..w {
-                let mut s = 0.0f32;
-                for k in -radius..=radius {
-                    let sx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
-                    s += (effective.get_pixel(sx as u32, y as u32)[0] as f32 / 255.0)
-                        * kernel[(k + radius) as usize];
+            let mut tmp = vec![0.0f32; w * h];
+            for y in 0..h {
+                for x in 0..w {
+                    let mut s = 0.0f32;
+                    for k in -radius..=radius {
+                        let sx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
+                        s += (effective.get_pixel(sx as u32, y as u32)[0] as f32 / 255.0)
+                            * kernel[(k + radius) as usize];
+                    }
+                    tmp[y * w + x] = s;
                 }
-                tmp[y * w + x] = s;
             }
-        }
-        let mut smoothed = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
-        for y in 0..h {
-            for x in 0..w {
-                let mut s = 0.0f32;
-                for k in -radius..=radius {
-                    let sy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
-                    s += tmp[sy * w + x] * kernel[(k + radius) as usize];
+            let mut smoothed_img = ImageBuffer::<Luma<u8>, Vec<u8>>::new(w as u32, h as u32);
+            for y in 0..h {
+                for x in 0..w {
+                    let mut s = 0.0f32;
+                    for k in -radius..=radius {
+                        let sy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
+                        s += tmp[sy * w + x] * kernel[(k + radius) as usize];
+                    }
+                    smoothed_img.put_pixel(x as u32, y as u32, Luma([if s > 0.5 { 255u8 } else { 0u8 }]));
                 }
-                smoothed.put_pixel(x as u32, y as u32, Luma([if s > 0.5 { 255u8 } else { 0u8 }]));
             }
+            tracing::info!("✓ Smoothed effective binary for render (sigma={}, {}x{})", sigma, w, h);
+            self.effective_binary_smoothed = Some(smoothed_img);
+        } else {
+            self.effective_binary_smoothed = None;
         }
-        tracing::info!("✓ Smoothed effective binary for render (sigma={}, {}x{})", sigma, w, h);
-        self.effective_binary_smoothed = Some(smoothed);
 
         self.effective_binary = Some(effective);
     }
