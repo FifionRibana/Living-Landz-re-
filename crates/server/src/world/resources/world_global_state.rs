@@ -66,6 +66,12 @@ pub struct WorldGlobalState {
     /// build the coastal SDF from vectors instead of a smoothed pixel mask (LL-B).
     /// Empty on the Azgaar path (and on Ymir maps without a coastline layer).
     pub coastline_cells: Vec<Vec<[f32; 2]>>,
+
+    /// Ymir resolved per-cell biome ids (`BiomeTypeEnum::to_id() as u8`), grid =
+    /// heightmap dims, Y-flipped to match `source_biome_flipped_rgba` (LL-C).
+    /// `None` on the Azgaar path or Ymir maps without a `biome.u8` layer, in which
+    /// case per-chunk biome falls back to `find_closest_biome`.
+    pub ymir_biome_ids: Option<Vec<u8>>,
 }
 
 impl WorldGlobalState {

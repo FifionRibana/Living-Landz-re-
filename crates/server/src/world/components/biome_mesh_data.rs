@@ -347,6 +347,7 @@ impl BiomeMeshData {
         enriched_heightmap: Option<(&[u8], u32, u32)>, // (data, width, height) — u16 LE, flipped
         world_dims: (f32, f32), // (world_width, world_height) from n_chunk * CHUNK_SIZE
         water_threshold_norm: f32, // normalized sea level; land = height > threshold (0.0 legacy, ~0.5 Ymir)
+        ymir_biome_ids: Option<&[u8]>, // LL-C: resolved biome ids per cell (Ymir path); grid == source_biome dims. None → find_closest_biome
     ) -> Vec<CellData> {
         let img_w = source_biome_flipped.width();
         let img_h = source_biome_flipped.height();
@@ -398,10 +399,15 @@ impl BiomeMeshData {
                 let is_lake_bank = is_land && !is_lake && has_lake_neighbor && !has_ocean_neighbor;
                 let is_ocean_nearshore = is_ocean && has_land_neighbor;
 
-                let pixel = source_biome_flipped.get_pixel(sx, sy);
-                let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
-                let biome = find_closest_biome(&color);
-                let id = biome.to_id();
+                // Biome id: on the Ymir path (LL-C) read the pre-resolved id grid
+                // directly; otherwise fall back to the fragile RGB nearest-match.
+                let id = if let Some(grid) = ymir_biome_ids {
+                    grid[(sy * img_w + sx) as usize] as i16
+                } else {
+                    let pixel = source_biome_flipped.get_pixel(sx, sy);
+                    let color = BiomeColor::srgb_u8(pixel[0], pixel[1], pixel[2]);
+                    find_closest_biome(&color).to_id()
+                };
 
                 // Sub-pixel sampling
                 let world_x_start = sx as f32 * scale.x;
