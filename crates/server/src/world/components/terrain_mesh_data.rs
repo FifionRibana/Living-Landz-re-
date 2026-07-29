@@ -193,6 +193,7 @@ impl TerrainMeshData {
             effective_binary_smoothed: None,
             // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
             water_threshold_norm: 0.0,
+            coastline_cells: Vec::new(),
         };
 
         (global_state, terrain_global_data)
