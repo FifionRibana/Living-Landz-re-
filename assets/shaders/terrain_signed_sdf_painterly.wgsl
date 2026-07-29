@@ -165,12 +165,39 @@ fn get_biome_palette(biome_id: u32) -> BiomePalette {
             p.noise_scale = 0.4;
             p.detail_amount = 0.06;
         }
+        // Ocean (1) / DeepOcean (2) / Lake (13) — water cells that terrain may
+        // sample at the coast. Muted blues so any exposed water reads as water,
+        // not the red debug fallback (the ocean/lake shaders normally cover these).
+        case 1u: {
+            p.dark   = vec3<f32>(0.06, 0.18, 0.30);
+            p.mid    = vec3<f32>(0.10, 0.26, 0.40);
+            p.light  = vec3<f32>(0.16, 0.34, 0.48);
+            p.accent = vec3<f32>(0.08, 0.22, 0.36);
+            p.noise_scale = 0.5;
+            p.detail_amount = 0.05;
+        }
+        case 2u: {
+            p.dark   = vec3<f32>(0.03, 0.10, 0.22);
+            p.mid    = vec3<f32>(0.05, 0.15, 0.30);
+            p.light  = vec3<f32>(0.08, 0.20, 0.36);
+            p.accent = vec3<f32>(0.04, 0.12, 0.26);
+            p.noise_scale = 0.5;
+            p.detail_amount = 0.05;
+        }
+        case 13u: {
+            p.dark   = vec3<f32>(0.12, 0.30, 0.36);
+            p.mid    = vec3<f32>(0.18, 0.38, 0.44);
+            p.light  = vec3<f32>(0.24, 0.44, 0.50);
+            p.accent = vec3<f32>(0.15, 0.34, 0.40);
+            p.noise_scale = 0.5;
+            p.detail_amount = 0.05;
+        }
         // Default / fallback — neutral gray-brown (blends with anything)
         default: {
-            p.dark   = vec3<f32>(1.0, 0.0, 0.0);
-            p.mid    = vec3<f32>(1.0, 0.0, 0.0);
-            p.light  = vec3<f32>(1.0, 0.0, 0.0);
-            p.accent = vec3<f32>(1.0, 0.0, 0.0);
+            p.dark   = vec3<f32>(0.32, 0.30, 0.26);
+            p.mid    = vec3<f32>(0.40, 0.37, 0.31);
+            p.light  = vec3<f32>(0.48, 0.44, 0.37);
+            p.accent = vec3<f32>(0.36, 0.33, 0.28);
             p.noise_scale = 0.7;
             p.detail_amount = 0.10;
         }
@@ -725,7 +752,12 @@ fn is_on_road(
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let shrink_factor = 10.0;
+    // shrink_factor tightens the beach band (beach width ∝ 1/shrink). 10.0 suits
+    // Azgaar's ×4-upscaled enriched heightmap. On the Ymir path the ocean SDF is
+    // now continuous across the coast (sea level is calibrated to the vector
+    // coastline server-side), so a smaller factor simply widens the sand strip
+    // predictably. 5.0 ≈ a few-hex beach; tunable. Gated on metric_params.x (Ymir).
+    let shrink_factor = select(10.0, 10.0, metric_params.x > 0.0);
     let beach_start = params.x / (3.0 * shrink_factor);
     let beach_end = params.y * (0.4) / shrink_factor;
     let has_coast = params.z;
@@ -781,7 +813,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             // --- 2: Altitude bands ---
             case 2u: {
-                if (height > 0.0) {
+                if (height > metric_params.z) {
                     let h = height;
                     debug_color = vec3<f32>(0.67, 0.82, 0.67); // coastal green
                     debug_color = mix(debug_color, vec3<f32>(0.47, 0.71, 0.39), smoothstep(0.018, 0.022, h));
@@ -799,7 +831,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             // --- 4: Biome IDs (distinct colors) ---
             case 4u: {
-                if (height > 0.0) {
+                if (height > metric_params.z) {
                     let data = textureSample(biome_texture, biome_sampler, global_uv);
                     let id = u32(data.r * 15.0 + 0.5);
                     switch id {
@@ -832,14 +864,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     } else {
                         debug_color = mix(vec3<f32>(0.80, 0.90, 1.00), vec3<f32>(0.20, 0.60, 0.20), min(sdf * 3.0, 1.0));
                     }
-                } else if (height > 0.0) {
+                } else if (height > metric_params.z) {
                     debug_color = vec3<f32>(0.25, 0.55, 0.25); // inland = green
                 }
             }
             // --- 6: Shoreline debug — coast/height mismatch ---
             case 6u: {
                 // Grey base for land
-                if (height > 0.0) {
+                if (height > metric_params.z) {
                     debug_color = vec3<f32>(0.25, 0.25, 0.25);
                 }
 
@@ -853,7 +885,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
 
                 // Red: coastal plain — land with very low height (< 0.02 ~ 50m)
-                if (height > 0.0 && height < 0.02) {
+                if (height > metric_params.z && height < 0.02) {
                     debug_color = mix(debug_color, vec3<f32>(0.85, 0.2, 0.2), 0.7);
                 }
 
@@ -867,7 +899,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
 
                 // Contour lines at height intervals
-                if (height > 0.0) {
+                if (height > metric_params.z) {
                     let h_scaled = height * 25.0;
                     let contour = abs(fract(h_scaled) - 0.5);
                     if (contour < 0.05) {
@@ -880,7 +912,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // --- Overlay: level lines ---
         let overlay_flags = u32(debug_params.y + 0.5);
-        if ((overlay_flags & 1u) != 0u && height > 0.0) {
+        if ((overlay_flags & 1u) != 0u && height > metric_params.z) {
             let line = fract(height * 25.0);
             let line_mask = 1.0 - smoothstep(0.02, 0.05, min(line, 1.0 - line));
             debug_color = mix(debug_color, vec3<f32>(0.0, 0.0, 0.0), line_mask * 0.7);
@@ -959,6 +991,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // The global ocean SDF is continuous across the whole world.
     let ocean_sdf_raw = textureSample(ocean_sdf_texture, ocean_sdf_sampler, global_uv).r;
     let sdf_signed = (ocean_sdf_raw - 0.5) * 2.0;
+
+    // Ymir path: past the beach band (well into water) the terrain has nothing to
+    // draw — discard so the ocean shader shows through instead of the biome color.
+    if (metric_params.x > 0.0 && sdf_signed < beach_start) {
+        discard;
+    }
 
     // Attenuate rock in beach zone so gentle coasts keep their sand transition
     let beach_mask = smoothstep(beach_end, beach_start, sdf_signed);
