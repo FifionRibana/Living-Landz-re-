@@ -57,6 +57,7 @@ pub fn request_chunks_around_camera(
         pending_chunks.0.iter().map(|msg| msg.chunk_id).collect();
 
     let mut to_request = Vec::new();
+    let world = crate::networking::client::game_client::world_name();
 
     for dx in -streaming_config.view_radius..=streaming_config.view_radius {
         for dy in -streaming_config.view_radius..=streaming_config.view_radius {
@@ -81,7 +82,7 @@ pub fn request_chunks_around_camera(
             }
 
             // Skip if already loaded
-            if world_cache.is_terrain_loaded("Gaulyia", &id) {
+            if world_cache.is_terrain_loaded(&world, &id) {
                 continue;
             }
 
@@ -96,7 +97,7 @@ pub fn request_chunks_around_camera(
             }
 
             // Skip if recently requested and not yet timed out
-            let should_request = match world_cache.get_terrain_requested_time("Gaulyia", &id) {
+            let should_request = match world_cache.get_terrain_requested_time(&world, &id) {
                 Some(requested_at) => {
                     time.elapsed_secs() - requested_at > streaming_config.request_timeout
                 }
@@ -121,7 +122,7 @@ pub fn request_chunks_around_camera(
 
     if !to_request.is_empty() {
         for id in &to_request {
-            world_cache.mark_terrain_requested_at("Gaulyia", id, time.elapsed_secs());
+            world_cache.mark_terrain_requested_at(&world, id, time.elapsed_secs());
         }
 
         // Spawn HTTP request via IoTaskPool
@@ -132,7 +133,7 @@ pub fn request_chunks_around_camera(
 
         IoTaskPool::get().spawn(async_compat::Compat::new(async move {
             let body = serde_json::json!({
-                "terrain_name": "Gaulyia",
+                "terrain_name": world,
                 "chunk_ids": chunk_tuples,
             });
 
