@@ -24,6 +24,8 @@
 @group(2) @binding(21) var<uniform> debug_params: vec4<f32>; // x = slope_debug_enabled
 @group(2) @binding(22) var ocean_sdf_texture: texture_2d<f32>;
 @group(2) @binding(23) var ocean_sdf_sampler: sampler;
+// LL-B: metric scale for physical slope on the Ymir path. x=0 on the Azgaar path.
+@group(2) @binding(24) var<uniform> metric_params: vec4<f32>; // x=metres_per_cell, y=metres_per_height_unit, z=sea_level_norm, w=cliff_threshold_deg
 
 // ============================================================================
 // CONSTANTES PALETTE PAINTERLY
@@ -199,6 +201,38 @@ fn sample_height(uv: vec2<f32>) -> f32 {
 fn compute_sobel_gradients(uv: vec2<f32>, world_pos: vec2<f32>) -> vec2<f32> {
     let hm_dims = vec2<f32>(textureDimensions(heightmap_texture));
     let hm_texel = 1.0 / hm_dims;
+
+    let metres_per_cell = metric_params.x;
+
+    if (metres_per_cell > 0.0) {
+        // ── Ymir path: true physical slope (rise/run), no FBM jitter ──
+        // The heightmap is 1 texel per Ymir cell (not ×4 upscaled), so a 1-texel
+        // Sobel step spans exactly `metres_per_cell` metres of ground.
+        let step = hm_texel;
+        let uv_min = hm_texel * 0.5;
+        let uv_max = 1.0 - hm_texel * 0.5;
+
+        let h_l = sample_height(clamp(uv + vec2<f32>(-step.x, 0.0), uv_min, uv_max));
+        let h_r = sample_height(clamp(uv + vec2<f32>( step.x, 0.0), uv_min, uv_max));
+        let h_d = sample_height(clamp(uv + vec2<f32>(0.0, -step.y), uv_min, uv_max));
+        let h_u = sample_height(clamp(uv + vec2<f32>(0.0,  step.y), uv_min, uv_max));
+        let h_ld = sample_height(clamp(uv + vec2<f32>(-step.x, -step.y), uv_min, uv_max));
+        let h_ru = sample_height(clamp(uv + vec2<f32>( step.x,  step.y), uv_min, uv_max));
+        let h_lu = sample_height(clamp(uv + vec2<f32>(-step.x,  step.y), uv_min, uv_max));
+        let h_rd = sample_height(clamp(uv + vec2<f32>( step.x, -step.y), uv_min, uv_max));
+
+        // Sobel central difference in NORMALISED height per 1-cell step.
+        let dz_norm_x = ((h_rd + 2.0 * h_r + h_ru) - (h_ld + 2.0 * h_l + h_lu)) / 8.0;
+        let dz_norm_y = -((h_lu + 2.0 * h_u + h_ru) - (h_ld + 2.0 * h_d + h_rd)) / 8.0;
+
+        // rise (metres) = Δh_norm · 65535 · metres_per_height_unit
+        // run  (metres) = 1 cell · metres_per_cell   → slope = rise/run (tan θ)
+        let rise_scale = 65535.0 * metric_params.y;
+        let inv_run = rise_scale / metres_per_cell;
+        return vec2<f32>(dz_norm_x * inv_run, dz_norm_y * inv_run);
+    }
+
+    // ── Azgaar path (unchanged): FBM-jittered UVs + unitless slope_scale = 3.0 ──
     let step = hm_texel * 2.0;
 
     let noise_offset = vec2<f32>(
@@ -726,13 +760,23 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         switch debug_base {
             // --- 1: Slope classes ---
             case 1u: {
-                if (height > 0.0) {
+                if (height > metric_params.z) {
                     let slope = compute_slope_magnitude(global_uv, world_pos);
                     debug_color = vec3<f32>(0.31, 0.63, 0.31);
-                    debug_color = mix(debug_color, vec3<f32>(0.71, 0.71, 0.24), smoothstep(0.04, 0.06, slope));
-                    debug_color = mix(debug_color, vec3<f32>(0.86, 0.55, 0.16), smoothstep(0.13, 0.17, slope));
-                    debug_color = mix(debug_color, vec3<f32>(0.78, 0.20, 0.20), smoothstep(0.33, 0.37, slope));
-                    debug_color = mix(debug_color, vec3<f32>(0.55, 0.16, 0.55), smoothstep(0.58, 0.62, slope));
+                    if (metric_params.x > 0.0) {
+                        // Ymir: physical slope classes in DEGREES (5/15/30/45°)
+                        let deg = degrees(atan(slope));
+                        debug_color = mix(debug_color, vec3<f32>(0.71, 0.71, 0.24), smoothstep(4.0, 6.0, deg));
+                        debug_color = mix(debug_color, vec3<f32>(0.86, 0.55, 0.16), smoothstep(14.0, 16.0, deg));
+                        debug_color = mix(debug_color, vec3<f32>(0.78, 0.20, 0.20), smoothstep(29.0, 31.0, deg));
+                        debug_color = mix(debug_color, vec3<f32>(0.55, 0.16, 0.55), smoothstep(44.0, 46.0, deg));
+                    } else {
+                        // Azgaar: original unitless calibration
+                        debug_color = mix(debug_color, vec3<f32>(0.71, 0.71, 0.24), smoothstep(0.04, 0.06, slope));
+                        debug_color = mix(debug_color, vec3<f32>(0.86, 0.55, 0.16), smoothstep(0.13, 0.17, slope));
+                        debug_color = mix(debug_color, vec3<f32>(0.78, 0.20, 0.20), smoothstep(0.33, 0.37, slope));
+                        debug_color = mix(debug_color, vec3<f32>(0.55, 0.16, 0.55), smoothstep(0.58, 0.62, slope));
+                    }
                 }
             }
             // --- 2: Altitude bands ---
@@ -851,9 +895,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (heightmap_params.x > 0.5) {
         slope_magnitude = compute_slope_magnitude(global_uv, world_pos);
     }
-    // Rock appears on steep slopes (~45°+). Calibrated for enriched heightmap
-    // where slope_magnitude ~0.04 = moderate hill, ~0.10 = cliff.
-    let rock_factor = smoothstep(0.04, 0.10, slope_magnitude);
+    // Rock appears on steep slopes. Ymir path: slope_magnitude is true tan(θ), so
+    // threshold in DEGREES around metric_params.w (cliff_threshold_deg). Azgaar
+    // path (unitless): keep the original 0.04–0.10 calibration.
+    var rock_factor: f32;
+    if (metric_params.x > 0.0) {
+        let slope_deg = degrees(atan(slope_magnitude));
+        let cliff_deg = metric_params.w;
+        rock_factor = smoothstep(cliff_deg * 0.7, cliff_deg, slope_deg);
+    } else {
+        rock_factor = smoothstep(0.04, 0.10, slope_magnitude);
+    }
 
     // === Lake: discard water, render bank ===
     var lake_bank_factor = 0.0;
