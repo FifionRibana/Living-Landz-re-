@@ -142,6 +142,10 @@ impl HeightField {
 pub struct YmirMap {
     pub manifest: YmirManifest,
     pub height: HeightField,
+    /// Sea-level coastline polylines in **cell space** (x in [0,width], y in
+    /// [0,height], y=0 = south), from `coastline.geojson`. Empty if the layer is
+    /// absent or `present: false` (callers then fall back to the height threshold).
+    pub coastline: Vec<Vec<[f32; 2]>>,
 }
 
 impl YmirMap {
@@ -263,13 +267,109 @@ impl YmirMap {
             field.metres_per_height_unit(),
         );
 
-        // TODO(LL-B): consume `coastline.geojson` / `cliffs.geojson` layers here.
+        // ── coastline.geojson (LL-B): sea-level MultiLineString in cell space ──
+        let coastline = load_coastline(&dir, &manifest);
+        tracing::info!(
+            "✓ Ymir coastline: {} polylines ({} points)",
+            coastline.len(),
+            coastline.iter().map(|l| l.len()).sum::<usize>()
+        );
+
+        // TODO(LL-B): `cliffs.geojson` (slope_threshold_deg) not yet consumed.
         // TODO(LL-C): decode the `biome.u8` layer (semantics ymir.WhittakerBiome@v1),
         //             plus `temperature.i16` / `precipitation.u16`, into game biomes.
 
         Ok(Self {
             manifest,
             height: field,
+            coastline,
         })
     }
+}
+
+/// Parse `coastline.geojson` (a FeatureCollection whose feature is a
+/// MultiLineString) into polylines in cell space. Hand-parsed with serde_json to
+/// avoid a `geojson` dependency. Returns empty if the layer is absent/not present,
+/// unreadable, or malformed (callers fall back to the metric-height threshold).
+fn load_coastline(dir: &Path, manifest: &YmirManifest) -> Vec<Vec<[f32; 2]>> {
+    let layer = manifest.layers.iter().find(|l| l.id == "coastline");
+    let Some(layer) = layer else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "coastline.geojson".to_string());
+    let path = dir.join(&file);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read coastline {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let json: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Ymir: invalid coastline.geojson: {e}");
+            return Vec::new();
+        }
+    };
+
+    // Collect every MultiLineString / LineString geometry, whether the top level
+    // is a FeatureCollection, a single Feature, or a bare geometry.
+    let mut polylines: Vec<Vec<[f32; 2]>> = Vec::new();
+    let mut push_geometry = |geom: &serde_json::Value, out: &mut Vec<Vec<[f32; 2]>>| {
+        let Some(kind) = geom.get("type").and_then(|t| t.as_str()) else {
+            return;
+        };
+        let Some(coords) = geom.get("coordinates") else {
+            return;
+        };
+        let parse_line = |line: &serde_json::Value| -> Vec<[f32; 2]> {
+            line.as_array()
+                .map(|pts| {
+                    pts.iter()
+                        .filter_map(|p| {
+                            let a = p.as_array()?;
+                            Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32])
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        match kind {
+            "MultiLineString" => {
+                if let Some(lines) = coords.as_array() {
+                    for line in lines {
+                        let pl = parse_line(line);
+                        if pl.len() >= 2 {
+                            out.push(pl);
+                        }
+                    }
+                }
+            }
+            "LineString" => {
+                let pl = parse_line(coords);
+                if pl.len() >= 2 {
+                    out.push(pl);
+                }
+            }
+            _ => {}
+        }
+    };
+
+    if let Some(features) = json.get("features").and_then(|f| f.as_array()) {
+        for feat in features {
+            if let Some(geom) = feat.get("geometry") {
+                push_geometry(geom, &mut polylines);
+            }
+        }
+    } else if let Some(geom) = json.get("geometry") {
+        push_geometry(geom, &mut polylines);
+    } else {
+        push_geometry(&json, &mut polylines);
+    }
+
+    polylines
 }

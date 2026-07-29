@@ -84,7 +84,7 @@ pub async fn generate_world_globals(
             global_state.source_biome_flipped_rgba = Some(source_biome_flipped);
             global_state.maps = Some(maps);
             global_state.grid_config = Some(grid_config);
-            global_state.build_effective_binary();
+            global_state.build_effective_binary(true);
             (global_state, terrain_global_data)
         }
         WorldSource::Ymir(ymir) => build_ymir_globals(map_name, &ymir, grid_config, scale),
@@ -191,6 +191,31 @@ pub async fn generate_world_globals(
     // Override world dimensions with real world size (not capped ocean image size)
     ocean_data.world_width = global_state.n_chunk_x as f32 * constants::CHUNK_SIZE.x;
     ocean_data.world_height = global_state.n_chunk_y as f32 * constants::CHUNK_SIZE.y;
+
+    // LL-B (Ymir path): replace the pixel-mask ocean SDF with a signed distance
+    // field derived from the real vector coastline, at the same resolution and
+    // max_distance so the shader beach_start/beach_end thresholds still line up.
+    if !global_state.coastline_cells.is_empty() {
+        if let Some(ref eff) = global_state.effective_binary {
+            let coastal = world::components::coastal_signed_distance_field(
+                &global_state.coastline_cells,
+                global_state.enriched_heightmap_width,
+                global_state.enriched_heightmap_height,
+                ocean_data.width,
+                ocean_data.height,
+                ocean_data.max_distance,
+                eff,
+            );
+            ocean_data.sdf_values = coastal;
+            tracing::info!(
+                "✓ Ocean SDF from Ymir vector coastline ({} polylines → {}x{} SDF, max_distance={})",
+                global_state.coastline_cells.len(),
+                ocean_data.width,
+                ocean_data.height,
+                ocean_data.max_distance,
+            );
+        }
+    }
 
     tracing::info!(
         "🌊 Saving ocean : (texture {}x{}, world_width={}, world_height={})",
@@ -485,8 +510,9 @@ fn build_ymir_globals(
         effective_binary: None,
         effective_binary_smoothed: None,
         water_threshold_norm: sea_level_norm,
+        coastline_cells: ymir.coastline.clone(),
     };
-    global_state.build_effective_binary();
+    global_state.build_effective_binary(false);
 
     tracing::info!(
         "✓ Ymir globals built (enriched pipeline bypassed — coastal-SDF/FBM skipped): {}x{} height, {}x{} chunks, sea_level_norm {:.3}",
@@ -629,9 +655,10 @@ pub async fn load_or_generate_world_globals(
             effective_binary_smoothed: None,
             // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
             water_threshold_norm: 0.0,
+            coastline_cells: Vec::new(),
         };
 
-        global_state.build_effective_binary();
+        global_state.build_effective_binary(true);
 
         tracing::info!(
             "✓ World globals loaded in {:?} ({}x{} chunks)",

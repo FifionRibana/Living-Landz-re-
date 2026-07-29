@@ -75,6 +75,23 @@ pub struct TerrainMaterial {
     #[texture(22)]
     #[sampler(23, sampler_type = "filtering")]
     pub ocean_sdf_texture: Handle<Image>,
+
+    /// LL-B: metric scale for physical slope on the Ymir path.
+    /// `metres_per_cell == 0.0` selects the legacy (Azgaar) shader slope path.
+    #[uniform(24)]
+    pub metric_params: MetricParams,
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct MetricParams {
+    /// Ground metres per source grid cell (0.0 = legacy Azgaar → old slope path).
+    pub metres_per_cell: f32,
+    /// Metres per one R16 height step (`(max_m - min_m) / 65535`).
+    pub metres_per_height_unit: f32,
+    /// Normalized sea level (land/sea threshold): 0.0 Azgaar, ~0.5 Ymir.
+    pub sea_level_norm: f32,
+    /// Cliff/rock onset threshold in degrees (Ymir slope shading).
+    pub cliff_threshold_deg: f32,
 }
 
 #[derive(Clone, Copy, Default, ShaderType)]
@@ -211,6 +228,7 @@ impl Default for TerrainMaterial {
             lake_params: LakeParams::default(),
             debug_params: DebugParams::default(),
             ocean_sdf_texture: Handle::default(),
+            metric_params: MetricParams::default(),
         }
     }
 }

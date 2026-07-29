@@ -20,7 +20,7 @@ use super::materials::TerrainMaterial;
 use crate::camera::MainCamera;
 use crate::rendering::terrain::components::TreeChunkMesh;
 use crate::rendering::terrain::materials::{
-    BiomeParams, ChunkInfo, HeightmapParams, LakeParams, RoadParams, SdfParams, TreeMaterial,
+    BiomeParams, ChunkInfo, HeightmapParams, LakeParams, MetricParams, RoadParams, SdfParams, TreeMaterial,
 };
 use crate::state::resources::{ConnectionStatus, WorldCache};
 
@@ -281,6 +281,19 @@ pub fn spawn_terrain(
                 (dummy, HeightmapParams::default())
             };
 
+        // LL-B: metric scale for physical slope (Ymir path). Azgaar globals carry
+        // metres_per_cell == 0.0, which keeps the legacy shader slope path.
+        let metric_params = if let Some(global) = world_cache.get_terrain_global() {
+            MetricParams {
+                metres_per_cell: global.metres_per_cell,
+                metres_per_height_unit: global.metres_per_height_unit,
+                sea_level_norm: global.sea_level_norm,
+                cliff_threshold_deg: if global.metres_per_cell > 0.0 { 35.0 } else { 0.0 },
+            }
+        } else {
+            MetricParams::default()
+        };
+
         let (lake_sdf_texture, lake_params) = if let Some(lh) = world_cache.get_lake_sdf_handle() {
             (
                 lh.clone(),
@@ -381,6 +394,7 @@ pub fn spawn_terrain(
                 lake_sdf_texture: lake_sdf_texture.clone(),
                 lake_params,
                 ocean_sdf_texture: ocean_sdf_texture.clone(),
+                metric_params,
                 ..default()
             }))
         } else {
@@ -423,6 +437,7 @@ pub fn spawn_terrain(
                 lake_sdf_texture: lake_sdf_texture.clone(),
                 lake_params,
                 ocean_sdf_texture: ocean_sdf_texture.clone(),
+                metric_params,
                 ..default()
             }))
         };
