@@ -41,23 +41,43 @@ pub fn whittaker_to_biome(id: u8) -> BiomeTypeEnum {
 
 /// Resolve the final `BiomeTypeEnum` from a Whittaker id plus metric context.
 ///
-/// Order: (1) water → `DeepOcean`/`Ocean` split by depth; (2) cold land → `Ice`;
-/// (3) cold desert → `ColdDesert`. Lake (from `lake_mask`) and Wetland
-/// (`flow_accumulation` + low slope) are applied by the caller only when those
-/// layers are present — absent in current maps.
-pub fn resolve_biome(whittaker_id: u8, temp_c: Option<f32>, height_m: f32) -> BiomeTypeEnum {
-    let base = whittaker_to_biome(whittaker_id);
-
-    // 1. Water: split by bathymetry.
-    if matches!(base, BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean) {
-        return if height_m <= DEEP_OCEAN_DEPTH_M {
+/// **Metric height is the single authority for land vs sea** — it must agree with
+/// the coastline SDF, `effective_binary` and the terrain mesh, which all use
+/// `height > sea_level`. The Whittaker id only chooses the *land* biome type. This
+/// avoids the "water rendered on land" band that appears when Ymir's Whittaker
+/// classifier disagrees with the height coastline (≈18% of id-1 "water" cells sit
+/// above sea level in current maps).
+///
+/// Order: (1) `height ≤ sea_level` → `DeepOcean`/`Ocean` by depth; (2) otherwise
+/// land: the Whittaker land biome (Whittaker-water on a land cell falls back to
+/// `Grassland`), then (3) cold land → `Ice`, cold Desert → `ColdDesert`. Lake
+/// (`lake_mask`) and Wetland (`flow_accumulation`+slope) are applied by the caller
+/// only when those layers are present — absent in current maps.
+pub fn resolve_biome(
+    whittaker_id: u8,
+    temp_c: Option<f32>,
+    height_m: f32,
+    sea_level_m: f32,
+) -> BiomeTypeEnum {
+    // 1. Sea vs land decided purely by height (bathymetry split for the sea).
+    if height_m <= sea_level_m {
+        return if height_m <= sea_level_m + DEEP_OCEAN_DEPTH_M {
             BiomeTypeEnum::DeepOcean
         } else {
             BiomeTypeEnum::Ocean
         };
     }
 
-    // 2/3. Temperature overrides on land.
+    // 2. Land: use the Whittaker land biome; if Whittaker classed this (above-sea)
+    //    cell as water, fall back to Grassland so land never renders as ocean.
+    let base = match whittaker_to_biome(whittaker_id) {
+        BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean | BiomeTypeEnum::Lake => {
+            BiomeTypeEnum::Grassland
+        }
+        other => other,
+    };
+
+    // 3. Temperature overrides on land.
     if let Some(t) = temp_c {
         if t <= ICE_TEMP_C {
             return BiomeTypeEnum::Ice;
@@ -76,26 +96,35 @@ mod tests {
 
     #[test]
     fn water_splits_by_depth() {
-        assert_eq!(resolve_biome(1, Some(10.0), -500.0), BiomeTypeEnum::DeepOcean);
-        assert_eq!(resolve_biome(1, Some(10.0), -10.0), BiomeTypeEnum::Ocean);
+        assert_eq!(resolve_biome(1, Some(10.0), -500.0, 0.0), BiomeTypeEnum::DeepOcean);
+        assert_eq!(resolve_biome(1, Some(10.0), -10.0, 0.0), BiomeTypeEnum::Ocean);
     }
 
     #[test]
     fn temperate_land_maps_directly() {
-        assert_eq!(resolve_biome(4, Some(10.0), 300.0), BiomeTypeEnum::Grassland);
-        assert_eq!(resolve_biome(2, Some(-2.0), 3000.0), BiomeTypeEnum::Tundra);
-        assert_eq!(resolve_biome(3, Some(2.0), 1500.0), BiomeTypeEnum::Taiga);
+        assert_eq!(resolve_biome(4, Some(10.0), 300.0, 0.0), BiomeTypeEnum::Grassland);
+        assert_eq!(resolve_biome(2, Some(-2.0), 3000.0, 0.0), BiomeTypeEnum::Tundra);
+        assert_eq!(resolve_biome(3, Some(2.0), 1500.0, 0.0), BiomeTypeEnum::Taiga);
     }
 
     #[test]
     fn ice_override_on_cold_land() {
-        assert_eq!(resolve_biome(2, Some(-10.0), 3500.0), BiomeTypeEnum::Ice);
-        assert_eq!(resolve_biome(4, Some(-8.5), 500.0), BiomeTypeEnum::Ice);
+        assert_eq!(resolve_biome(2, Some(-10.0), 3500.0, 0.0), BiomeTypeEnum::Ice);
+        assert_eq!(resolve_biome(4, Some(-8.5), 500.0, 0.0), BiomeTypeEnum::Ice);
     }
 
     #[test]
     fn cold_desert_override() {
-        assert_eq!(resolve_biome(8, Some(2.0), 400.0), BiomeTypeEnum::ColdDesert);
-        assert_eq!(resolve_biome(8, Some(25.0), 400.0), BiomeTypeEnum::Desert);
+        assert_eq!(resolve_biome(8, Some(2.0), 400.0, 0.0), BiomeTypeEnum::ColdDesert);
+        assert_eq!(resolve_biome(8, Some(25.0), 400.0, 0.0), BiomeTypeEnum::Desert);
+    }
+
+    #[test]
+    fn height_is_the_land_sea_authority() {
+        // Whittaker "water" (id 1) above sea level → land (Grassland fallback),
+        // NOT ocean — this is the fix for the "water rendered on land" band.
+        assert_eq!(resolve_biome(1, Some(10.0), 50.0, 0.0), BiomeTypeEnum::Grassland);
+        // Whittaker "land" (id 5) below sea level → ocean.
+        assert_eq!(resolve_biome(5, Some(10.0), -50.0, 0.0), BiomeTypeEnum::Ocean);
     }
 }

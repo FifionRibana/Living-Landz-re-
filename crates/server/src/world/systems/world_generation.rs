@@ -443,7 +443,7 @@ fn build_ymir_globals(
             let biome = if has_biome {
                 let whittaker_id = ymir.biome[src_row + x];
                 let temp_c = ymir.temperature_c_at(x as u32, raw_y);
-                resolve_biome(whittaker_id, temp_c, height_m)
+                resolve_biome(whittaker_id, temp_c, height_m, sea_level_m)
             } else if is_land {
                 BiomeTypeEnum::Grassland
             } else {

@@ -133,6 +133,55 @@ impl HeightField {
     pub fn metres_per_cell(&self) -> f32 {
         self.km_per_cell * 1000.0
     }
+
+    /// Re-anchor sea level to the height sampled along the vector coastline.
+    ///
+    /// The manifest's `sea_level_norm` (0.5) does not match this map's u16
+    /// encoding: `coastline.geojson` (the authoritative 0 m contour, shared with
+    /// `cliffs.geojson`) actually sits at ~0.574 of the u16 range. Trusting 0.5
+    /// puts the height-derived land/sea boundary (`effective_binary`, mesh, biome)
+    /// ~0.07 norm — dozens of cells — seaward of the real coast, which makes the
+    /// ocean-SDF sign flip far from the coastline (a discontinuous SDF → a 1-px
+    /// beach) and paints a below-sea band as land ("blue spots").
+    ///
+    /// We calibrate `sea_level_norm` to the **median** height-norm along the
+    /// coastline (robust; the spread is ~0.001), then re-anchor `min_m`/`max_m` so
+    /// `metres_of_u16` reports **0 m at that norm**. The total metric span (hence
+    /// `metres_per_height_unit`, hence slopes) is preserved — only the zero moves.
+    /// No-op if the coastline is absent (keep the manifest values).
+    pub fn calibrate_sea_level_from_coastline(&mut self, coastline: &[Vec<[f32; 2]>]) {
+        let w = self.width as usize;
+        let mut norms: Vec<f32> = Vec::new();
+        for line in coastline {
+            for p in line {
+                let cx = (p[0].round() as i64).clamp(0, self.width as i64 - 1) as usize;
+                let cy = (p[1].round() as i64).clamp(0, self.height as i64 - 1) as usize;
+                norms.push(self.data[cy * w + cx] as f32 / 65535.0);
+            }
+        }
+        if norms.is_empty() {
+            return;
+        }
+        norms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = norms[norms.len() / 2];
+
+        let span = self.max_m - self.min_m; // preserve metres-per-u16-step
+        let old_norm = self.sea_level_norm;
+        self.sea_level_norm = median;
+        self.min_m = -median * span;
+        self.max_m = self.min_m + span;
+
+        tracing::info!(
+            "✓ Ymir sea level calibrated from coastline: sea_level_norm {:.4} → {:.4} \
+             (n={}, spread={:.4}); metric range re-anchored to [{:.0}..{:.0}] m",
+            old_norm,
+            median,
+            norms.len(),
+            norms[norms.len().saturating_sub(1)] - norms[0],
+            self.min_m,
+            self.max_m,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +312,7 @@ impl YmirMap {
         let c = &manifest.continent;
         let min_m = c.sea_level_m - c.max_depth_m;
         let max_m = c.sea_level_m + c.max_elevation_m;
-        let field = HeightField {
+        let mut field = HeightField {
             width,
             height,
             min_m,
@@ -292,6 +341,11 @@ impl YmirMap {
             coastline.len(),
             coastline.iter().map(|l| l.len()).sum::<usize>()
         );
+
+        // Calibrate sea level to the actual coastline contour (the manifest's
+        // sea_level_norm does not match this map's u16 encoding). Must run after
+        // both the height field and the coastline are loaded.
+        field.calibrate_sea_level_from_coastline(&coastline);
 
         // ── biome.u8 + temperature.i16 (LL-C) ──
         let biome = load_biome_u8(&dir, &manifest, width, height);
