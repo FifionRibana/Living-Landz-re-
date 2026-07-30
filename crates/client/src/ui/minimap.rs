@@ -42,7 +42,11 @@ impl Plugin for MinimapPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_minimap)
             .add_systems(
                 Update,
-                (update_minimap_image, update_minimap_viewport)
+                (
+                    update_minimap_image,
+                    update_minimap_viewport,
+                    handle_minimap_click,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -73,6 +77,13 @@ fn spawn_minimap(mut commands: Commands, existing: Query<Entity, With<MinimapRoo
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
             BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.55)),
             GlobalZIndex(900),
+            // Register as UI so a minimap click blocks hex-selection underneath
+            // (the grid input checks `Interaction` + `Pickable.should_block_lower`).
+            Interaction::default(),
+            Pickable {
+                should_block_lower: true,
+                is_hoverable: true,
+            },
         ))
         .with_children(|root| {
             // Whole-world image (biome texture handle set later). Flipped
@@ -142,16 +153,21 @@ fn update_minimap_image(
     }
     image.image = handle;
 
-    // Fit the world into MINIMAP_MAX_SIDE without distortion.
-    let (w, h) = if world_w >= world_h {
-        (MINIMAP_MAX_SIDE, MINIMAP_MAX_SIDE * world_h / world_w)
-    } else {
-        (MINIMAP_MAX_SIDE * world_w / world_h, MINIMAP_MAX_SIDE)
-    };
+    let size = minimap_size(world_w, world_h);
     if let Ok(mut node) = root.single_mut() {
-        node.width = Val::Px(w);
-        node.height = Val::Px(h);
+        node.width = Val::Px(size.x);
+        node.height = Val::Px(size.y);
         node.display = Display::Flex;
+    }
+}
+
+/// On-screen minimap size (logical px) that fits the world into
+/// `MINIMAP_MAX_SIDE` without distortion.
+fn minimap_size(world_w: f32, world_h: f32) -> Vec2 {
+    if world_w >= world_h {
+        Vec2::new(MINIMAP_MAX_SIDE, MINIMAP_MAX_SIDE * world_h / world_w)
+    } else {
+        Vec2::new(MINIMAP_MAX_SIDE * world_w / world_h, MINIMAP_MAX_SIDE)
     }
 }
 
@@ -207,5 +223,58 @@ fn update_minimap_viewport(
         node.top = Val::Percent(top * 100.0);
         node.width = Val::Percent((right - left).max(0.0) * 100.0);
         node.height = Val::Percent((bottom - top).max(0.0) * 100.0);
+    }
+}
+
+/// Click-to-recenter: a left click inside the minimap moves the camera to the
+/// matching world position. The grid input ignores this click because the root
+/// carries `Interaction` + `Pickable.should_block_lower`. The map image is
+/// flipped vertically, so the click's Y is inverted back into world space.
+fn handle_minimap_click(
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    world_cache: Option<Res<WorldCache>>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+) {
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(cache) = world_cache else {
+        return;
+    };
+    let Some((world_w, world_h)) = cache
+        .get_terrain_global()
+        .map(|g| (g.world_width, g.world_height))
+    else {
+        return;
+    };
+    if world_w <= 0.0 || world_h <= 0.0 {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+
+    // Minimap screen rect (anchored bottom-right, MINIMAP_MARGIN from the edges).
+    let size = minimap_size(world_w, world_h);
+    let max = Vec2::new(
+        window.width() - MINIMAP_MARGIN,
+        window.height() - MINIMAP_MARGIN,
+    );
+    let min = max - size;
+    if cursor.x < min.x || cursor.x > max.x || cursor.y < min.y || cursor.y > max.y {
+        return; // outside the minimap
+    }
+
+    let local = (cursor - min) / size; // 0..1, top-left origin
+    let world_x = (local.x * world_w).clamp(0.0, world_w);
+    let world_y = ((1.0 - local.y) * world_h).clamp(0.0, world_h); // flip Y
+
+    if let Ok(mut transform) = cameras.single_mut() {
+        transform.translation.x = world_x;
+        transform.translation.y = world_y;
     }
 }
