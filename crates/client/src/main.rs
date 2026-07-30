@@ -82,6 +82,7 @@ fn main() {
             ui::frosted_glass::FrostedGlassPlugin,
             ui::debug::DebugUiPlugin,
             ui::UiPlugin,
+            ui::minimap::MinimapPlugin,
         ))
         // 🔧 LIGHTYEAR: Client plugins + protocol
         .add_plugins(lightyear::prelude::client::ClientPlugins {
