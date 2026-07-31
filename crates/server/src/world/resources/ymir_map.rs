@@ -84,6 +84,60 @@ pub struct Layer {
 }
 
 // ---------------------------------------------------------------------------
+// lakes.json schema (Ymir C1Lake) + the mirror we keep
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawLake {
+    base: RawLakeBase,
+    #[serde(default)]
+    level_m: f32,
+    #[serde(default)]
+    depth_m: f32,
+    #[serde(default)]
+    area_km2: f32,
+    #[serde(default)]
+    lake_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawLakeBase {
+    id: u32,
+    #[serde(default)]
+    outlet: Option<[i64; 2]>,
+    #[serde(default)]
+    shallow: bool,
+}
+
+/// Endorheic (closed basin, no outlet) vs Exorheic (drains to the sea). Used
+/// later for salt/closed-basin visuals; `Unknown` if the field is missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LakeType {
+    Exorheic,
+    Endorheic,
+    Unknown,
+}
+
+/// One inland lake, mirrored from `lakes.json`. `lake_mask` cells carry this
+/// lake's [`id`](LakeInfo::id). Coordinates (outlet) are erosion-grid cells.
+#[derive(Debug, Clone)]
+pub struct LakeInfo {
+    /// 1-based lake id; matches the per-cell value in `lake_mask` (0 = no lake).
+    pub id: u32,
+    /// Water-surface elevation, metres.
+    pub level_m: f32,
+    /// Maximum depth, metres.
+    pub depth_m: f32,
+    /// Surface area, km².
+    pub area_km2: f32,
+    /// Flooded shallow depression (#155) → Wetland; deep lake otherwise.
+    pub shallow: bool,
+    pub lake_type: LakeType,
+    /// Outlet cell (erosion grid), if any.
+    pub outlet: Option<[i64; 2]>,
+}
+
+// ---------------------------------------------------------------------------
 // Decoded height layer
 // ---------------------------------------------------------------------------
 
@@ -201,6 +255,20 @@ pub struct YmirMap {
     pub biome: Vec<u8>,
     /// `temperature.i16` — °C × 100 per cell, row-major, y=0 = south. Empty if absent.
     pub temperature: Vec<i16>,
+    /// `water_class.u8` — per cell: 0 = land, 1 = ocean (edge-connected sea),
+    /// 2 = inland water (enclosed below-sea / lake). Row-major, y=0 = south.
+    /// Empty if absent — callers then fall back to the height/coastline threshold.
+    pub water_class: Vec<u8>,
+    /// `lake_mask.u32` — per-cell lake id (0 = no lake), matching [`LakeInfo::id`].
+    /// Row-major, y=0 = south. Empty if absent.
+    pub lake_mask: Vec<u32>,
+    /// `flow_accumulation.f32` — per-cell upstream flow. Row-major, y=0 = south.
+    /// Empty if absent. (Loaded for future river/wetland use.)
+    pub flow_accumulation: Vec<f32>,
+    /// Inland lakes mirrored from `lakes.json` (empty if absent).
+    pub lakes: Vec<LakeInfo>,
+    /// `lake id → index into lakes` for O(1) per-cell lookup.
+    lakes_by_id: std::collections::HashMap<u32, usize>,
 }
 
 impl YmirMap {
@@ -212,6 +280,34 @@ impl YmirMap {
         }
         let idx = (y as usize) * (self.height.width as usize) + (x as usize);
         self.temperature.get(idx).map(|&t| t as f32 / 100.0)
+    }
+
+    /// Water class at cell `(x, y)` (0 land / 1 ocean / 2 inland), or `None` if
+    /// the `water_class` layer is absent.
+    #[inline]
+    pub fn water_class_at(&self, x: u32, y: u32) -> Option<u8> {
+        if self.water_class.is_empty() {
+            return None;
+        }
+        let idx = (y as usize) * (self.height.width as usize) + (x as usize);
+        self.water_class.get(idx).copied()
+    }
+
+    /// Lake id at cell `(x, y)` (0 = no lake), or `None` if the `lake_mask` layer
+    /// is absent.
+    #[inline]
+    pub fn lake_id_at(&self, x: u32, y: u32) -> Option<u32> {
+        if self.lake_mask.is_empty() {
+            return None;
+        }
+        let idx = (y as usize) * (self.height.width as usize) + (x as usize);
+        self.lake_mask.get(idx).copied()
+    }
+
+    /// Lake metadata for a given `lake_mask` id, or `None`.
+    #[inline]
+    pub fn lake(&self, id: u32) -> Option<&LakeInfo> {
+        self.lakes_by_id.get(&id).map(|&i| &self.lakes[i])
     }
 }
 
@@ -356,10 +452,22 @@ impl YmirMap {
             temperature.len()
         );
 
+        // ── hydro layers (LL-D): water_class, lake_mask, flow_accumulation, lakes ──
+        let water_class = load_water_class(&dir, &manifest, width, height);
+        let lake_mask = load_lake_mask(&dir, &manifest, width, height);
+        let flow_accumulation = load_flow_accumulation(&dir, &manifest, width, height);
+        let lakes = load_lakes(&dir, &manifest);
+        let lakes_by_id = lakes.iter().enumerate().map(|(i, l)| (l.id, i)).collect();
+        tracing::info!(
+            "✓ Ymir hydro: water_class {} cells, lake_mask {} cells, flow_accumulation {} cells, {} lakes",
+            water_class.len(),
+            lake_mask.len(),
+            flow_accumulation.len(),
+            lakes.len(),
+        );
+
         // Cliffs (cliffs.geojson) are consumed client-side by the debug overlay
         // (LL-C), read directly from the .ymir asset via the shared GeoJSON reader.
-        // TODO(LL-C+): flow_accumulation / lake_mask (absent in current maps) for
-        //             Wetland / Lake biome rules.
 
         Ok(Self {
             manifest,
@@ -367,6 +475,11 @@ impl YmirMap {
             coastline,
             biome,
             temperature,
+            water_class,
+            lake_mask,
+            flow_accumulation,
+            lakes,
+            lakes_by_id,
         })
     }
 }
@@ -458,5 +571,153 @@ fn load_temperature_i16(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> 
     bytes
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect()
+}
+
+/// Load the `water_class.u8` layer (0 land / 1 ocean / 2 inland, row-major,
+/// y=0 south). Empty if absent/not present or size mismatch.
+fn load_water_class(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> Vec<u8> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "water_class") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "water_class.u8".to_string());
+    let path = dir.join(&file);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read water_class {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let expected = (w as usize) * (h as usize);
+    if bytes.len() != expected {
+        tracing::warn!(
+            "Ymir: water_class.u8 is {} bytes, expected {} ({}x{}) — ignoring",
+            bytes.len(),
+            expected,
+            w,
+            h
+        );
+        return Vec::new();
+    }
+    bytes
+}
+
+/// Load the `lake_mask.u32` layer (per-cell lake id, LE, row-major, y=0 south).
+/// Empty if absent/not present or size mismatch.
+fn load_lake_mask(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> Vec<u32> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "lake_mask") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "lake_mask.u32".to_string());
+    let path = dir.join(&file);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read lake_mask {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let expected = (w as usize) * (h as usize) * 4;
+    if bytes.len() != expected {
+        tracing::warn!(
+            "Ymir: lake_mask.u32 is {} bytes, expected {} ({}x{}x4) — ignoring",
+            bytes.len(),
+            expected,
+            w,
+            h
+        );
+        return Vec::new();
+    }
+    bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Load the `flow_accumulation.f32` layer (LE, row-major, y=0 south).
+/// Empty if absent/not present or size mismatch.
+fn load_flow_accumulation(dir: &Path, manifest: &YmirManifest, w: u32, h: u32) -> Vec<f32> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "flow_accumulation") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer
+        .file
+        .clone()
+        .unwrap_or_else(|| "flow_accumulation.f32".to_string());
+    let path = dir.join(&file);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read flow_accumulation {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let expected = (w as usize) * (h as usize) * 4;
+    if bytes.len() != expected {
+        tracing::warn!(
+            "Ymir: flow_accumulation.f32 is {} bytes, expected {} ({}x{}x4) — ignoring",
+            bytes.len(),
+            expected,
+            w,
+            h
+        );
+        return Vec::new();
+    }
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Parse `lakes.json` (Ymir C1Lake array) into a [`LakeInfo`] mirror. Empty if
+/// absent/not present or unparseable.
+fn load_lakes(dir: &Path, manifest: &YmirManifest) -> Vec<LakeInfo> {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "lakes") else {
+        return Vec::new();
+    };
+    if !layer.present {
+        return Vec::new();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "lakes.json".to_string());
+    let path = dir.join(&file);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read lakes {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let parsed: Vec<RawLake> = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Ymir: invalid lakes.json: {e}");
+            return Vec::new();
+        }
+    };
+    parsed
+        .into_iter()
+        .map(|r| LakeInfo {
+            id: r.base.id,
+            level_m: r.level_m,
+            depth_m: r.depth_m,
+            area_km2: r.area_km2,
+            shallow: r.base.shallow,
+            lake_type: match r.lake_type.as_deref() {
+                Some("Exorheic") => LakeType::Exorheic,
+                Some("Endorheic") => LakeType::Endorheic,
+                _ => LakeType::Unknown,
+            },
+            outlet: r.base.outlet,
+        })
         .collect()
 }

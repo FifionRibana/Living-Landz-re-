@@ -368,6 +368,11 @@ impl BiomeMeshData {
         let mut hex_ocean: HashMap<hexx::Hex, usize> = HashMap::new();
         let mut hex_lake: HashMap<hexx::Hex, usize> = HashMap::new();
         let mut hex_near_coast: HashSet<hexx::Hex> = HashSet::new();
+        // Ymir path: authoritative per-cell biome ids voted straight from the
+        // resolved grid (keeps Ocean/Lake/Wetland from resolve_biome), bypassing
+        // the ocean/lake/height-override machinery that assumes water == below sea
+        // level (which would demote elevated lakes back to land).
+        let mut hex_grid_biome: HashMap<hexx::Hex, HashMap<u32, usize>> = HashMap::new();
 
         for sy in src_y_min..=src_y_max {
             for sx in src_x_min..=src_x_max {
@@ -427,6 +432,14 @@ impl BiomeMeshData {
 
                         let hex = hex_layout.world_pos_to_hex(Vec2::new(wx, wy));
 
+                        if ymir_biome_ids.is_some() && (id as usize) < 16 {
+                            *hex_grid_biome
+                                .entry(hex)
+                                .or_default()
+                                .entry(id as u32)
+                                .or_insert(0) += 1;
+                        }
+
                         if is_ocean_coast {
                             *hex_ocean.entry(hex).or_insert(0) += 1;
                             hex_near_coast.insert(hex);
@@ -461,6 +474,7 @@ impl BiomeMeshData {
         all_hexes.extend(hex_land.keys());
         all_hexes.extend(hex_ocean.keys());
         all_hexes.extend(hex_lake.keys());
+        all_hexes.extend(hex_grid_biome.keys());
 
         let mut cells: Vec<CellData> = all_hexes
             .into_iter()
@@ -540,6 +554,20 @@ impl BiomeMeshData {
                             _ => biome,
                         }
                     }
+                } else {
+                    biome
+                };
+
+                // Ymir path: the resolved per-cell grid is authoritative (Ocean/
+                // DeepOcean/Lake/Wetland/land already correct) — take its majority
+                // id per hex, overriding the vote + height-based classification
+                // (which would demote elevated lakes back to land).
+                let biome = if ymir_biome_ids.is_some() {
+                    hex_grid_biome
+                        .get(&hex_cell)
+                        .and_then(|m| m.iter().max_by_key(|(_, c)| *c).map(|(id, _)| *id))
+                        .and_then(|id| BiomeTypeEnum::from_id(id as i16))
+                        .unwrap_or(biome)
                 } else {
                     biome
                 };
