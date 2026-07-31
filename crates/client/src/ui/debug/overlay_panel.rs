@@ -31,6 +31,9 @@ pub(crate) struct VoronoiDomainsToggle;
 #[derive(Component)]
 pub(crate) struct VoronoiMistToggle;
 
+#[derive(Component)]
+pub(crate) struct YmirCliffsToggle;
+
 // ---------------------------------------------------------------------------
 // Colors
 // ---------------------------------------------------------------------------
@@ -85,6 +88,7 @@ pub fn setup_debug_panel(mut commands: Commands) {
             spawn_toggle_btn(panel, "Domain Hexes", DomainHexesToggle);
             spawn_toggle_btn(panel, "Voronoi Domains", VoronoiDomainsToggle);
             spawn_toggle_btn(panel, "Voronoi Mist", VoronoiMistToggle);
+            spawn_toggle_btn(panel, "Ymir cliffs (ground truth)", YmirCliffsToggle);
         });
 }
 
@@ -172,6 +176,7 @@ pub fn handle_debug_panel_clicks(
     domain_hexes: Query<&Interaction, (Changed<Interaction>, With<DomainHexesToggle>)>,
     voronoi_domains: Query<&Interaction, (Changed<Interaction>, With<VoronoiDomainsToggle>)>,
     voronoi_mist: Query<&Interaction, (Changed<Interaction>, With<VoronoiMistToggle>)>,
+    ymir_cliffs: Query<&Interaction, (Changed<Interaction>, With<YmirCliffsToggle>)>,
 ) {
     for (interaction, btn) in base_buttons.iter() {
         if *interaction == Interaction::Pressed {
@@ -197,6 +202,7 @@ pub fn handle_debug_panel_clicks(
     toggle_on_press(&domain_hexes, &mut debug.domain_hexes);
     toggle_on_press(&voronoi_domains, &mut debug.voronoi_domains);
     toggle_on_press(&voronoi_mist, &mut debug.voronoi_mist);
+    toggle_on_press(&ymir_cliffs, &mut debug.ymir_cliffs);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +222,7 @@ pub fn update_debug_button_visuals(
     q_dh: Query<Entity, With<DomainHexesToggle>>,
     q_vd: Query<Entity, With<VoronoiDomainsToggle>>,
     q_vm: Query<Entity, With<VoronoiMistToggle>>,
+    q_yc: Query<Entity, With<YmirCliffsToggle>>,
 ) {
     // Shader base buttons (radio)
     for (interaction, btn, mut bg) in base_buttons.iter_mut() {
@@ -231,6 +238,7 @@ pub fn update_debug_button_visuals(
         (q_dh.iter().next(), debug.domain_hexes),
         (q_vd.iter().next(), debug.voronoi_domains),
         (q_vm.iter().next(), debug.voronoi_mist),
+        (q_yc.iter().next(), debug.ymir_cliffs),
     ]
     .iter()
     .filter_map(|(e, a)| e.map(|e| (e, *a)))

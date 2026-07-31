@@ -12,8 +12,10 @@ use crate::world::resources::{
 };
 use bevy::prelude::*;
 use hexx::HexOrientation;
+use crate::world::components::resolve_biome;
 use image::{DynamicImage, Rgba};
 use shared::BiomeTypeEnum;
+use shared::get_biome_color;
 use shared::BuildingData;
 use shared::GameState;
 use shared::TerrainChunkId;
@@ -407,11 +409,9 @@ fn build_ymir_globals(
     let sea_level_norm = hf.sea_level_norm;
     let sea_level_m = ymir.manifest.continent.sea_level_m;
 
-    // Placeholder biome palette (LL-C replaces this with the biome.u8 layer).
-    let grass_id = BiomeTypeEnum::Grassland.to_id();
-    let ocean_id = BiomeTypeEnum::Ocean.to_id();
-    let grass_rgba = Rgba([200u8, 214, 143, 255]); // Azgaar Grassland palette color
-    let ocean_rgba = Rgba([0u8, 15, 30, 255]); // Azgaar Ocean palette color
+    // LL-C: real biome from biome.u8 (+temperature+height) when present, else the
+    // LL-A height-only placeholder (Grassland land / Ocean water).
+    let has_biome = !ymir.biome.is_empty();
 
     // Y-flipped R16 heightmap + biome texture + flipped source buffers used by
     // the per-chunk sampler. Ymir authors y=0 = south; the enriched path flips
@@ -422,34 +422,74 @@ fn build_ymir_globals(
         image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(hf.width, hf.height);
     let mut source_biome_flipped_rgba =
         image::ImageBuffer::<Rgba<u8>, Vec<u8>>::new(hf.width, hf.height);
+    // Resolved per-cell biome ids (Y-flipped), fed to sample_biome_for_chunk in
+    // place of find_closest_biome on the Ymir path. Empty (→ None) if no biome.u8.
+    let mut biome_ids: Vec<u8> = if has_biome { vec![0u8; w * h] } else { Vec::new() };
 
     for y in 0..h {
-        let src_row = (h - 1 - y) * w; // vertical flip
+        let src_row = (h - 1 - y) * w; // vertical flip; raw Ymir row = h-1-y
+        let raw_y = (h - 1 - y) as u32;
         let dst_row = y * w;
         for x in 0..w {
             let v = hf.data[src_row + x];
-            let is_land = hf.metres_of_u16(v) > sea_level_m;
+            let height_m = hf.metres_of_u16(v);
+            let is_land = height_m > sea_level_m;
 
             let hb = v.to_le_bytes();
             let ho = (dst_row + x) * 2;
             heightmap_values[ho] = hb[0];
             heightmap_values[ho + 1] = hb[1];
 
-            let (bid, brgba) = if is_land {
-                (grass_id, grass_rgba)
+            let biome = if has_biome {
+                let whittaker_id = ymir.biome[src_row + x];
+                let temp_c = ymir.temperature_c_at(x as u32, raw_y);
+                resolve_biome(whittaker_id, temp_c, height_m, sea_level_m)
+            } else if is_land {
+                BiomeTypeEnum::Grassland
             } else {
-                (ocean_id, ocean_rgba)
+                BiomeTypeEnum::Ocean
             };
+            let bid = biome.to_id();
+            let col = get_biome_color(&biome);
+
             let bo = (dst_row + x) * 4;
             biome_values[bo] = (bid * 17) as u8; // R = primary biome id * 17
             biome_values[bo + 1] = (bid * 17) as u8; // G = secondary biome id * 17
             biome_values[bo + 2] = 0; // B = blend factor
             biome_values[bo + 3] = 255; // A
+            if has_biome {
+                biome_ids[dst_row + x] = bid as u8;
+            }
 
             source_binary_flipped
                 .put_pixel(x as u32, y as u32, Luma([if is_land { 255 } else { 0 }]));
-            source_biome_flipped_rgba.put_pixel(x as u32, y as u32, brgba);
+            source_biome_flipped_rgba.put_pixel(
+                x as u32,
+                y as u32,
+                Rgba([col.red(), col.green(), col.blue(), 255]),
+            );
         }
+    }
+
+    if has_biome {
+        let mut hist = [0usize; 16];
+        for &id in &biome_ids {
+            if (id as usize) < 16 {
+                hist[id as usize] += 1;
+            }
+        }
+        let summary: Vec<String> = (0..16)
+            .filter(|&i| hist[i] > 0)
+            .map(|i| {
+                let name = BiomeTypeEnum::from_id(i as i16)
+                    .map(|b| format!("{b:?}"))
+                    .unwrap_or_else(|| "?".to_string());
+                format!("{name}={}", hist[i])
+            })
+            .collect();
+        tracing::info!("✓ Ymir biome resolved from biome.u8: {}", summary.join(", "));
+    } else {
+        tracing::info!("Ymir biome.u8 absent — using height-only placeholder biome");
     }
 
     // No lake layer in LL-A → empty lake mask.
@@ -511,6 +551,7 @@ fn build_ymir_globals(
         effective_binary_smoothed: None,
         water_threshold_norm: sea_level_norm,
         coastline_cells: ymir.coastline.clone(),
+        ymir_biome_ids: if has_biome { Some(biome_ids) } else { None },
     };
     global_state.build_effective_binary(false);
 
@@ -656,6 +697,7 @@ pub async fn load_or_generate_world_globals(
             // Azgaar convention: ocean is exactly 0u16 → threshold 0.0.
             water_threshold_norm: 0.0,
             coastline_cells: Vec::new(),
+            ymir_biome_ids: None,
         };
 
         global_state.build_effective_binary(true);
@@ -830,6 +872,7 @@ pub async fn generate_chunk_data(
                 global.n_chunk_y as f32 * constants::CHUNK_SIZE.y,
             ),
             global.water_threshold_norm,
+            global.ymir_biome_ids.as_deref(),
         )
     } else {
         vec![]

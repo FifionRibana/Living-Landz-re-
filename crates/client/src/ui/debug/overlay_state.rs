@@ -74,6 +74,9 @@ pub struct DebugOverlayState {
     pub voronoi_domains: bool,
     /// Mist/exploration voronoi borders.
     pub voronoi_mist: bool,
+    /// LL-C: draw Ymir's `cliffs.geojson` polylines (producer-side ground truth)
+    /// to validate the LL-B slope/threshold against Ymir's own cliff edges.
+    pub ymir_cliffs: bool,
 }
 
 impl Default for DebugOverlayState {
@@ -87,6 +90,7 @@ impl Default for DebugOverlayState {
             domain_hexes: false,
             voronoi_domains: false,
             voronoi_mist: false,
+            ymir_cliffs: false,
         }
     }
 }
