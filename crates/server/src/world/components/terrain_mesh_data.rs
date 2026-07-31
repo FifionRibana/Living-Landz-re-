@@ -195,6 +195,7 @@ impl TerrainMeshData {
             water_threshold_norm: 0.0,
             coastline_cells: Vec::new(),
             ymir_biome_ids: None,
+            water_class_flipped: None,
         };
 
         (global_state, terrain_global_data)
