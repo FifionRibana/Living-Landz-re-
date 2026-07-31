@@ -261,20 +261,30 @@ pub async fn generate_world_globals(
     // 4. Derive mask from SDF (no separate mask computation)
     let lake_eff_src = global_state.effective_binary_smoothed.as_ref()
         .or(global_state.effective_binary.as_ref());
+    // Ymir: inland water (effective class 2 = lake_mask or enclosed below-sea) is
+    // the authoritative lake source, independent of effective_binary (which marks
+    // class 2 as land so the ocean never covers it). Its grid == enriched dims ==
+    // effective_binary dims, same display orientation.
+    let wc_flipped = global_state.water_class_flipped.as_deref();
     let lake_binary = if let Some(eff) = lake_eff_src {
         let bw = eff.width();
         let bh = eff.height();
 
-        // Build lake binary: water pixels that are also in lake_src
+        // Build lake binary (SDF convention: lake=0 water, land=255).
         let eff_lake = ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(bw, bh, |x, y| {
-            let is_water = eff.get_pixel(x, y)[0] == 0;
-            let wx = x as f32 / bw as f32;
-            let wy = y as f32 / bh as f32;
-            let lx = (wx * lake_w as f32).min(lake_w as f32 - 1.0) as u32;
-            let ly = ((1.0 - wy) * (lake_h as f32 - 1.0)) as u32;
-            let is_lake_src = lake_src.get_pixel(lx, ly)[0] > 128;
-            // Inverted for SDF convention: lake=0 (water), land=255
-            Luma([if is_water && is_lake_src { 0u8 } else { 255u8 }])
+            let is_lake = if let Some(wc) = wc_flipped {
+                let idx = (y as usize) * (bw as usize) + (x as usize);
+                wc.get(idx).copied() == Some(2)
+            } else {
+                // Azgaar: water pixels that are also in the lake source map.
+                let is_water = eff.get_pixel(x, y)[0] == 0;
+                let wx = x as f32 / bw as f32;
+                let wy = y as f32 / bh as f32;
+                let lx = (wx * lake_w as f32).min(lake_w as f32 - 1.0) as u32;
+                let ly = ((1.0 - wy) * (lake_h as f32 - 1.0)) as u32;
+                is_water && lake_src.get_pixel(lx, ly)[0] > 128
+            };
+            Luma([if is_lake { 0u8 } else { 255u8 }])
         });
 
         // Resize to capped resolution (same as ocean binary cap)
@@ -426,6 +436,17 @@ fn build_ymir_globals(
     // place of find_closest_biome on the Ymir path. Empty (→ None) if no biome.u8.
     let mut biome_ids: Vec<u8> = if has_biome { vec![0u8; w * h] } else { Vec::new() };
 
+    // LL-D: derive a per-cell inland-water class (0 land / 1 ocean / 2 inland
+    // water) from Ymir's water_class (ocean vs enclosed-below-sea) folded with
+    // lake_mask (real drainage lakes, which sit on land at elevation so are
+    // water_class 0). A Y-flipped copy feeds the effective_binary and lake source
+    // built below. `1` (ocean) is the only non-terrain class.
+    let has_water_class = !ymir.water_class.is_empty();
+    let has_lake_mask = !ymir.lake_mask.is_empty();
+    let has_inland = has_water_class || has_lake_mask;
+    let mut water_class_flipped: Vec<u8> =
+        if has_inland { vec![0u8; w * h] } else { Vec::new() };
+
     for y in 0..h {
         let src_row = (h - 1 - y) * w; // vertical flip; raw Ymir row = h-1-y
         let raw_y = (h - 1 - y) as u32;
@@ -433,7 +454,32 @@ fn build_ymir_globals(
         for x in 0..w {
             let v = hf.data[src_row + x];
             let height_m = hf.metres_of_u16(v);
-            let is_land = height_m > sea_level_m;
+
+            // Land/sea authority: water_class (ocean vs enclosed-below-sea) when
+            // present, else the calibrated height threshold (0/1). A lake_mask cell
+            // is inland water (class 2) even above sea level. Ocean (class 1) wins
+            // and is the only non-terrain class — inland water keeps a terrain mesh
+            // (lake bank) and is drawn by the lake pipeline, so it counts as "land"
+            // for the ocean binary and the chunk source binary.
+            let lake_id = ymir.lake_id_at(x as u32, raw_y).unwrap_or(0);
+            let raw_class = if has_water_class {
+                ymir.water_class[src_row + x]
+            } else if height_m <= sea_level_m {
+                1
+            } else {
+                0
+            };
+            let class = if raw_class == 1 {
+                1
+            } else if lake_id != 0 || raw_class == 2 {
+                2
+            } else {
+                0
+            };
+            let is_land = class != 1;
+            if has_inland {
+                water_class_flipped[dst_row + x] = class;
+            }
 
             let hb = v.to_le_bytes();
             let ho = (dst_row + x) * 2;
@@ -443,7 +489,12 @@ fn build_ymir_globals(
             let biome = if has_biome {
                 let whittaker_id = ymir.biome[src_row + x];
                 let temp_c = ymir.temperature_c_at(x as u32, raw_y);
-                resolve_biome(whittaker_id, temp_c, height_m, sea_level_m)
+                // Wetland vs Lake for inland water from the lake's shallow flag.
+                let lake_shallow =
+                    lake_id != 0 && ymir.lake(lake_id).map(|l| l.shallow).unwrap_or(false);
+                resolve_biome(whittaker_id, temp_c, height_m, sea_level_m, class, lake_shallow)
+            } else if class == 2 {
+                BiomeTypeEnum::Lake
             } else if is_land {
                 BiomeTypeEnum::Grassland
             } else {
@@ -492,8 +543,17 @@ fn build_ymir_globals(
         tracing::info!("Ymir biome.u8 absent — using height-only placeholder biome");
     }
 
-    // No lake layer in LL-A → empty lake mask.
-    let source_lake_flipped = image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(hf.width, hf.height);
+    // Per-chunk lake source (display orientation): inland water (effective class
+    // 2 = lake_mask or enclosed below-sea). Feeds sample_biome_for_chunk's lake
+    // detection + Lakebank shore-type. Empty when no hydro layer is present.
+    let source_lake_flipped = if has_inland {
+        image::ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(hf.width, hf.height, |x, y| {
+            let c = water_class_flipped[(y * hf.width + x) as usize];
+            Luma([if c == 2 { 255 } else { 0 }])
+        })
+    } else {
+        image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(hf.width, hf.height)
+    };
 
     // Chunk grid — same convention as Azgaar (source px × scale ÷ CHUNK_SIZE).
     // NOTE: world units are not yet calibrated to metres; metres_per_cell is
@@ -552,8 +612,26 @@ fn build_ymir_globals(
         water_threshold_norm: sea_level_norm,
         coastline_cells: ymir.coastline.clone(),
         ymir_biome_ids: if has_biome { Some(biome_ids) } else { None },
+        water_class_flipped: if has_inland {
+            Some(water_class_flipped)
+        } else {
+            None
+        },
     };
-    global_state.build_effective_binary(false);
+
+    if has_inland {
+        // The inland-water class is the authority: the effective binary marks only
+        // ocean (class 1) as water, so the ocean SDF/shader never covers inland
+        // lakes (class 2) — that removes the inland "blue spots".
+        // `source_binary_flipped` was built with exactly this rule (land = class
+        // != 1), so reuse it.
+        global_state.effective_binary = Some(global_state.source_binary_flipped.clone());
+        tracing::info!(
+            "✓ Ymir effective_binary from water_class + lake_mask (class 1 = ocean water)"
+        );
+    } else {
+        global_state.build_effective_binary(false);
+    }
 
     tracing::info!(
         "✓ Ymir globals built (enriched pipeline bypassed — coastal-SDF/FBM skipped): {}x{} height, {}x{} chunks, sea_level_norm {:.3}",
@@ -580,8 +658,21 @@ fn build_ymir_worldmaps(ymir: &YmirMap, n_chunk_x: i32, n_chunk_y: i32) -> World
     let binary_map = image::ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
         Luma([if hf.metres_at(x, y) > sea_level_m { 255 } else { 0 }])
     });
-    // Empty lake mask (Ymir lake layer not present in LL-A).
-    let lake_map = image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(w, h);
+    // Lake mask (raw orientation): inland water cells — a real drainage lake
+    // (lake_mask != 0) or an enclosed below-sea pocket (water_class == 2). Empty if
+    // neither layer is present. 255 = lake cell (Azgaar lake_map convention).
+    let has_lm = !ymir.lake_mask.is_empty();
+    let has_wc = !ymir.water_class.is_empty();
+    let lake_map = if !has_lm && !has_wc {
+        image::ImageBuffer::<Luma<u8>, Vec<u8>>::new(w, h)
+    } else {
+        image::ImageBuffer::<Luma<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
+            let i = (y * w + x) as usize;
+            let in_lake = has_lm && ymir.lake_mask[i] != 0;
+            let enclosed = has_wc && ymir.water_class[i] == 2;
+            Luma([if in_lake || enclosed { 255 } else { 0 }])
+        })
+    };
     // Placeholder biome image (Grassland land / Ocean water) for the legacy batch path.
     let biome_rgba = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_fn(w, h, |x, y| {
         if hf.metres_at(x, y) > sea_level_m {
@@ -698,6 +789,7 @@ pub async fn load_or_generate_world_globals(
             water_threshold_norm: 0.0,
             coastline_cells: Vec::new(),
             ymir_biome_ids: None,
+            water_class_flipped: None,
         };
 
         global_state.build_effective_binary(true);

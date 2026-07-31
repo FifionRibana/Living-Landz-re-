@@ -72,6 +72,15 @@ pub struct WorldGlobalState {
     /// `None` on the Azgaar path or Ymir maps without a `biome.u8` layer, in which
     /// case per-chunk biome falls back to `find_closest_biome`.
     pub ymir_biome_ids: Option<Vec<u8>>,
+
+    /// Ymir per-cell **effective** inland-water class (0 land / 1 ocean =
+    /// edge-connected sea / 2 inland water = a `lake_mask` drainage lake or an
+    /// enclosed below-sea pocket), Y-flipped to display orientation (grid =
+    /// heightmap dims). On the Ymir path this is the authority for the land/sea
+    /// split and the lake source: `effective_binary` marks only class 1 as ocean
+    /// water, and the lake SDF is built from class-2 cells. `None` on the Azgaar
+    /// path or when both hydro layers are absent (then the height threshold is used).
+    pub water_class_flipped: Option<Vec<u8>>,
 }
 
 impl WorldGlobalState {

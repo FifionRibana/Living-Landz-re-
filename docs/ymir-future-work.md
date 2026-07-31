@@ -37,22 +37,29 @@ distance-based (correct) instead of a blur (approximate).
 
 ---
 
-## 2. Inland below-sea cells — coastline flood-fill / lakes
+## 2. Inland water — DONE (LL-D), except per-lake water level
 
-**Context.** Sea level is calibrated to the vector coastline (norm ≈ 0.574; commit
-`bc9633d`), so land/sea is consistent across mesh, ocean SDF and biome. But cells
-that are **below sea level yet enclosed by land** (inland depressions) are classed
-as Ocean and rendered blue, even though the ocean shader (which follows the
-coastline) doesn't reach them — the residual inland "blue spots".
+**Resolved.** Ymir now exports `water_class.u8` (0 land / 1 ocean edge-connected /
+2 inland enclosed), `lake_mask.u32` (per-cell lake id), `flow_accumulation.f32` and
+`lakes.json` (per-lake `level_m`, `shallow`, `lake_type`). The consumer (LL-D) reads
+them (`ymir_map.rs`) and derives an **effective inland-water class** (water_class
+folded with lake_mask) that drives: the `effective_binary` (only class 1 is ocean →
+no more blue spots), the lake SDF source (class 2 → existing lake shader), the
+per-cell biome (`resolve_biome`: class 2 → Lake, or Wetland when the lake is
+shallow — the previously-no-op rules), and the per-chunk lake detection + Lakebank
+shore-type. Azgaar path untouched.
 
-**What's needed.** Distinguish ocean-connected water from enclosed water:
-- a **flood-fill from the map border**: below-sea cells reachable from the edge =
-  Ocean; enclosed below-sea = Lake (then the lake shader / terrain lake-bank
-  handles them). This could run server-side, but is cleaner as a Ymir layer;
-- ideally Ymir ships the already-present-but-empty **`lake_mask`** layer
-  (`present: false` in current maps), which removes the guesswork entirely and
-  also unlocks the Lake/Wetland biome rules that are currently no-ops
-  (`crates/server/src/world/components/ymir_biome.rs`).
+**Ymir-side follow-up:** the hydro-export must also **update `manifest.json`** — set
+`present: true` for the hydro layers and add a `water_class` raster layer entry;
+otherwise the consumer stays inert (it honours the present flags).
+
+**Remaining (Phase 2, cross-cutting):** the lake pipeline renders a **single flat
+water layer** — no per-lake elevation. `lakes.json` `level_m` (and `lake_type`
+Endorheic for salt/closed-basin visuals) are loaded but unused. True per-lake
+surface elevation / elevation-accurate shorelines needs a change across the shared
+`LakeData` type, server generation, the client cache, and both the lake and terrain
+shaders (a per-cell lake-level texture). Deferred until the top-down flat render is
+insufficient. Also unconsumed: `rivers.json` (river rendering / navigability).
 
 ---
 
