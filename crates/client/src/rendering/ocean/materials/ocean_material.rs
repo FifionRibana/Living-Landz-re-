@@ -13,7 +13,10 @@ pub struct OceanParams {
     pub wave_speed: f32,
     pub wave_amplitude: f32,
     pub foam_width: f32,
-    pub _padding1: f32,
+    /// Normalized sea level in the terrain heightmap (Ymir: ~0.574). `> 0` selects
+    /// the SDF-driven shore + real metric-depth path in the shader; `0` (Azgaar)
+    /// keeps the legacy inverted-heightmap bathymetry.
+    pub sea_level_norm: f32,
     pub _padding2: f32,
 }
 
@@ -26,7 +29,7 @@ impl Default for OceanParams {
             wave_speed: 1.0,
             wave_amplitude: 0.08,
             foam_width: 0.15,
-            _padding1: 0.0,
+            sea_level_norm: 0.0,
             _padding2: 0.0,
         }
     }
