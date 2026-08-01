@@ -78,6 +78,9 @@ pub fn get_biome_color(biome: &BiomeTypeEnum) -> BiomeColor {
         BiomeTypeEnum::Lake => BiomeColor::srgb_u8(51, 115, 121),
         BiomeTypeEnum::ColdDesert => BiomeColor::srgb_u8(181, 184, 135),
         BiomeTypeEnum::Ice => BiomeColor::srgb_u8(213, 231, 235),
+        // Per-cell only (rivers are shader-rendered); never written to the biome
+        // texture, so this colour is just a sensible fallback.
+        BiomeTypeEnum::River => BiomeColor::srgb_u8(45, 110, 160),
         BiomeTypeEnum::Undefined => BiomeColor::srgb_u8(0, 0, 0),
     }
 }
