@@ -10,6 +10,7 @@ use crate::states::AppState;
 
 use super::debug;
 use super::ymir_cliffs;
+use super::ymir_rivers;
 pub use super::systems;
 
 pub struct TerrainPlugin;
@@ -21,7 +22,8 @@ impl Plugin for TerrainPlugin {
             .init_resource::<debug::ChunkDebugEnabled>()
             .init_resource::<debug_voronoi::OrgVoronoiDebug>()
             .init_resource::<debug_voronoi::MistVoronoiDebug>()
-            .init_resource::<ymir_cliffs::YmirCliffsCache>();
+            .init_resource::<ymir_cliffs::YmirCliffsCache>()
+            .init_resource::<ymir_rivers::YmirRiversCache>();
 
         debug_voronoi::init_voronoi_debug_channels(app);
 
@@ -55,7 +57,11 @@ impl Plugin for TerrainPlugin {
         // Separate registration: the tuple above is at Bevy's 20-system limit.
         app.add_systems(
             Update,
-            ymir_cliffs::draw_ymir_cliffs_gizmos.run_if(in_state(AppState::InGame)),
+            (
+                ymir_cliffs::draw_ymir_cliffs_gizmos,
+                ymir_rivers::draw_ymir_rivers_gizmos,
+            )
+                .run_if(in_state(AppState::InGame)),
         );
     }
 }
