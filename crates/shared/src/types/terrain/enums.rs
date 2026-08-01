@@ -19,6 +19,10 @@ pub enum BiomeTypeEnum {
     Lake = 13,
     ColdDesert = 14,
     Ice = 15,
+    /// Inland river channel (from Ymir `rivers.json`). Per-cell only — never
+    /// written to the `id*17` biome texture (which caps at id 15); rivers are
+    /// rendered by the dedicated river shader.
+    River = 16,
 }
 
 impl Default for BiomeTypeEnum {
@@ -50,6 +54,7 @@ impl BiomeTypeEnum {
             13 => Some(Self::Lake),
             14 => Some(Self::ColdDesert),
             15 => Some(Self::Ice),
+            16 => Some(Self::River),
             _ => None,
         }
     }
@@ -71,6 +76,7 @@ impl BiomeTypeEnum {
             BiomeTypeEnum::Lake,
             BiomeTypeEnum::ColdDesert,
             BiomeTypeEnum::Ice,
+            BiomeTypeEnum::River,
         ]
         .into_iter()
     }

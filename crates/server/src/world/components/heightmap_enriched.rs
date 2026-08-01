@@ -53,7 +53,7 @@ pub fn biome_terrain_profile(biome: BiomeTypeEnum) -> BiomeTerrainProfile {
         BiomeTypeEnum::Taiga => BiomeTerrainProfile::new(0.9, 1.0, 0.0),
         BiomeTypeEnum::Tundra => BiomeTerrainProfile::new(1.0, 1.1, -5.0),
         BiomeTypeEnum::Ice => BiomeTerrainProfile::new(1.0, 1.2, -10.0),
-        BiomeTypeEnum::Lake => BiomeTerrainProfile::new(0.3, 0.3, 15.0),
+        BiomeTypeEnum::Lake | BiomeTypeEnum::River => BiomeTerrainProfile::new(0.3, 0.3, 15.0),
         BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean => {
             BiomeTerrainProfile::new(0.0, 0.0, 0.0)
         }

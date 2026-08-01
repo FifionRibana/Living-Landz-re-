@@ -266,6 +266,7 @@ pub fn draw_shore_type_gizmos(
         let color = match cell_data.shore_type {
             shared::ShoreType::Shoreline => Color::srgba(0.3, 0.6, 1.0, 0.8),
             shared::ShoreType::Lakebank => Color::srgba(0.2, 0.8, 0.6, 0.8),
+            shared::ShoreType::Riverbank => Color::srgba(0.4, 0.85, 1.0, 0.8),
             _ => continue,
         };
 
