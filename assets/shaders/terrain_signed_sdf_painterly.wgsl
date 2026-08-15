@@ -403,7 +403,19 @@ fn sample_vegetation_with_biome_blend(
 ) -> vec3<f32> {
     let biome_dims = vec2<f32>(textureDimensions(biome_texture));
 
-    let data_center = textureSample(biome_texture, biome_sampler, uv);
+    // Ymir: domain-warp the biome lookup with a low-frequency fbm so the
+    // cell-aligned (axis-aligned) biome regions read as organic blobs instead of
+    // squares. The warp shifts the whole sampling neighbourhood, so boundaries
+    // waver by a few cells; combined with the multi-sample blur below, the grid
+    // mosaic dissolves. Azgaar (metric_params.x == 0) is left unwarped.
+    let warp_amp = select(0.0, 5.0 / biome_dims.x, metric_params.x > 0.001);
+    let warp = vec2<f32>(
+        fbm(world_pos * 0.004 + vec2<f32>(51.0, 17.0), 3) - 0.5,
+        fbm(world_pos * 0.004 + vec2<f32>(23.0, 91.0), 3) - 0.5,
+    ) * 2.0 * warp_amp;
+    let wuv = uv + warp;
+
+    let data_center = textureSample(biome_texture, biome_sampler, wuv);
     let blend_center = data_center.b;
 
     // Fast path: one palette, no blur. Azgaar takes this away from boundaries
@@ -438,16 +450,16 @@ fn sample_vegetation_with_biome_blend(
     let n14 = fbm(world_pos * 0.03 + vec2<f32>(48.2, 71.5), 2);
     let n15 = fbm(world_pos * 0.03 + vec2<f32>(16.4, 93.7), 2);
 
-    let s0 = uv + vec2<f32>((n0  - 0.5) * 2.0, (n1  - 0.5) * 2.0) * spread;
-    let s1 = uv + vec2<f32>((n2  - 0.5) * 2.0, (n3  - 0.5) * 2.0) * spread;
-    let s2 = uv + vec2<f32>((n4  - 0.5) * 2.0, (n5  - 0.5) * 2.0) * spread;
-    let s3 = uv + vec2<f32>((n6  - 0.5) * 2.0, (n7  - 0.5) * 2.0) * spread;
-    let s4 = uv + vec2<f32>((n8  - 0.5) * 2.0, (n9  - 0.5) * 2.0) * spread;
-    let s5 = uv + vec2<f32>((n10 - 0.5) * 2.0, (n11 - 0.5) * 2.0) * spread;
-    let s6 = uv + vec2<f32>((n12 - 0.5) * 2.0, (n13 - 0.5) * 2.0) * spread;
-    let s7 = uv + vec2<f32>((n14 - 0.5) * 2.0, (n15 - 0.5) * 2.0) * spread;
+    let s0 = wuv + vec2<f32>((n0  - 0.5) * 2.0, (n1  - 0.5) * 2.0) * spread;
+    let s1 = wuv + vec2<f32>((n2  - 0.5) * 2.0, (n3  - 0.5) * 2.0) * spread;
+    let s2 = wuv + vec2<f32>((n4  - 0.5) * 2.0, (n5  - 0.5) * 2.0) * spread;
+    let s3 = wuv + vec2<f32>((n6  - 0.5) * 2.0, (n7  - 0.5) * 2.0) * spread;
+    let s4 = wuv + vec2<f32>((n8  - 0.5) * 2.0, (n9  - 0.5) * 2.0) * spread;
+    let s5 = wuv + vec2<f32>((n10 - 0.5) * 2.0, (n11 - 0.5) * 2.0) * spread;
+    let s6 = wuv + vec2<f32>((n12 - 0.5) * 2.0, (n13 - 0.5) * 2.0) * spread;
+    let s7 = wuv + vec2<f32>((n14 - 0.5) * 2.0, (n15 - 0.5) * 2.0) * spread;
 
-    let col_c = vegetation_from_uv(uv, world_pos, base_green);
+    let col_c = vegetation_from_uv(wuv, world_pos, base_green);
     let col0 = vegetation_from_uv(s0, world_pos, base_green);
     let col1 = vegetation_from_uv(s1, world_pos, base_green);
     let col2 = vegetation_from_uv(s2, world_pos, base_green);

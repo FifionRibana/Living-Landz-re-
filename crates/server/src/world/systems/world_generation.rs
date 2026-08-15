@@ -408,14 +408,15 @@ pub async fn generate_world_globals(
 /// bathymetry with no u8 requantise. Land/sea is derived from
 /// `metres > sea_level_m` (temporary; coastline is LL-B, real biomes are LL-C).
 ///
-/// River channel radius in cells by Strahler order (LL-E). Headwaters are a
-/// single cell; the trunk widens. 1 cell ≈ `metres_per_cell` on the ground.
+/// River channel radius in cells by Strahler order (LL-E), for the per-cell
+/// River biome / Riverbank shore. 1 cell ≈ `metres_per_cell` (~500 m) — kept
+/// narrow and aligned to (slightly wider than) the client's rendered channel
+/// width so the Riverbank forms a contiguous ring hugging the visible water,
+/// rather than a wide zone leaving inner river cells with no bank.
 fn strahler_radius_cells(order: u32) -> i32 {
     match order {
-        0..=2 => 0,
-        3 | 4 => 1,
-        5 => 2,
-        _ => 3,
+        0..=5 => 0,
+        _ => 1,
     }
 }
 
