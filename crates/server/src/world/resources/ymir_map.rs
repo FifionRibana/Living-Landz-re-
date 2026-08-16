@@ -269,6 +269,20 @@ pub struct YmirMap {
     pub lakes: Vec<LakeInfo>,
     /// `lake id → index into lakes` for O(1) per-cell lookup.
     lakes_by_id: std::collections::HashMap<u32, usize>,
+    /// River graph from `rivers.json` (empty if absent). Segments carry Ymir's
+    /// authored `navigability`; topology is index-aligned. Consumed for gameplay
+    /// (navigability + basin connectivity); rendered client-side.
+    pub rivers: shared::rivers::RiverNetwork,
+}
+
+/// Where a river ultimately drains, resolved by walking `downstream` to the sink
+/// and classifying the sink outlet cell via `water_class` / `lake_mask`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RiverSinkKind {
+    Sea,
+    Lake,
+    /// Endorheic / land sink (drains to a closed basin, not sea or lake).
+    Inland,
 }
 
 impl YmirMap {
@@ -308,6 +322,26 @@ impl YmirMap {
     #[inline]
     pub fn lake(&self, id: u32) -> Option<&LakeInfo> {
         self.lakes_by_id.get(&id).map(|&i| &self.lakes[i])
+    }
+
+    /// Resolve where river segment `seg_idx` ultimately drains: walk `downstream`
+    /// to the sink, then classify the sink's outlet (last) cell via `water_class`
+    /// / `lake_mask`. `None` if the segment index is out of range or the hydro
+    /// layers needed to classify are absent.
+    pub fn river_sink_kind(&self, seg_idx: usize) -> Option<RiverSinkKind> {
+        let sink = self.rivers.sink_of(seg_idx)?;
+        let outlet = self.rivers.segments.get(sink)?.points.last()?;
+        let x = (outlet[0].round() as i64).clamp(0, self.height.width as i64 - 1) as u32;
+        let y = (outlet[1].round() as i64).clamp(0, self.height.height as i64 - 1) as u32;
+        if self.lake_id_at(x, y).unwrap_or(0) != 0 {
+            return Some(RiverSinkKind::Lake);
+        }
+        match self.water_class_at(x, y) {
+            Some(1) => Some(RiverSinkKind::Sea),
+            Some(2) => Some(RiverSinkKind::Lake),
+            Some(_) => Some(RiverSinkKind::Inland),
+            None => None,
+        }
     }
 }
 
@@ -458,12 +492,14 @@ impl YmirMap {
         let flow_accumulation = load_flow_accumulation(&dir, &manifest, width, height);
         let lakes = load_lakes(&dir, &manifest);
         let lakes_by_id = lakes.iter().enumerate().map(|(i, l)| (l.id, i)).collect();
+        let rivers = load_rivers(&dir, &manifest);
         tracing::info!(
-            "✓ Ymir hydro: water_class {} cells, lake_mask {} cells, flow_accumulation {} cells, {} lakes",
+            "✓ Ymir hydro: water_class {} cells, lake_mask {} cells, flow_accumulation {} cells, {} lakes, {} river segments",
             water_class.len(),
             lake_mask.len(),
             flow_accumulation.len(),
             lakes.len(),
+            rivers.segments.len(),
         );
 
         // Cliffs (cliffs.geojson) are consumed client-side by the debug overlay
@@ -480,7 +516,28 @@ impl YmirMap {
             flow_accumulation,
             lakes,
             lakes_by_id,
+            rivers,
         })
+    }
+}
+
+/// Parse `rivers.json` (Ymir river graph) via the shared reader. Empty network if
+/// the layer is absent/not present or unreadable.
+fn load_rivers(dir: &Path, manifest: &YmirManifest) -> shared::rivers::RiverNetwork {
+    let Some(layer) = manifest.layers.iter().find(|l| l.id == "rivers") else {
+        return shared::rivers::RiverNetwork::default();
+    };
+    if !layer.present {
+        return shared::rivers::RiverNetwork::default();
+    }
+    let file = layer.file.clone().unwrap_or_else(|| "rivers.json".to_string());
+    let path = dir.join(&file);
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => shared::rivers::RiverNetwork::parse(&raw),
+        Err(e) => {
+            tracing::warn!("Ymir: cannot read rivers {}: {e}", path.display());
+            shared::rivers::RiverNetwork::default()
+        }
     }
 }
 

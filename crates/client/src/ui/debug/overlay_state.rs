@@ -77,6 +77,9 @@ pub struct DebugOverlayState {
     /// LL-C: draw Ymir's `cliffs.geojson` polylines (producer-side ground truth)
     /// to validate the LL-B slope/threshold against Ymir's own cliff edges.
     pub ymir_cliffs: bool,
+    /// LL-E: draw Ymir's `rivers.json` graph coloured by Strahler order, with
+    /// navigable reaches highlighted.
+    pub ymir_rivers: bool,
 }
 
 impl Default for DebugOverlayState {
@@ -91,6 +94,7 @@ impl Default for DebugOverlayState {
             voronoi_domains: false,
             voronoi_mist: false,
             ymir_cliffs: false,
+            ymir_rivers: false,
         }
     }
 }

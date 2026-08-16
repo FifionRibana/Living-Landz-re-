@@ -77,6 +77,7 @@ fn main() {
             rendering::terrain::TerrainPlugin,
             rendering::ocean::OceanPlugin,
             rendering::lake::LakePlugin,
+            rendering::river::RiverPlugin,
             rendering::territory::TerritoryBorderPlugin,
             rendering::mist::MistPlugin,
             ui::frosted_glass::FrostedGlassPlugin,
