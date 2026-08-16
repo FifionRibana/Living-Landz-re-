@@ -432,7 +432,7 @@ impl BiomeMeshData {
 
                         let hex = hex_layout.world_pos_to_hex(Vec2::new(wx, wy));
 
-                        if ymir_biome_ids.is_some() && (id as usize) < 16 {
+                        if ymir_biome_ids.is_some() && (id as usize) < 17 {
                             *hex_grid_biome
                                 .entry(hex)
                                 .or_default()
@@ -624,13 +624,20 @@ impl BiomeMeshData {
             .map(|(i, cell)| {
                 let my_biome = biome_snapshot[i];
                 // Water cells are not shore cells
-                if matches!(my_biome, BiomeTypeEnum::Ocean | BiomeTypeEnum::DeepOcean | BiomeTypeEnum::Lake) {
+                if matches!(
+                    my_biome,
+                    BiomeTypeEnum::Ocean
+                        | BiomeTypeEnum::DeepOcean
+                        | BiomeTypeEnum::Lake
+                        | BiomeTypeEnum::River
+                ) {
                     return ShoreType::None;
                 }
                 // Check 6 neighbors for water biomes
                 let neighbors = cell.cell.to_hex().all_neighbors();
                 let mut has_ocean_neighbor = false;
                 let mut has_lake_neighbor = false;
+                let mut has_river_neighbor = false;
                 for neighbor in &neighbors {
                     let gc = GridCell::from_hex(neighbor);
                     if let Some(&j) = cell_map.get(&gc) {
@@ -641,6 +648,9 @@ impl BiomeMeshData {
                             }
                             BiomeTypeEnum::Lake => {
                                 has_lake_neighbor = true;
+                            }
+                            BiomeTypeEnum::River => {
+                                has_river_neighbor = true;
                             }
                             _ => {}
                         }
@@ -665,10 +675,12 @@ impl BiomeMeshData {
                         }
                     }
                 }
-                if has_lake_neighbor {
-                    ShoreType::Lakebank
-                } else if has_ocean_neighbor {
+                if has_ocean_neighbor {
                     ShoreType::Shoreline
+                } else if has_lake_neighbor {
+                    ShoreType::Lakebank
+                } else if has_river_neighbor {
+                    ShoreType::Riverbank
                 } else {
                     ShoreType::None
                 }

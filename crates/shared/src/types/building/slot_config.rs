@@ -191,6 +191,7 @@ impl SlotConfiguration {
             BiomeTypeEnum::Ocean
             | BiomeTypeEnum::DeepOcean
             | BiomeTypeEnum::Lake
+            | BiomeTypeEnum::River
             | BiomeTypeEnum::Ice => Self {
                 interior_layout: SlotLayout::hex_range(0, 0), // No interior
                 exterior_layout: SlotLayout::hex_range(7, 1), // Very limited water access

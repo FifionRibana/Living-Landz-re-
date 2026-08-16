@@ -407,6 +407,52 @@ pub async fn generate_world_globals(
 /// Ymir u16 copied verbatim (Y-flipped to Bevy Y-up), preserving full range and
 /// bathymetry with no u8 requantise. Land/sea is derived from
 /// `metres > sea_level_m` (temporary; coastline is LL-B, real biomes are LL-C).
+///
+/// River channel radius in cells by Strahler order (LL-E), for the per-cell
+/// River biome / Riverbank shore. 1 cell ≈ `metres_per_cell` (~500 m) — kept
+/// narrow and aligned to (slightly wider than) the client's rendered channel
+/// width so the Riverbank forms a contiguous ring hugging the visible water,
+/// rather than a wide zone leaving inner river cells with no bank.
+fn strahler_radius_cells(order: u32) -> i32 {
+    match order {
+        0..=5 => 0,
+        _ => 1,
+    }
+}
+
+/// Stamp river segment polylines into the display-oriented per-cell biome `grid`
+/// as `River`, widening with Strahler order. Ymir points are cell space (y=0 =
+/// south) → Y-flipped to the grid's north-up orientation. Skips ocean cells so a
+/// river never overwrites the sea near its mouth.
+fn rasterize_rivers(rivers: &shared::rivers::RiverNetwork, grid: &mut [u8], w: usize, h: usize) {
+    let river_id = BiomeTypeEnum::River.to_id() as u8;
+    let ocean = BiomeTypeEnum::Ocean.to_id() as u8;
+    let deep = BiomeTypeEnum::DeepOcean.to_id() as u8;
+    for seg in &rivers.segments {
+        let r = strahler_radius_cells(seg.strahler_order);
+        for p in &seg.points {
+            let cx = p[0].round() as i32;
+            let gy = h as i32 - 1 - p[1].round() as i32; // Y-flip
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx * dx + dy * dy > r * r {
+                        continue;
+                    }
+                    let x = cx + dx;
+                    let y = gy + dy;
+                    if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                        continue;
+                    }
+                    let idx = (y as usize) * w + (x as usize);
+                    if grid[idx] != ocean && grid[idx] != deep {
+                        grid[idx] = river_id;
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn build_ymir_globals(
     map_name: &str,
     ymir: &YmirMap,
@@ -522,14 +568,23 @@ fn build_ymir_globals(
         }
     }
 
+    // LL-E: stamp Ymir river channels into the per-cell biome grid (River = 16),
+    // width by Strahler order. Per-cell only (never the id*17 biome texture, which
+    // caps at 15); drives hover ("River") + the Riverbank shore-type. Rivers are
+    // painted by the dedicated river shader. Overrides land/lake cells, not ocean.
+    let has_rivers = !ymir.rivers.segments.is_empty() && !biome_ids.is_empty();
+    if has_rivers {
+        rasterize_rivers(&ymir.rivers, &mut biome_ids, w, h);
+    }
+
     if has_biome {
-        let mut hist = [0usize; 16];
+        let mut hist = [0usize; 17];
         for &id in &biome_ids {
-            if (id as usize) < 16 {
+            if (id as usize) < 17 {
                 hist[id as usize] += 1;
             }
         }
-        let summary: Vec<String> = (0..16)
+        let summary: Vec<String> = (0..17)
             .filter(|&i| hist[i] > 0)
             .map(|i| {
                 let name = BiomeTypeEnum::from_id(i as i16)
