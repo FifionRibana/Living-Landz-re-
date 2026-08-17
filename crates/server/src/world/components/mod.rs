@@ -14,5 +14,7 @@ pub use coastal_sdf::coastal_signed_distance_field;
 pub use mesh_data::MeshData;
 pub use ymir_biome::resolve_biome;
 pub use natural_building_generator::NaturalBuildingGenerator;
-pub use terrain_mesh_data::{TerrainMeshData, generate_global_sdf, generate_ocean_data};
+pub use terrain_mesh_data::{
+    TerrainMeshData, biome_blend_rgba_from_ids, generate_global_sdf, generate_ocean_data,
+};
 pub use territory::*;

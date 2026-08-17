@@ -80,10 +80,13 @@ impl Plugin for RiverPlugin {
 /// bank falloff is added on top. 1 texel ≈ one cell on the ground, so keep these
 /// small — even a trunk should read as a river, not a lake.
 fn strahler_core_radius(order: u32) -> i32 {
+    // Aligned to the server's per-cell River width (`strahler_radius_cells`,
+    // 0..=5 → 0, _ → 1) so the rendered channel tracks the River/Riverbank cells
+    // and doesn't spill onto grassland. (Client texels are ~2× finer, so radius 0
+    // + bank ≈ the server's 1-cell channel.)
     match order {
-        0..=3 => 0,
-        4 | 5 => 1,
-        _ => 2,
+        0..=5 => 0,
+        _ => 1,
     }
 }
 
@@ -142,7 +145,19 @@ fn spawn_river(
     image.sampler = bevy::image::ImageSampler::linear();
     let coverage_handle = images.add(image);
 
-    let mesh = create_river_mesh(tg.world_width, tg.world_height);
+    // Size the river quad to the CELL grid extent (heightmap dims × the cell
+    // scale), not the chunk-rounded world_width the biome texture uses — so the
+    // rendered channel lands on the River/Riverbank hex cells instead of ~½-cell
+    // off. Falls back to world_width when the scale is unknown (legacy/Azgaar).
+    let upc = if tg.world_units_per_cell > 0.0 {
+        tg.world_units_per_cell
+    } else {
+        tg.world_width / gw as f32
+    };
+    let river_world_w = gw as f32 * upc;
+    let river_world_h = gh as f32 * upc;
+
+    let mesh = create_river_mesh(river_world_w, river_world_h);
 
     commands.spawn((
         RiverEntity,
@@ -151,8 +166,8 @@ fn spawn_river(
         MeshMaterial2d(materials.add(RiverMaterial {
             coverage: coverage_handle,
             params: RiverParams {
-                world_width: tg.world_width,
-                world_height: tg.world_height,
+                world_width: river_world_w,
+                world_height: river_world_h,
                 flow_speed: 1.0,
                 _padding: 0.0,
             },
@@ -198,47 +213,10 @@ fn build_river_coverage(net: &RiverNetwork, gw: usize, gh: usize, tex_w: usize, 
             }
         }
     }
-    // Smooth the discrete per-segment width steps + confluence blobs into
-    // continuous channels (separable box blur, a few passes ≈ Gaussian).
-    box_blur(&mut cov, tex_w, tex_h, 1, 3);
+    // No global blur: it spread the water outward over grassland cells. The
+    // shader's 9-tap coverage sampling + shore-noise handle in-channel smoothing,
+    // so the render stays within the River/Riverbank footprint.
     cov
-}
-
-/// In-place separable box blur (radius `r`, `passes` iterations) over an R8 buffer.
-fn box_blur(buf: &mut [u8], w: usize, h: usize, r: i32, passes: u32) {
-    let mut tmp = vec![0u8; w * h];
-    for _ in 0..passes {
-        // Horizontal → tmp
-        for y in 0..h {
-            for x in 0..w {
-                let mut sum = 0u32;
-                let mut n = 0u32;
-                for dx in -r..=r {
-                    let xx = x as i32 + dx;
-                    if xx >= 0 && xx < w as i32 {
-                        sum += buf[y * w + xx as usize] as u32;
-                        n += 1;
-                    }
-                }
-                tmp[y * w + x] = (sum / n.max(1)) as u8;
-            }
-        }
-        // Vertical → buf
-        for y in 0..h {
-            for x in 0..w {
-                let mut sum = 0u32;
-                let mut n = 0u32;
-                for dy in -r..=r {
-                    let yy = y as i32 + dy;
-                    if yy >= 0 && yy < h as i32 {
-                        sum += tmp[yy as usize * w + x] as u32;
-                        n += 1;
-                    }
-                }
-                buf[y * w + x] = (sum / n.max(1)) as u8;
-            }
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]

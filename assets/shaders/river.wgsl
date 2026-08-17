@@ -81,21 +81,35 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Normalize noise frequencies to a 9600-unit reference (matches the lake).
     let ref_pos = world_pos * (9600.0 / params.world_width);
 
-    let cov = coverage_blurred(uv);
-    // Organic bank: warp the coverage edge with fbm so it wobbles instead of
-    // showing the rasterized cell grid.
-    let shore_noise = (fbm(ref_pos * 0.06, 4) - 0.5) * 0.15;
+    // Break the straight-channel look with a low-frequency DOMAIN WARP. The
+    // displacement is a pure function of ABSOLUTE world position (via ref_pos, which
+    // is world_pos scaled) and is applied in WORLD units, then converted back to uv.
+    // This keeps the meander identical regardless of how the world is chunked — the
+    // noise never resets per chunk/quad — so there's no discontinuity at chunk
+    // junctions. Amplitude ~1 cell so the water stays on the River/bank cells.
+    let world_size = vec2<f32>(params.world_width, params.world_height);
+    let warp_world = vec2<f32>(
+        fbm(ref_pos * 0.010 + vec2<f32>(31.0, 17.0), 3) - 0.5,
+        fbm(ref_pos * 0.010 + vec2<f32>(83.0, 61.0), 3) - 0.5,
+    ) * 220.0; // ~±110 world units ≈ ±1 cell of meander
+    let wuv = uv + warp_world / world_size;
+
+    let cov = coverage_blurred(wuv);
+    // Organic bank: warp the coverage edge with a finer fbm so it wobbles instead
+    // of showing the rasterized cell grid, on top of the meandering channel.
+    let shore_noise = (fbm(ref_pos * 0.06, 3) - 0.5) * 0.12;
     let cov_p = clamp(cov + shore_noise, 0.0, 1.0);
     if (cov_p < 0.04) {
         discard;
     }
 
     // Flow axis = perpendicular of the coverage gradient (runs along the channel).
+    // Sample the gradient at the warped uv so flow tracks the meandering channel.
     let texel = 1.0 / vec2<f32>(textureDimensions(coverage_tex));
-    let gx = textureSample(coverage_tex, coverage_sampler, uv + vec2<f32>(texel.x, 0.0)).r
-           - textureSample(coverage_tex, coverage_sampler, uv - vec2<f32>(texel.x, 0.0)).r;
-    let gy = textureSample(coverage_tex, coverage_sampler, uv + vec2<f32>(0.0, texel.y)).r
-           - textureSample(coverage_tex, coverage_sampler, uv - vec2<f32>(0.0, texel.y)).r;
+    let gx = textureSample(coverage_tex, coverage_sampler, wuv + vec2<f32>(texel.x, 0.0)).r
+           - textureSample(coverage_tex, coverage_sampler, wuv - vec2<f32>(texel.x, 0.0)).r;
+    let gy = textureSample(coverage_tex, coverage_sampler, wuv + vec2<f32>(0.0, texel.y)).r
+           - textureSample(coverage_tex, coverage_sampler, wuv - vec2<f32>(0.0, texel.y)).r;
     let grad = vec2<f32>(gx, gy);
     var flow = vec2<f32>(1.0, 0.0);
     if (length(grad) > 0.0005) {
