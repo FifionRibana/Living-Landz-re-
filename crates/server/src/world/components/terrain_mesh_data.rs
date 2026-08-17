@@ -158,6 +158,9 @@ impl TerrainMeshData {
                 heightmap_values: global_heightmap,
                 world_width,
                 world_height,
+                // Azgaar has no rivers, so this only needs to be self-consistent:
+                // grid × this == world_width (no cell/texture offset to correct).
+                world_units_per_cell: world_width / hm_width as f32,
                 // Azgaar path has no metric scale; ocean is exactly 0u16.
                 metres_per_cell: 0.0,
                 metres_per_height_unit: 0.0,
@@ -792,108 +795,99 @@ fn generate_global_biome_texture(
 
     tracing::info!("    Step 2: Dilation at source res in {:?}", t2.elapsed());
 
-    // =========================================================================
-    // Step 3: Compute blend at intermediate resolution (2× source) for smooth transitions
-    // =========================================================================
-    let t3 = std::time::Instant::now();
-    let total_pixels = target_width * target_height;
+    // Steps 3-4 (distance-based secondary + blend → RGBA) are shared with the
+    // .ymir path via `biome_blend_rgba_from_ids`, which takes a clean biome-id
+    // field. Azgaar feeds the dilated `ids`; Ymir feeds `biome.u8` directly.
+    biome_blend_rgba_from_ids(&ids, img_w, img_h, target_width, target_height, 16, 28.0)
+}
 
+/// Distance-based biome blend: from a clean per-cell biome-id field, produce the
+/// RGBA blend texture — `R = primary id * 17`, `G = secondary id * 17`,
+/// `B = blend factor` (from distance to the nearest differing biome), `A = 255`.
+/// Shared by the Azgaar path (after its RGBA→id purity/dilation) and the `.ymir`
+/// path (`biome.u8`, already clean per-cell ids).
+///
+/// Computed at 2× source resolution for smooth transitions, then upscaled to the
+/// target (nearest for ids, bilinear for the blend factor). `transition_radius`
+/// (search window, in 2×-res texels) and `transition_width` (falloff) are tunable.
+pub fn biome_blend_rgba_from_ids(
+    ids: &[u8],
+    img_w: usize,
+    img_h: usize,
+    target_width: usize,
+    target_height: usize,
+    transition_radius: i32,
+    transition_width: f32,
+) -> Vec<u8> {
+    use rayon::prelude::*;
+
+    let total_pixels = target_width * target_height;
     let blend_scale = 2usize; // 2× source resolution
     let blend_w = img_w * blend_scale;
     let blend_h = img_h * blend_scale;
     let blend_total = blend_w * blend_h;
 
-    let transition_radius: i32 = 16;
-    let transition_width: f32 = 28.0;
-
-    // Upscale IDs to blend resolution (nearest)
+    // Upscale IDs to blend resolution (nearest).
     let blend_ids: Vec<u8> = (0..blend_total)
         .into_par_iter()
         .map(|idx| {
             let bx = idx % blend_w;
             let by = idx / blend_w;
-            let sx = bx / blend_scale;
-            let sy = by / blend_scale;
-            ids[sy * img_w + sx]
+            ids[(by / blend_scale) * img_w + (bx / blend_scale)]
         })
         .collect();
 
-    // Compute secondary + blend at blend resolution
+    // Nearest differing-biome id (secondary) + distance-based blend factor.
     let mut blend_data = vec![(0u8, 0u8); blend_total];
-
-    blend_data
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(idx, result)| {
-            let x = (idx % blend_w) as i32;
-            let y = (idx / blend_w) as i32;
-            let primary = blend_ids[idx];
-
-            let mut nearest_dist_sq = i32::MAX;
-            let mut secondary = primary;
-
-            for dy in -transition_radius..=transition_radius {
-                let ny = y + dy;
-                if ny < 0 || ny >= blend_h as i32 {
+    blend_data.par_iter_mut().enumerate().for_each(|(idx, result)| {
+        let x = (idx % blend_w) as i32;
+        let y = (idx / blend_w) as i32;
+        let primary = blend_ids[idx];
+        let mut nearest_dist_sq = i32::MAX;
+        let mut secondary = primary;
+        for dy in -transition_radius..=transition_radius {
+            let ny = y + dy;
+            if ny < 0 || ny >= blend_h as i32 {
+                continue;
+            }
+            for dx in -transition_radius..=transition_radius {
+                let nx = x + dx;
+                if nx < 0 || nx >= blend_w as i32 {
                     continue;
                 }
-                for dx in -transition_radius..=transition_radius {
-                    let nx = x + dx;
-                    if nx < 0 || nx >= blend_w as i32 {
-                        continue;
-                    }
-                    let nid = blend_ids[(ny as usize) * blend_w + nx as usize];
-                    if nid != primary {
-                        let d = dx * dx + dy * dy;
-                        if d < nearest_dist_sq {
-                            nearest_dist_sq = d;
-                            secondary = nid;
-                        }
+                let nid = blend_ids[(ny as usize) * blend_w + nx as usize];
+                if nid != primary {
+                    let d = dx * dx + dy * dy;
+                    if d < nearest_dist_sq {
+                        nearest_dist_sq = d;
+                        secondary = nid;
                     }
                 }
             }
+        }
+        let blend = if nearest_dist_sq == i32::MAX {
+            0u8
+        } else {
+            let dist = (nearest_dist_sq as f32).sqrt();
+            let smooth = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
+            (smooth * 128.0) as u8
+        };
+        *result = (secondary, blend);
+    });
 
-            let blend = if nearest_dist_sq == i32::MAX {
-                0u8
-            } else {
-                let dist = (nearest_dist_sq as f32).sqrt();
-                let smooth = 1.0 - (dist / transition_width).clamp(0.0, 1.0);
-                (smooth * 128.0) as u8
-            };
-
-            *result = (secondary, blend);
-        });
-
-    tracing::info!(
-        "    Step 3a: Blend at {}x{} in {:?}",
-        blend_w,
-        blend_h,
-        t3.elapsed()
-    );
-
-    // Step 4b: Upscale to target RGBA — nearest for IDs, bilinear for blend
-    let t3b = std::time::Instant::now();
-
+    // Upscale to target RGBA — nearest for ids, bilinear for the blend factor.
     let blend_to_target_x = blend_w as f32 / target_width as f32;
     let blend_to_target_y = blend_h as f32 / target_height as f32;
-
     let mut rgba = vec![0u8; total_pixels * 4];
-
     rgba.par_chunks_mut(4).enumerate().for_each(|(idx, pixel)| {
         let tx = idx % target_width;
         let ty = idx / target_width;
-
-        // Nearest for IDs
-        let bx = ((tx as f32 + 0.5) * blend_to_target_x) as usize;
-        let by = ((ty as f32 + 0.5) * blend_to_target_y) as usize;
-        let bx = bx.min(blend_w - 1);
-        let by = by.min(blend_h - 1);
+        let bx = (((tx as f32 + 0.5) * blend_to_target_x) as usize).min(blend_w - 1);
+        let by = (((ty as f32 + 0.5) * blend_to_target_y) as usize).min(blend_h - 1);
         let b_idx = by * blend_w + bx;
-
         let primary = blend_ids[b_idx];
         let (secondary, _) = blend_data[b_idx];
 
-        // Bilinear for blend factor
         let fx = (tx as f32 + 0.5) * blend_to_target_x - 0.5;
         let fy = (ty as f32 + 0.5) * blend_to_target_y - 0.5;
         let x0 = (fx.floor() as i32).clamp(0, blend_w as i32 - 1) as usize;
@@ -902,12 +896,10 @@ fn generate_global_biome_texture(
         let y1 = (y0 + 1).min(blend_h - 1);
         let frac_x = (fx - fx.floor()).clamp(0.0, 1.0);
         let frac_y = (fy - fy.floor()).clamp(0.0, 1.0);
-
         let b00 = blend_data[y0 * blend_w + x0].1 as f32;
         let b10 = blend_data[y0 * blend_w + x1].1 as f32;
         let b01 = blend_data[y1 * blend_w + x0].1 as f32;
         let b11 = blend_data[y1 * blend_w + x1].1 as f32;
-
         let blend = (b00 * (1.0 - frac_x) * (1.0 - frac_y)
             + b10 * frac_x * (1.0 - frac_y)
             + b01 * (1.0 - frac_x) * frac_y
@@ -918,8 +910,5 @@ fn generate_global_biome_texture(
         pixel[2] = blend;
         pixel[3] = 255;
     });
-
-    tracing::info!("    Step 3b: Upscaled to RGBA in {:?}", t3b.elapsed());
-
     rgba
 }

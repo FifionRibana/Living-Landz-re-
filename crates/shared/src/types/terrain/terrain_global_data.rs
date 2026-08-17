@@ -28,6 +28,13 @@ pub struct TerrainGlobalData {
     pub world_width: f32,
     pub world_height: f32,
 
+    /// World units per source grid cell (the biome/heightmap grid `scale`). The
+    /// cell grid covers `[0, heightmap_dim * world_units_per_cell]`, which is
+    /// slightly less than `world_*` (chunk rounding). Lets consumers place things
+    /// on the *cell* grid (e.g. the river render) so they line up with the hex
+    /// cells rather than the texture's `world_*` mapping. `0.0` = unknown/legacy.
+    pub world_units_per_cell: f32,
+
     /// Ground-plane metres per source grid cell (0.0 = unknown / legacy Azgaar).
     pub metres_per_cell: f32,
     /// Metres represented by one R16 height step (0.0 = unknown / legacy Azgaar).
@@ -53,6 +60,7 @@ impl Default for TerrainGlobalData {
             heightmap_values: vec![0, 128], // single u16 LE pixel
             world_width: 1.0,
             world_height: 1.0,
+            world_units_per_cell: 0.0,
             metres_per_cell: 0.0,
             metres_per_height_unit: 0.0,
             height_min_m: 0.0,

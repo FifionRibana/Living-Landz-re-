@@ -12,7 +12,7 @@ use crate::world::resources::{
 };
 use bevy::prelude::*;
 use hexx::HexOrientation;
-use crate::world::components::resolve_biome;
+use crate::world::components::{biome_blend_rgba_from_ids, resolve_biome};
 use image::{DynamicImage, Rgba};
 use shared::BiomeTypeEnum;
 use shared::get_biome_color;
@@ -568,6 +568,21 @@ fn build_ymir_globals(
         }
     }
 
+    // Distance-based biome blend (reusing the Azgaar algorithm) over biome.u8:
+    // fills G = secondary id, B = blend factor so the shader takes the cheap
+    // B-driven blend path instead of the always-on jittered vegetation blur.
+    // Runs on the BASE ids (before rivers are stamped), with water/lake ids
+    // neutralized to Grassland so land vegetation doesn't bleed toward ocean
+    // colour at the coast (the coast itself is handled by the ocean SDF/beach).
+    if has_biome {
+        let grass = BiomeTypeEnum::Grassland.to_id() as u8;
+        let land_ids: Vec<u8> = biome_ids
+            .iter()
+            .map(|&id| if id <= 2 || id == 13 { grass } else { id })
+            .collect();
+        biome_values = biome_blend_rgba_from_ids(&land_ids, w, h, w, h, 16, 28.0);
+    }
+
     // LL-E: stamp Ymir river channels into the per-cell biome grid (River = 16),
     // width by Strahler order. Per-cell only (never the id*17 biome texture, which
     // caps at 15); drives hover ("River") + the Riverbank shore-type. Rivers are
@@ -640,6 +655,7 @@ fn build_ymir_globals(
         heightmap_values: heightmap_values.clone(),
         world_width,
         world_height,
+        world_units_per_cell: scale.x,
         metres_per_cell: hf.metres_per_cell(),
         metres_per_height_unit: hf.metres_per_height_unit(),
         height_min_m: hf.min_m,
